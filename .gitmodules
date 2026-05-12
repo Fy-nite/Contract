@@ -1,0 +1,3 @@
+[submodule "libs/ObjectIR.Core"]
+	path = libs/ObjectIR.Core
+	url = https://git.finite.ovh/ObjectIR.Core
