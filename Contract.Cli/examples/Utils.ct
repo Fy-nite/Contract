@@ -1,0 +1,8 @@
+Contract Utils
+{
+
+fn utils_func()
+{
+    IO.Println("Hello from Utils!");
+}
+}

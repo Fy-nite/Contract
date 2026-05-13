@@ -187,8 +187,4 @@ Future extensions (non-normative)
 
 Feedback and process
 
-This spec is intended as the canonical v1. If you'd like, I can:
 
-- convert the EBNF to an ANTLR grammar or a PEG for automated parsing,
-- generate a test-suite of small example programs and expected diagnostics/IL,
-- expand the IL to include debug info (line/col mapping) for improved tooling.

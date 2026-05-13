@@ -27,23 +27,42 @@ namespace Contract.Compiler.Parsing
                 try
                 {
                     int startPos = _current;
-                    if (Match(TokenType.Contract))
+
+                    AccessModifier access = AccessModifier.Default;
+                    if (Match(TokenType.Public)) access = AccessModifier.Public;
+                    else if (Match(TokenType.Private)) access = AccessModifier.Private;
+                    else if (Match(TokenType.Protected)) access = AccessModifier.Protected;
+                    else if (Match(TokenType.Internal)) access = AccessModifier.Internal;
+
+                    bool isStatic = Match(TokenType.Static);
+
+                    if (Match(TokenType.Import))
+                    {
+                        Consume(TokenType.StringLiteral, "Expected string literal after 'import'");
+                        string importPath = Previous.Text.Trim('"');
+                        program.Imports.Add(importPath);
+                        Consume(TokenType.Semicolon, "Expected ';' after import statement");
+                    }
+                    else if (Match(TokenType.Contract))
                     {
                         program.Contracts.Add(ParseContract());
                     }
                     else if (Match(TokenType.Fn))
                     {
-                        program.Functions.Add(ParseFunction());
+                        var func = ParseFunction();
+                        func.IsStatic = isStatic;
+                        func.Access = access;
+                        program.Functions.Add(func);
                     }
                     else
                     {
-                        _diagnostics.AddError($"Unexpected token: {Current.Type}", Current.Line, Current.Column);
+                        _diagnostics.AddError($"Unexpected token at top level: {Current.Type} ('{Current.Text}')", Current.Line, Current.Column);
                         Synchronize();
-                        if (_current == startPos)
-                        {
-                            // Synchronize didn't consume any tokens, skip this token to prevent infinite loop
-                            Advance();
-                        }
+                    }
+                    
+                    if (_current == startPos && !IsAtEnd())
+                    {
+                        Advance();
                     }
                 }
                 catch (Exception ex)
@@ -55,6 +74,9 @@ namespace Contract.Compiler.Parsing
 
             return program;
         }
+
+        // Add to TokenType in Lexer.cs if necessary - skipping for now as 'constructor' is a new keyword.
+        // ... (Update Lexer to include 'constructor')
 
         private ContractDeclaration ParseContract()
         {
@@ -70,15 +92,36 @@ namespace Contract.Compiler.Parsing
 
             while (!Check(TokenType.RBrace) && !IsAtEnd())
             {
-                if (Match(TokenType.Fn))
+                int startPos = _current;
+                
+                AccessModifier access = AccessModifier.Default;
+                if (Match(TokenType.Public)) access = AccessModifier.Public;
+                else if (Match(TokenType.Private)) access = AccessModifier.Private;
+                else if (Match(TokenType.Protected)) access = AccessModifier.Protected;
+                else if (Match(TokenType.Internal)) access = AccessModifier.Internal;
+
+                bool isStatic = Match(TokenType.Static);
+
+                if (Match(TokenType.Constructor))
+                {
+                    contract.Constructors.Add(ParseConstructor());
+                }
+                else if (Match(TokenType.Fn))
                 {
                     var function = ParseFunction();
                     function.ContractName = name;
+                    function.IsStatic = isStatic;
+                    function.Access = access;
                     contract.Members.Add(function);
                 }
                 else
                 {
-                    // Skip for now
+                    _diagnostics.AddError($"Unexpected token in contract: {Current.Type}", Current.Line, Current.Column);
+                    Advance();
+                }
+
+                if (_current == startPos && !IsAtEnd())
+                {
                     Advance();
                 }
             }
@@ -86,6 +129,45 @@ namespace Contract.Compiler.Parsing
             Consume(TokenType.RBrace, "Expected '}' after contract body");
 
             return contract;
+        }
+
+        private ConstructorDeclaration ParseConstructor()
+        {
+            int line = Previous.Line;
+            int column = Previous.Column;
+            var ctor = new ConstructorDeclaration(line, column);
+
+            Consume(TokenType.LParen, "Expected '(' after 'constructor'");
+
+            if (!Check(TokenType.RParen))
+            {
+                do
+                {
+                    Consume(TokenType.Identifier, "Expected parameter name");
+                    string paramName = Previous.Text;
+
+                    string paramType = "";
+                    if (Match(TokenType.Colon))
+                    {
+                        paramType = ParseType();
+                    }
+
+                    ctor.Parameters.Add(new Parameter(paramName, paramType, Previous.Line, Previous.Column));
+                } while (Match(TokenType.Comma));
+            }
+
+            Consume(TokenType.RParen, "Expected ')' after parameters");
+
+            if (Match(TokenType.LBrace))
+            {
+                ctor.Body = ParseBlock();
+            }
+            else
+            {
+                Consume(TokenType.Semicolon, "Expected '{' or ';' after constructor declaration");
+            }
+
+            return ctor;
         }
 
         private FunctionDeclaration ParseFunction()
@@ -110,8 +192,7 @@ namespace Contract.Compiler.Parsing
                     string paramType = "";
                     if (Match(TokenType.Colon))
                     {
-                        Consume(TokenType.Identifier, "Expected parameter type");
-                        paramType = Previous.Text;
+                        paramType = ParseType();
                     }
 
                     function.Parameters.Add(new Parameter(paramName, paramType, Previous.Line, Previous.Column));
@@ -132,13 +213,31 @@ namespace Contract.Compiler.Parsing
             return function;
         }
 
+        private string ParseType()
+        {
+            Consume(TokenType.Identifier, "Expected type name");
+            string type = Previous.Text;
+            while (Match(TokenType.LBracket))
+            {
+                Consume(TokenType.RBracket, "Expected ']' after '[' in type");
+                type += "[]";
+            }
+            return type;
+        }
+
         private BlockStatement ParseBlock()
         {
             var block = new BlockStatement(Current.Line, Current.Column);
 
             while (!Check(TokenType.RBrace) && !IsAtEnd())
             {
+                int startPos = _current;
                 block.Statements.Add(ParseStatement());
+                if (_current == startPos && !IsAtEnd())
+                {
+                    _diagnostics.AddError($"Unexpected token in block: {Current.Type}", Current.Line, Current.Column);
+                    Advance();
+                }
             }
 
             Consume(TokenType.RBrace, "Expected '}' after block");
@@ -189,8 +288,7 @@ namespace Contract.Compiler.Parsing
             string type = "";
             if (Match(TokenType.Colon))
             {
-                Consume(TokenType.Identifier, "Expected variable type");
-                type = Previous.Text;
+                type = ParseType();
             }
 
             Expression? initializer = null;
@@ -253,6 +351,7 @@ namespace Contract.Compiler.Parsing
 
             while (!Check(TokenType.RBrace) && !IsAtEnd())
             {
+                int startPos = _current;
                 if (Match(TokenType.Case))
                 {
                     Consume(TokenType.IntLiteral, "Expected integer literal after 'case'");
@@ -262,9 +361,9 @@ namespace Contract.Compiler.Parsing
                     var caseStatements = new List<Statement>();
                     while (!Check(TokenType.Case) && !Check(TokenType.Else) && !Check(TokenType.RBrace) && !IsAtEnd())
                     {
-                        int startPos = _current;
+                        int caseStartPos = _current;
                         caseStatements.Add(ParseStatement());
-                        if (_current == startPos)
+                        if (_current == caseStartPos && !IsAtEnd())
                         {
                             // ParseStatement didn't consume any tokens, skip this token to prevent infinite loop
                             _diagnostics.AddError("Unexpected token in switch case", Current.Line, Current.Column);
@@ -283,9 +382,9 @@ namespace Contract.Compiler.Parsing
                     var elseStatements = new List<Statement>();
                     while (!Check(TokenType.RBrace) && !IsAtEnd())
                     {
-                        int startPos = _current;
+                        int elseStartPos = _current;
                         elseStatements.Add(ParseStatement());
-                        if (_current == startPos)
+                        if (_current == elseStartPos && !IsAtEnd())
                         {
                             // ParseStatement didn't consume any tokens, skip this token to prevent infinite loop
                             _diagnostics.AddError("Unexpected token in switch else", Current.Line, Current.Column);
@@ -300,6 +399,12 @@ namespace Contract.Compiler.Parsing
                 else
                 {
                     // Unexpected token in switch
+                    _diagnostics.AddError($"Unexpected token in switch: {Current.Type}", Current.Line, Current.Column);
+                    Advance();
+                }
+
+                if (_current == startPos && !IsAtEnd())
+                {
                     Advance();
                 }
             }
@@ -334,14 +439,34 @@ namespace Contract.Compiler.Parsing
 
         private Expression ParseExpression()
         {
-            return ParseEquality();
+            return ParseAssignment();
+        }
+
+        private Expression ParseAssignment()
+        {
+            var expr = ParseEquality();
+
+            if (Match(TokenType.Assign))
+            {
+                var equals = Previous;
+                var value = ParseAssignment();
+
+                if (expr is IdentifierExpression || expr is MemberExpression || expr is IndexExpression)
+                {
+                    return new BinaryExpression(expr, "=", value, equals.Line, equals.Column);
+                }
+
+                _diagnostics.AddError("Invalid assignment target", equals.Line, equals.Column);
+            }
+
+            return expr;
         }
 
         private Expression ParseEquality()
         {
             var expr = ParseComparison();
 
-            while (Match(TokenType.EqualEqual))
+            while (Match(TokenType.EqualEqual, TokenType.BangEqual))
             {
                 var op = Previous.Text;
                 var right = ParseComparison();
@@ -355,7 +480,7 @@ namespace Contract.Compiler.Parsing
         {
             var expr = ParseTerm();
 
-            while (Match(TokenType.Less, TokenType.LessEqual))
+            while (Match(TokenType.Less, TokenType.LessEqual, TokenType.Greater, TokenType.GreaterEqual))
             {
                 var op = Previous.Text;
                 var right = ParseTerm();
@@ -367,50 +492,69 @@ namespace Contract.Compiler.Parsing
 
         private Expression ParseTerm()
         {
-            var expr = ParseFactor();
+            var expr = ParseMultiplication();
 
             while (Match(TokenType.Plus, TokenType.Minus))
             {
                 var op = Previous.Text;
-                var right = ParseFactor();
+                var right = ParseMultiplication();
                 expr = new BinaryExpression(expr, op, right, expr.Line, expr.Column);
             }
 
             return expr;
         }
 
-        private Expression ParseFactor()
+        private Expression ParseMultiplication()
         {
-            var expr = ParseCall();
+            var expr = ParsePostfix();
 
-            while (Match(TokenType.Dot))
+            while (Match(TokenType.Star, TokenType.Slash))
             {
-                Consume(TokenType.Identifier, "Expected property name after '.'");
-                string property = Previous.Text;
-                expr = new MemberExpression(expr, property, expr.Line, expr.Column);
+                var op = Previous.Text;
+                var right = ParsePostfix();
+                expr = new BinaryExpression(expr, op, right, expr.Line, expr.Column);
             }
 
             return expr;
         }
 
-        private Expression ParseCall()
+        private Expression ParsePostfix()
         {
             var expr = ParsePrimary();
 
-            if (Match(TokenType.LParen))
+            while (true)
             {
-                var call = new CallExpression(expr, expr.Line, expr.Column);
-
-                if (!Check(TokenType.RParen))
+                if (Match(TokenType.LParen))
                 {
-                    do
-                    {
-                        call.Arguments.Add(ParseExpression());
-                    } while (Match(TokenType.Comma));
-                }
+                    var call = new CallExpression(expr, expr.Line, expr.Column);
 
-                Consume(TokenType.RParen, "Expected ')' after arguments");
-                return call;
+                    if (!Check(TokenType.RParen))
+                    {
+                        do
+                        {
+                            call.Arguments.Add(ParseExpression());
+                        } while (Match(TokenType.Comma));
+                    }
+
+                    Consume(TokenType.RParen, "Expected ')' after arguments");
+                    expr = call;
+                }
+                else if (Match(TokenType.Dot))
+                {
+                    Consume(TokenType.Identifier, "Expected property name after '.'");
+                    string property = Previous.Text;
+                    expr = new MemberExpression(expr, property, expr.Line, expr.Column);
+                }
+                else if (Match(TokenType.LBracket))
+                {
+                    var index = ParseExpression();
+                    Consume(TokenType.RBracket, "Expected ']' after array index");
+                    expr = new IndexExpression(expr, index, expr.Line, expr.Column);
+                }
+                else
+                {
+                    break;
+                }
             }
 
             return expr;
@@ -426,6 +570,10 @@ namespace Contract.Compiler.Parsing
             {
                 return new LiteralExpression(Previous.Text, Previous.Line, Previous.Column);
             }
+            else if (Match(TokenType.Null))
+            {
+                return new LiteralExpression(null, Previous.Line, Previous.Column);
+            }
             else if (Match(TokenType.Identifier))
             {
                 return new IdentifierExpression(Previous.Text, Previous.Line, Previous.Column);
@@ -437,8 +585,10 @@ namespace Contract.Compiler.Parsing
                 return expr;
             }
 
-            _diagnostics.AddError($"Unexpected token in expression: {Current.Type}", Current.Line, Current.Column);
-            return new LiteralExpression(0, Current.Line, Current.Column); // Return dummy expression
+            _diagnostics.AddError($"Unexpected token in expression: {Current.Type} ('{Current.Text}')", Current.Line, Current.Column);
+            var dummy = new LiteralExpression(0, Current.Line, Current.Column);
+            Advance(); // Advance to prevent infinite loop
+            return dummy;
         }
 
         private bool Match(params TokenType[] types)
@@ -491,6 +641,7 @@ namespace Contract.Compiler.Parsing
                 {
                     case TokenType.Contract:
                     case TokenType.Fn:
+                    case TokenType.Import:
                     case TokenType.If:
                     case TokenType.While:
                     case TokenType.Return:

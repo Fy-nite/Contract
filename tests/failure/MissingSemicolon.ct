@@ -1,0 +1,5 @@
+Contract Fail {
+    fn missing() {
+        var x = 5 // Error here
+    }
+}

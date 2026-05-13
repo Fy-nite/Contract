@@ -1,0 +1,25 @@
+import "Utils.ct";
+
+Contract Program
+{
+   fn fact(n)
+    {
+        var acc: int = 1;
+        while(n > 1)
+        {
+            acc = acc * n; 
+            n = n -1; 
+        } 
+        return acc; 
+    } 
+    static fn Main(args: string[])
+    {
+        Utils.utils_func();
+        if (args[0] != null)
+        {
+            IO.Println(args[0]);
+        }
+        IO.Println("hello world");
+        IO.Println(fact(5));
+    }
+}

@@ -7,14 +7,16 @@ namespace Contract.Compiler.Parsing
     public enum TokenType
     {
         // Keywords
-        Contract, Fn, If, Else, While, Switch, Case, Return, Var, Let,
+        Contract, Fn, If, Else, While, Switch, Case, Return, Var, Let, Static,
+        Public, Private, Protected, Internal, Null, Import, Constructor,
         
         // Literals
         Identifier, IntLiteral, StringLiteral,
         
         // Symbols
         LParen, RParen, LBrace, RBrace, LBracket, RBracket,
-        Semicolon, Colon, Comma, Dot, Plus, Minus, Less, LessEqual, EqualEqual, Assign,
+        Semicolon, Colon, Comma, Dot, Plus, Minus, Star, Slash,
+        Less, LessEqual, Greater, GreaterEqual, EqualEqual, Bang, BangEqual, Assign,
         
         // Special
         EOF
@@ -57,7 +59,15 @@ namespace Contract.Compiler.Parsing
             ["case"] = TokenType.Case,
             ["return"] = TokenType.Return,
             ["var"] = TokenType.Var,
-            ["let"] = TokenType.Let
+            ["let"] = TokenType.Let,
+            ["static"] = TokenType.Static,
+            ["public"] = TokenType.Public,
+            ["private"] = TokenType.Private,
+            ["protected"] = TokenType.Protected,
+            ["internal"] = TokenType.Internal,
+            ["null"] = TokenType.Null,
+            ["import"] = TokenType.Import,
+            ["constructor"] = TokenType.Constructor
         };
 
         public Lexer(string source, DiagnosticBag diagnostics)
@@ -217,6 +227,30 @@ namespace Contract.Compiler.Parsing
                 case '.': type = TokenType.Dot; break;
                 case '+': type = TokenType.Plus; break;
                 case '-': type = TokenType.Minus; break;
+                case '*': type = TokenType.Star; break;
+                case '/': type = TokenType.Slash; break;
+                case '!':
+                    if (_position + 1 < _source.Length && _source[_position + 1] == '=')
+                    {
+                        type = TokenType.BangEqual;
+                        length = 2;
+                    }
+                    else
+                    {
+                        type = TokenType.Bang;
+                    }
+                    break;
+                case '>':
+                    if (_position + 1 < _source.Length && _source[_position + 1] == '=')
+                    {
+                        type = TokenType.GreaterEqual;
+                        length = 2;
+                    }
+                    else
+                    {
+                        type = TokenType.Greater;
+                    }
+                    break;
                 case '<':
                     if (_position + 1 < _source.Length && _source[_position + 1] == '=')
                     {

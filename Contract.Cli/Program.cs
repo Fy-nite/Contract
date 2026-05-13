@@ -1,10 +1,15 @@
-﻿using System;
+using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
+using Contract.Compiler;
 using Contract.Compiler.Parsing;
 using Contract.Compiler.AST;
 using Contract.Compiler.Diagnostics;
 using Contract.Compiler.CodeGen;
+using Contract.Compiler.Semantics;
+using Contract.Compiler.StandardLibrary;
+using Contract.Compiler.StandardLibrary.Builtins;
 
 namespace Contract.Cli
 {
@@ -12,14 +17,25 @@ namespace Contract.Cli
     {
         static void Main(string[] args)
         {
-            if (args.Length != 1)
+            var debug = false;
+            if (args.Length == 1 && args[0] == "--test")
+            {
+                TestRunner.RunTests();
+                return;
+            }
+
+            if (args.Length < 1)
             {
                 Console.WriteLine("Usage: Contract.Cli <file.ct>");
+                Console.WriteLine("       Contract.Cli --test");
                 return;
             }
 
             string filePath = args[0];
-
+            if (args.Contains("--debug"))
+            {
+                debug = true;
+            }
             if (!File.Exists(filePath))
             {
                 Console.WriteLine($"File not found: {filePath}");
@@ -28,39 +44,27 @@ namespace Contract.Cli
 
             try
             {
-                string source = File.ReadAllText(filePath);
-
-                // Lexical analysis
+                // Diagnostics and Standard Library Setup
                 var diagnostics = new DiagnosticBag();
-                var lexer = new Lexer(source, diagnostics);
-                var allTokens = lexer.Tokenize().ToList();
-                var tokens = allTokens.Where(t => t.Type != TokenType.EOF).ToList();
+                var symbolTable = new SymbolTable();
+                symbolTable.RegisterAssembly(typeof(IO).Assembly);
 
-                Console.WriteLine("Tokens:");
-                foreach (var token in tokens)
-                {
-                    Console.WriteLine($"  {token}");
-                }
+                // Use CompilerDriver to handle imports and recursive loading
+                Console.WriteLine("Loading and parsing files...");
+                var driver = new CompilerDriver(diagnostics);
+                var program = driver.Compile(filePath);
 
-                Console.WriteLine("Starting parsing...");
-                
-                // Parsing with diagnostics and timeout
-                var parser = new Parser(allTokens, diagnostics);
-                Contract.Compiler.AST.Program program;
-                
-                var parsingTask = Task.Run(() => parser.Parse());
-                if (parsingTask.Wait(TimeSpan.FromSeconds(5)))
+                if (diagnostics.HasErrors)
                 {
-                    program = parsingTask.Result;
-                    Console.WriteLine("Parsing completed successfully");
-                }
-                else
-                {
-                    Console.WriteLine("Parsing timed out after 5 seconds");
+                    Console.WriteLine("\nErrors during loading/parsing:");
+                    diagnostics.ReportToConsole();
                     return;
                 }
 
-                Console.WriteLine($"\nParsed program with {program.Contracts.Count} contracts and {program.Functions.Count} functions");
+                // Semantic Analysis (Symbol Linking)
+                Console.WriteLine("Starting semantic analysis...");
+                var analyzer = new SemanticAnalyzer(symbolTable, diagnostics);
+                analyzer.Analyze(program);
 
                 // Report diagnostics
                 if (diagnostics.Diagnostics.Count > 0)
@@ -69,15 +73,24 @@ namespace Contract.Cli
                     diagnostics.ReportToConsole();
                 }
 
-                Console.WriteLine("\nParsed AST:");
-                PrintAstSimple(program);
+                if (diagnostics.HasErrors)
+                {
+                    Console.WriteLine("Compilation failed due to errors.");
+                    return;
+                }
+
+                if (debug)
+                {
+                    Console.WriteLine("\nParsed AST:");
+                    PrintAstSimple(program);
+                }
 
                 // Code generation
-                Console.WriteLine("\nGenerating bytecode...");
+                Console.WriteLine("\nGenerating IR...");
                 var codeGenerator = new IRCodeGenerator(diagnostics);
                 codeGenerator.Generate(program);
                 
-                string outputPath = Path.ChangeExtension(filePath, ".cil");
+                string outputPath = Path.ChangeExtension(filePath, ".oir");
                 codeGenerator.WriteToFile(outputPath);
                 Console.WriteLine($"Bytecode written to: {outputPath}");
             }
@@ -90,7 +103,12 @@ namespace Contract.Cli
         static void PrintAstSimple(Node node, int indent = 0)
         {
             string prefix = new string(' ', indent * 2);
-            Console.WriteLine($"{prefix}{node.GetType().Name} at ({node.Line}:{node.Column})");
+            string symbolInfo = "";
+            if (node.Symbol is ExternalMethod em)
+            {
+                symbolInfo = $" \u001b[32m[Linked to {em.ClassName}.{em.MethodName}]\u001b[0m";
+            }
+            Console.WriteLine($"{prefix}{node.GetType().Name} at ({node.Line}:{node.Column}){symbolInfo}");
 
             // Recursively print children
             if (node is Contract.Compiler.AST.Program p)
@@ -108,7 +126,9 @@ namespace Contract.Cli
             }
             else if (node is FunctionDeclaration f)
             {
-                Console.WriteLine($"{prefix}  Name: {f.Name}");
+                string staticPart = f.IsStatic ? "static " : "";
+                string accessPart = f.Access != AccessModifier.Default ? f.Access.ToString().ToLower() + " " : "";
+                Console.WriteLine($"{prefix}  Name: {accessPart}{staticPart}{f.Name}");
                 if (f.Body != null)
                     PrintAstSimple(f.Body, indent + 1);
             }
@@ -181,6 +201,11 @@ namespace Contract.Cli
                 Console.WriteLine($"{prefix}  Property: {mem.Property}");
                 PrintAstSimple(mem.Object, indent + 1);
             }
+            else if (node is IndexExpression idx)
+            {
+                PrintAstSimple(idx.Target, indent + 1);
+                PrintAstSimple(idx.Index, indent + 1);
+            }
         }
         static void PrintInlineExpr(Expression expr)
         {
@@ -188,6 +213,9 @@ namespace Contract.Cli
             {
                 case IdentifierExpression id:
                     Console.Write($"\u001b[1;36m{id.Name}\u001b[0m");
+                    break;
+                case LiteralExpression lit when lit.Value == null:
+                    Console.Write("\u001b[1;31mnull\u001b[0m");
                     break;
                 case LiteralExpression lit:
                     string valueStr = lit.Value switch
@@ -216,6 +244,12 @@ namespace Contract.Cli
                 case MemberExpression mem:
                     PrintInlineExpr(mem.Object);
                     Console.Write($".\u001b[1;35m{mem.Property}\u001b[0m");
+                    break;
+                case IndexExpression idx:
+                    PrintInlineExpr(idx.Target);
+                    Console.Write("[");
+                    PrintInlineExpr(idx.Index);
+                    Console.Write("]");
                     break;
                 default:
                     Console.Write($"\u001b[37m{expr.GetType().Name.Replace("Expression", "")}\u001b[0m");

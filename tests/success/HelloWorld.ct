@@ -1,0 +1,5 @@
+Contract Program {
+    static fn Main() {
+        IO.Println("hello world");
+    }
+}

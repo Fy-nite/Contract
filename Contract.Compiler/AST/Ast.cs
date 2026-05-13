@@ -6,6 +6,7 @@ namespace Contract.Compiler.AST
     {
         public int Line { get; }
         public int Column { get; }
+        public object? Symbol { get; set; } // For name resolution/linking
 
         protected Node(int line, int column)
         {
@@ -16,6 +17,7 @@ namespace Contract.Compiler.AST
 
     public class Program : Node
     {
+        public List<string> Imports { get; } = new();
         public List<ContractDeclaration> Contracts { get; } = new();
         public List<FunctionDeclaration> Functions { get; } = new();
 
@@ -25,6 +27,7 @@ namespace Contract.Compiler.AST
     public class ContractDeclaration : Node
     {
         public string Name { get; }
+        public List<ConstructorDeclaration> Constructors { get; } = new();
         public List<Node> Members { get; } = new();
 
         public ContractDeclaration(string name, int line, int column) : base(line, column)
@@ -33,12 +36,31 @@ namespace Contract.Compiler.AST
         }
     }
 
+    public enum AccessModifier
+    {
+        Default,
+        Public,
+        Private,
+        Protected,
+        Internal
+    }
+
+    public class ConstructorDeclaration : Node
+    {
+        public List<Parameter> Parameters { get; } = new();
+        public BlockStatement? Body { get; set; }
+
+        public ConstructorDeclaration(int line, int column) : base(line, column) { }
+    }
+
     public class FunctionDeclaration : Node
     {
         public string Name { get; }
         public List<Parameter> Parameters { get; } = new();
         public BlockStatement? Body { get; set; }
-        public string? ContractName { get; set; } // For qualified names
+        public string? ContractName { get; set; }
+        public bool IsStatic { get; set; }
+        public AccessModifier Access { get; set; } = AccessModifier.Default;
 
         public FunctionDeclaration(string name, int line, int column) : base(line, column)
         {
@@ -211,6 +233,18 @@ namespace Contract.Compiler.AST
         {
             Object = obj;
             Property = property;
+        }
+    }
+
+    public class IndexExpression : Expression
+    {
+        public Expression Target { get; }
+        public Expression Index { get; }
+
+        public IndexExpression(Expression target, Expression index, int line, int column) : base(line, column)
+        {
+            Target = target;
+            Index = index;
         }
     }
 }
