@@ -136,10 +136,46 @@ namespace Contract.Compiler.Parsing
                         _position++;
                     }
                 }
+                else if (c == '#' && _column == 1)
+                {
+                    // Look for '#line'
+                    if (_source.Substring(_position).StartsWith("#line"))
+                    {
+                        _position += 5;
+                        _column += 5;
+                        SkipWhitespaceInline();
+                        
+                        // Parse line number
+                        int start = _position;
+                        while (_position < _source.Length && char.IsDigit(_source[_position]))
+                        {
+                            _position++;
+                            _column++;
+                        }
+                        if (int.TryParse(_source.Substring(start, _position - start), out int newLine))
+                        {
+                            _line = newLine;
+                        }
+                        // Skip rest of line
+                        while (_position < _source.Length && _source[_position] != '\n')
+                        {
+                            _position++;
+                        }
+                    }
+                }
                 else
                 {
                     break;
                 }
+            }
+        }
+
+        private void SkipWhitespaceInline()
+        {
+            while (_position < _source.Length && (_source[_position] == ' ' || _source[_position] == '\t'))
+            {
+                _position++;
+                _column++;
             }
         }
 

@@ -150,6 +150,9 @@ public class IRCodeGenerator(DiagnosticBag diagnostics)
 
     private void GenerateExpression(InstructionBuilder ib, Expression expr, Dictionary<string, int> paramMap)
     {
+        string? source = GetSourceLine(expr.Line);
+        ib.SetLocation(expr.Line, expr.Column, source);
+
         switch (expr)
         {
             case LiteralExpression lit:
