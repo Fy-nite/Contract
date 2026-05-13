@@ -38,6 +38,7 @@ namespace Contract.Compiler.StandardLibrary
     {
         private readonly Dictionary<string, Dictionary<string, ExternalMethod>> _externalBindings = new();
         private readonly Dictionary<string, ContractDeclaration> _userContracts = new();
+        private readonly Dictionary<string, StructDeclaration> _userStructs = new();
 
         public void RegisterAssembly(Assembly assembly)
         {
@@ -63,6 +64,11 @@ namespace Contract.Compiler.StandardLibrary
         public void RegisterUserContract(ContractDeclaration contract)
         {
             _userContracts[contract.Name] = contract;
+        }
+
+        public void RegisterUserStruct(StructDeclaration structDecl)
+        {
+            _userStructs[structDecl.Name] = structDecl;
         }
 
         public bool TryGetMethod(string className, string methodName, out object? method)
@@ -92,6 +98,11 @@ namespace Contract.Compiler.StandardLibrary
             return false;
         }
 
-        public IEnumerable<string> GetBoundClasses() => _externalBindings.Keys.Concat(_userContracts.Keys);
+        public bool TryGetStruct(string structName, out StructDeclaration? structDecl)
+        {
+            return _userStructs.TryGetValue(structName, out structDecl);
+        }
+
+        public IEnumerable<string> GetBoundClasses() => _externalBindings.Keys.Concat(_userContracts.Keys).Concat(_userStructs.Keys);
     }
 }

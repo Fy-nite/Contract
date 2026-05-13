@@ -21,7 +21,7 @@ namespace Contract.Compiler.Semantics
 
         public void Analyze(Program program)
         {
-            // First pass: collect all function definitions and register contracts
+            // First pass: collect all function definitions and register contracts/structs
             foreach (var contract in program.Contracts)
             {
                 _symbolTable.RegisterUserContract(contract);
@@ -30,6 +30,12 @@ namespace Contract.Compiler.Semantics
                     if (member is FunctionDeclaration func)
                         _definedFunctions.Add(func.Name);
                 }
+            }
+
+            // Register structs so we can look up their fields
+            foreach (var structDecl in program.Structs)
+            {
+                _symbolTable.RegisterUserStruct(structDecl);
             }
 
             foreach (var func in program.Functions)
@@ -155,6 +161,16 @@ namespace Contract.Compiler.Semantics
                         AnalyzeExpression(arg);
                     
                     ResolveCall(call);
+                    break;
+                case ScopedAccessExpression scoped:
+                    if (!_symbolTable.GetBoundClasses().Contains(scoped.Module))
+                    {
+                        _diagnostics.AddError($"Undefined module: '{scoped.Module}'", scoped.Line, scoped.Column);
+                    }
+                    else if (!_symbolTable.TryGetMethod(scoped.Module, scoped.Member, out _))
+                    {
+                        _diagnostics.AddError($"Member '{scoped.Member}' not found in module '{scoped.Module}'", scoped.Line, scoped.Column);
+                    }
                     break;
                 case MemberExpression mem:
                     if (mem.Object is IdentifierExpression objIdent && _symbolTable.GetBoundClasses().Contains(objIdent.Name))

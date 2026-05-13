@@ -19,6 +19,7 @@ namespace Contract.Compiler.AST
     {
         public List<string> Imports { get; } = new();
         public List<ContractDeclaration> Contracts { get; } = new();
+        public List<StructDeclaration> Structs { get; } = new();
         public List<FunctionDeclaration> Functions { get; } = new();
 
         public Program(int line, int column) : base(line, column) { }
@@ -27,12 +28,37 @@ namespace Contract.Compiler.AST
     public class ContractDeclaration : Node
     {
         public string Name { get; }
+        public bool IsExported { get; set; }
         public List<ConstructorDeclaration> Constructors { get; } = new();
         public List<Node> Members { get; } = new();
 
         public ContractDeclaration(string name, int line, int column) : base(line, column)
         {
             Name = name;
+        }
+    }
+
+    public class StructDeclaration : Node
+    {
+        public string Name { get; }
+        public bool IsExported { get; set; }
+        public List<StructField> Fields { get; } = new();
+
+        public StructDeclaration(string name, int line, int column) : base(line, column)
+        {
+            Name = name;
+        }
+    }
+
+    public class StructField : Node
+    {
+        public string Name { get; }
+        public string Type { get; }
+
+        public StructField(string name, string type, int line, int column) : base(line, column)
+        {
+            Name = name;
+            Type = type;
         }
     }
 
@@ -56,6 +82,7 @@ namespace Contract.Compiler.AST
     public class FunctionDeclaration : Node
     {
         public string Name { get; }
+        public bool IsExported { get; set; }
         public List<Parameter> Parameters { get; } = new();
         public BlockStatement? Body { get; set; }
         public string? ContractName { get; set; }
@@ -245,6 +272,18 @@ namespace Contract.Compiler.AST
         {
             Target = target;
             Index = index;
+        }
+    }
+
+    public class ScopedAccessExpression : Expression
+    {
+        public string Module { get; }
+        public string Member { get; }
+
+        public ScopedAccessExpression(string module, string member, int line, int column) : base(line, column)
+        {
+            Module = module;
+            Member = member;
         }
     }
 }

@@ -28,6 +28,7 @@ namespace Contract.Compiler.Parsing
                 {
                     int startPos = _current;
 
+                    bool isExported = Match(TokenType.Export);
                     AccessModifier access = AccessModifier.Default;
                     if (Match(TokenType.Public)) access = AccessModifier.Public;
                     else if (Match(TokenType.Private)) access = AccessModifier.Private;
@@ -45,11 +46,20 @@ namespace Contract.Compiler.Parsing
                     }
                     else if (Match(TokenType.Contract))
                     {
-                        program.Contracts.Add(ParseContract());
+                        var contract = ParseContract();
+                        contract.IsExported = isExported;
+                        program.Contracts.Add(contract);
+                    }
+                    else if (Match(TokenType.Struct))
+                    {
+                        var structDecl = ParseStruct();
+                        structDecl.IsExported = isExported;
+                        program.Structs.Add(structDecl);
                     }
                     else if (Match(TokenType.Fn))
                     {
                         var func = ParseFunction();
+                        func.IsExported = isExported;
                         func.IsStatic = isStatic;
                         func.Access = access;
                         program.Functions.Add(func);
@@ -76,7 +86,38 @@ namespace Contract.Compiler.Parsing
         }
 
         // Add to TokenType in Lexer.cs if necessary - skipping for now as 'constructor' is a new keyword.
-        // ... (Update Lexer to include 'constructor')
+                private StructDeclaration ParseStruct()
+        {
+            int line = Previous.Line;
+            int column = Previous.Column;
+
+            Consume(TokenType.Identifier, "Expected struct name");
+            string name = Previous.Text;
+
+            Consume(TokenType.LBrace, "Expected '{' after struct name");
+
+            var structDecl = new StructDeclaration(name, line, column);
+
+            while (!Check(TokenType.RBrace) && !IsAtEnd())
+            {
+                Consume(TokenType.Identifier, "Expected field name");
+                string fieldName = Previous.Text;
+
+                Consume(TokenType.Colon, "Expected ':' after field name");
+                string fieldType = ParseType();
+
+                structDecl.Fields.Add(new StructField(fieldName, fieldType, Previous.Line, Previous.Column));
+
+                if (Match(TokenType.Comma))
+                {
+                    continue;
+                }
+            }
+
+            Consume(TokenType.RBrace, "Expected '}' after struct body");
+
+            return structDecl;
+        }
 
         private ContractDeclaration ParseContract()
         {
@@ -544,6 +585,19 @@ namespace Contract.Compiler.Parsing
                     Consume(TokenType.Identifier, "Expected property name after '.'");
                     string property = Previous.Text;
                     expr = new MemberExpression(expr, property, expr.Line, expr.Column);
+                }
+                else if (Match(TokenType.DoubleColon))
+                {
+                    if (expr is IdentifierExpression moduleExpr)
+                    {
+                        Consume(TokenType.Identifier, "Expected member name after '::'");
+                        string member = Previous.Text;
+                        expr = new ScopedAccessExpression(moduleExpr.Name, member, expr.Line, expr.Column);
+                    }
+                    else
+                    {
+                        _diagnostics.AddError("Left side of '::' must be a module identifier", expr.Line, expr.Column);
+                    }
                 }
                 else if (Match(TokenType.LBracket))
                 {

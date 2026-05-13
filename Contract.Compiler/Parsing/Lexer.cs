@@ -8,14 +8,14 @@ namespace Contract.Compiler.Parsing
     {
         // Keywords
         Contract, Fn, If, Else, While, Switch, Case, Return, Var, Let, Static,
-        Public, Private, Protected, Internal, Null, Import, Constructor,
+        Public, Private, Protected, Internal, Null, Import, Constructor, Struct, Export,
         
         // Literals
         Identifier, IntLiteral, StringLiteral,
         
         // Symbols
         LParen, RParen, LBrace, RBrace, LBracket, RBracket,
-        Semicolon, Colon, Comma, Dot, Plus, Minus, Star, Slash,
+        Semicolon, Colon, DoubleColon, Comma, Dot, Plus, Minus, Star, Slash,
         Less, LessEqual, Greater, GreaterEqual, EqualEqual, Bang, BangEqual, Assign,
         
         // Special
@@ -67,7 +67,9 @@ namespace Contract.Compiler.Parsing
             ["internal"] = TokenType.Internal,
             ["null"] = TokenType.Null,
             ["import"] = TokenType.Import,
-            ["constructor"] = TokenType.Constructor
+            ["constructor"] = TokenType.Constructor,
+            ["struct"] = TokenType.Struct,
+            ["export"] = TokenType.Export
         };
 
         public Lexer(string source, DiagnosticBag diagnostics)
@@ -222,7 +224,17 @@ namespace Contract.Compiler.Parsing
                 case '[': type = TokenType.LBracket; break;
                 case ']': type = TokenType.RBracket; break;
                 case ';': type = TokenType.Semicolon; break;
-                case ':': type = TokenType.Colon; break;
+                case ':':
+                    if (_position + 1 < _source.Length && _source[_position + 1] == ':')
+                    {
+                        type = TokenType.DoubleColon;
+                        length = 2;
+                    }
+                    else
+                    {
+                        type = TokenType.Colon;
+                    }
+                    break;
                 case ',': type = TokenType.Comma; break;
                 case '.': type = TokenType.Dot; break;
                 case '+': type = TokenType.Plus; break;
