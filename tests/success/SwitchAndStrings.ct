@@ -1,0 +1,17 @@
+Contract SwitchDemo {
+    static fn Main() {
+        var x: int = 2;
+        var s: string = "initial";
+
+        switch (x) {
+            case 1:
+                s = "one";
+            case 2:
+                s = "two";
+            else:
+                s = "other";
+        }
+
+        IO.Println(s);
+    }
+}

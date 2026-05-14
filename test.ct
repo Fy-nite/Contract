@@ -1,11 +1,11 @@
 Contract Test {
     fn main() {
-        var x = 5;
+        var x: int = 5;
         switch (x) {
-            case 1: print("one");
-            case 2: print("two");
-            case 5: print("five");
-            else: print("other");
+            case 1: IO.Println("one");
+            case 2: IO.Println("two");
+            case 5: IO.Println("five");
+            else: IO.Println("other");
         }
     }
 }

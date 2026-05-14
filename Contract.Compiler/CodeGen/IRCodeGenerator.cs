@@ -143,6 +143,19 @@ public class IRCodeGenerator(DiagnosticBag diagnostics)
                 ib.Ret();
                 _lastIsReturn = true;
                 break;
+
+            case Contract.Compiler.AST.SwitchStatement switchStmt:
+                GenerateExpression(ib, switchStmt.Expression, paramMap);
+                ib.Switch("stack", cases => {
+                    foreach (var c in switchStmt.Cases)
+                    {
+                        cases.Case(c.Value, body => {
+                            foreach (var s in c.Statements)
+                                GenerateStatement(body, s, paramMap);
+                        });
+                    }
+                });
+                break;
         }
     }
 
