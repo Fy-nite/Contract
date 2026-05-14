@@ -2,24 +2,21 @@ import "Utils.ct";
 
 Contract Program
 {
-   fn fact(n)
-    {
-        var acc: int = 1;
-        while(n > 1)
-        {
-            acc = acc * n; 
-            n = n -1; 
-        } 
-        return acc; 
-    } 
     static fn Main(args: string[])
     {
-        Utils.utils_func();
-        if (args[0] != null)
-        {
-            IO.Println(args[0]);
-        }
+        Utils::utils_func();
         IO.Println("hello world");
-        IO.Println(fact(5));
+        var x: bool = 1;
+        while (x)
+        {
+            var cmd: string = IO.Readln("$> ");
+            if (cmd == "meow")
+            {
+                IO.Println("helo kitty");
+            }
+            else {
+                IO.Println("invalid command");
+            }
+        }
     }
 }

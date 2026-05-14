@@ -17,5 +17,10 @@ namespace Contract.Compiler.StandardLibrary.Builtins
         {
             Console.Write(contents);
         }
+        [MethodBinding]
+        public static string Readln(string args)
+        {
+            return Console.ReadLine();
+        }
     }
 }

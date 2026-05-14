@@ -46,6 +46,7 @@ namespace Contract.Cli
             {
                 // Diagnostics and Standard Library Setup
                 var diagnostics = new DiagnosticBag();
+                diagnostics.SourceCode = File.ReadAllText(filePath);
                 var symbolTable = new SymbolTable();
                 symbolTable.RegisterAssembly(typeof(IO).Assembly);
 

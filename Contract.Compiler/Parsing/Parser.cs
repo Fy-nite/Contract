@@ -85,8 +85,7 @@ namespace Contract.Compiler.Parsing
             return program;
         }
 
-        // Add to TokenType in Lexer.cs if necessary - skipping for now as 'constructor' is a new keyword.
-                private StructDeclaration ParseStruct()
+        private StructDeclaration ParseStruct()
         {
             int line = Previous.Line;
             int column = Previous.Column;
