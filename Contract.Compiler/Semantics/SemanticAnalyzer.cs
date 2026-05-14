@@ -224,7 +224,7 @@ namespace Contract.Compiler.Semantics
             }
             else if (call.Callee is IdentifierExpression ident)
             {
-                if (!_definedFunctions.Contains(ident.Name))
+                if (!_definedFunctions.Contains(ident.Name) && !ident.Name.StartsWith("__lambda_"))
                 {
                     _diagnostics.AddError($"Undefined function: '{ident.Name}'", call.Line, call.Column);
                 }

@@ -259,21 +259,15 @@ public class IRCodeGenerator
 
             case LambdaExpression lambda:
                 string name = $"__lambda_{_lambdaCounter++}";
-                var func = new FunctionDeclaration(name, lambda.Line, lambda.Column)
-                {
-                    IsStatic = true
-                };
+                var func = new FunctionDeclaration(name, lambda.Line, lambda.Column) { IsStatic = true };
                 foreach (var param in lambda.Parameters)
-                {
                     func.Parameters.Add(new Parameter(param, "Int", lambda.Line, lambda.Column));
-                }
                 var block = new Contract.Compiler.AST.BlockStatement(lambda.Line, lambda.Column);
                 block.Statements.Add(new ReturnStatement(lambda.Body, lambda.Line, lambda.Column));
                 func.Body = block;
+                _program!.Functions.Add(func);
                 
-                _program!.Functions.Add(func); // Add to program directly
-                
-                // Return reference to the new function by its name
+                // Emitting the function name as a literal for reference
                 ib.Ldstr(name); 
                 break;
 
