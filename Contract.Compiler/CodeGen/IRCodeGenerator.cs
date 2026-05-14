@@ -13,11 +13,19 @@ using AccessModifier = Contract.Compiler.AST.AccessModifier;
 
 namespace Contract.Compiler.CodeGen;
 
-public class IRCodeGenerator(DiagnosticBag diagnostics)
+public class IRCodeGenerator
 {
+    private readonly DiagnosticBag _diagnostics;
     public static IRBuilder b = null!;
     private string[] _sourceLines = null!;
     private bool _lastIsReturn = false;
+    private int _lambdaCounter = 0;
+    private Program? _program;
+
+    public IRCodeGenerator(DiagnosticBag diagnostics)
+    {
+        _diagnostics = diagnostics;
+    }
 
     public void WriteToFile(string outputPath)
     {
@@ -27,27 +35,23 @@ public class IRCodeGenerator(DiagnosticBag diagnostics)
 
     public void Generate(Program program)
     {
+        _program = program;
         if (program.Contracts.Count == 0) return;
         
-        _sourceLines = diagnostics.SourceCode?.Split('\n') ?? Array.Empty<string>();
-        // Use the first contract name as the module name
+        _sourceLines = _diagnostics.SourceCode?.Split('\n') ?? Array.Empty<string>();
         b = new IRBuilder(program.Contracts[0].Name);
-
+        
         foreach (var cls in program.Contracts)
         {
             var classBuilder = b.Class(cls.Name);
-            
             foreach (var member in cls.Members)
             {
                 if (member is FunctionDeclaration func)
-                {
                     GenerateFunction(classBuilder, func);
-                }
             }
             classBuilder.EndClass();
         }
 
-        // Handle global functions by putting them in a "Global" class
         if (program.Functions.Count > 0)
         {
             var globalClass = b.Class("Global");
@@ -251,6 +255,43 @@ public class IRCodeGenerator(DiagnosticBag diagnostics)
                 GenerateExpression(ib, indexExpr.Target, paramMap);
                 GenerateExpression(ib, indexExpr.Index, paramMap);
                 ib.Ldelem();
+                break;
+
+            case LambdaExpression lambda:
+                string name = $"__lambda_{_lambdaCounter++}";
+                var func = new FunctionDeclaration(name, lambda.Line, lambda.Column)
+                {
+                    IsStatic = true
+                };
+                foreach (var param in lambda.Parameters)
+                {
+                    func.Parameters.Add(new Parameter(param, "Int", lambda.Line, lambda.Column));
+                }
+                var block = new Contract.Compiler.AST.BlockStatement(lambda.Line, lambda.Column);
+                block.Statements.Add(new ReturnStatement(lambda.Body, lambda.Line, lambda.Column));
+                func.Body = block;
+                
+                _program!.Functions.Add(func); // Add to program directly
+                
+                // Return reference to the new function by its name
+                ib.Ldstr(name); 
+                break;
+
+            case PipeExpression pipe:
+                // Lower: expr |> fn => fn(expr)
+                GenerateExpression(ib, pipe.Left, paramMap);
+                var callExpr = new CallExpression(pipe.Right, pipe.Line, pipe.Column);
+                // We need the result of the left side to be the first argument.
+                // Assuming it's a direct function identifier for now, as in tests/success/FunctionalSyntax.ct
+                if (pipe.Right is IdentifierExpression)
+                {
+                    callExpr.Arguments.Add(pipe.Left);
+                    GenerateExpression(ib, callExpr, paramMap);
+                }
+                else
+                {
+                    throw new NotSupportedException("Piping to complex expressions is not yet supported.");
+                }
                 break;
         }
     }

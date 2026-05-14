@@ -1,5 +1,6 @@
-Contract Test {
-    fn main() {
+Contract Program {
+    static fn Main() {
+        IO.Println("Starting big compiler unit style testing");
         var x: int = 5;
         switch (x) {
             case 1: IO.Println("one");
@@ -7,5 +8,35 @@ Contract Test {
             case 5: IO.Println("five");
             else: IO.Println("other");
         }
+        var cmd: string = IO.Readln();
+        if (cmd != null)
+        {
+            IO.Println("it's not null");
+        }
+        // mmmmmmm comments
+        // this is to test the "tightness" of the lexer and parser to see if it's possible to ignore spaces.
+        else{
+            IO.Println("did you put anything in?");
+        }
+        // some funky stuff here
+        let y: int = 5 |> mul;
+        let z: int = y |> sub;
+        let inc: Int = fun x -> x + 1;
+        let val: Int = 10 |> inc;
+        IO.Println(val);
+        IO.Println(z);
+        
+
+        // fun thing, we don't actualy have a lsp for contract yet. the only functions that we actualy have are IO.PrintLn, IO.Print and IO.Readln
+        // we really do not have much here lol as i haven't gotten around to making our reflection binding generator properly handle the stdlib.
+
+    }
+    fn mul(a:int)
+    {
+        return a * a;
+    }
+    fn sub(a)
+    {
+        return a - a;
     }
 }

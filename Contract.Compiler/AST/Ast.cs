@@ -286,4 +286,28 @@ namespace Contract.Compiler.AST
             Member = member;
         }
     }
+
+    public class LambdaExpression : Expression
+    {
+        public List<string> Parameters { get; } = new();
+        public Expression Body { get; }
+
+        public LambdaExpression(List<string> parameters, Expression body, int line, int column) : base(line, column)
+        {
+            Parameters = parameters;
+            Body = body;
+        }
+    }
+
+    public class PipeExpression : Expression
+    {
+        public Expression Left { get; }
+        public Expression Right { get; }
+
+        public PipeExpression(Expression left, Expression right, int line, int column) : base(line, column)
+        {
+            Left = left;
+            Right = right;
+        }
+    }
 }

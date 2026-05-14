@@ -1,0 +1,6 @@
+Contract Program {
+  fn main() {
+    let inc: Int = fun x -> x + 1;
+    let val: Int = 10 |> inc;
+  }
+}

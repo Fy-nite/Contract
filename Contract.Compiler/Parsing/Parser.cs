@@ -604,6 +604,11 @@ namespace Contract.Compiler.Parsing
                     Consume(TokenType.RBracket, "Expected ']' after array index");
                     expr = new IndexExpression(expr, index, expr.Line, expr.Column);
                 }
+                else if (Match(TokenType.Pipe))
+                {
+                    var right = ParsePrimary(); // Pipe to a primary (e.g., function call or identifier)
+                    expr = new PipeExpression(expr, right, expr.Line, expr.Column);
+                }
                 else
                 {
                     break;
@@ -626,6 +631,20 @@ namespace Contract.Compiler.Parsing
             else if (Match(TokenType.Null))
             {
                 return new LiteralExpression(null, Previous.Line, Previous.Column);
+            }
+            else if (Match(TokenType.Fun))
+            {
+                int line = Previous.Line;
+                int column = Previous.Column;
+
+                // Handle single identifier parameter (simple lambda)
+                Consume(TokenType.Identifier, "Expected parameter name after 'fun'");
+                var param = Previous.Text;
+                
+                Consume(TokenType.Arrow, "Expected '->' after lambda parameter");
+                var body = ParseExpression();
+
+                return new LambdaExpression(new List<string> { param }, body, line, column);
             }
             else if (Match(TokenType.Identifier))
             {

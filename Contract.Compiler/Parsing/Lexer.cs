@@ -8,7 +8,7 @@ namespace Contract.Compiler.Parsing
     {
         // Keywords
         Contract, Fn, If, Else, While, Switch, Case, Return, Var, Let, Static,
-        Public, Private, Protected, Internal, Null, Import, Constructor, Struct, Export,
+        Public, Private, Protected, Internal, Null, Import, Constructor, Struct, Export, Fun,
         
         // Literals
         Identifier, IntLiteral, StringLiteral,
@@ -16,7 +16,7 @@ namespace Contract.Compiler.Parsing
         // Symbols
         LParen, RParen, LBrace, RBrace, LBracket, RBracket,
         Semicolon, Colon, DoubleColon, Comma, Dot, Plus, Minus, Star, Slash,
-        Less, LessEqual, Greater, GreaterEqual, EqualEqual, Bang, BangEqual, Assign,
+        Less, LessEqual, Greater, GreaterEqual, EqualEqual, Bang, BangEqual, Assign, Arrow, Pipe,
         
         // Special
         EOF
@@ -60,6 +60,7 @@ namespace Contract.Compiler.Parsing
             ["return"] = TokenType.Return,
             ["var"] = TokenType.Var,
             ["let"] = TokenType.Let,
+            ["fun"] = TokenType.Fun,
             ["static"] = TokenType.Static,
             ["public"] = TokenType.Public,
             ["private"] = TokenType.Private,
@@ -274,9 +275,33 @@ namespace Contract.Compiler.Parsing
                 case ',': type = TokenType.Comma; break;
                 case '.': type = TokenType.Dot; break;
                 case '+': type = TokenType.Plus; break;
-                case '-': type = TokenType.Minus; break;
+                case '-':
+                    if (_position + 1 < _source.Length && _source[_position + 1] == '>')
+                    {
+                        type = TokenType.Arrow;
+                        length = 2;
+                    }
+                    else
+                    {
+                        type = TokenType.Minus;
+                    }
+                    break;
                 case '*': type = TokenType.Star; break;
                 case '/': type = TokenType.Slash; break;
+                case '|':
+                    if (_position + 1 < _source.Length && _source[_position + 1] == '>')
+                    {
+                        type = TokenType.Pipe;
+                        length = 2;
+                    }
+                    else
+                    {
+                        _diagnostics.AddError($"Unexpected character: {c}", _line, _column);
+                        _position++;
+                        _column++;
+                        return null;
+                    }
+                    break;
                 case '!':
                     if (_position + 1 < _source.Length && _source[_position + 1] == '=')
                     {
