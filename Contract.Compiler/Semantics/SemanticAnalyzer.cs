@@ -10,6 +10,7 @@ namespace Contract.Compiler.Semantics
     {
         private readonly SymbolTable _symbolTable;
         private readonly DiagnosticBag _diagnostics;
+        private readonly TypeRegistry _typeRegistry = new();
         private readonly Stack<Dictionary<string, VariableDeclaration>> _scopes = new();
         private readonly HashSet<string> _definedFunctions = new();
 
@@ -21,6 +22,39 @@ namespace Contract.Compiler.Semantics
 
         public void Analyze(Program program)
         {
+            // Register custom types
+            foreach (var typesDecl in program.Types)
+            {
+                foreach (var customType in typesDecl.Definitions)
+                {
+                    _typeRegistry.RegisterCustomType(customType.Name);
+                }
+            }
+            
+            // Register contracts as valid types
+            foreach (var contract in program.Contracts)
+            {
+                _typeRegistry.RegisterCustomType(contract.Name);
+            }
+
+            // Register structs as valid types
+            foreach (var structDecl in program.Structs)
+            {
+                _typeRegistry.RegisterCustomType(structDecl.Name);
+            }
+            
+            // Register structs defined inside contracts
+            foreach (var contract in program.Contracts)
+            {
+                foreach (var member in contract.Members)
+                {
+                    if (member is StructDeclaration structDecl)
+                    {
+                        _typeRegistry.RegisterCustomType(structDecl.Name);
+                    }
+                }
+            }
+            
             // First pass: collect all function definitions and register contracts/structs
             foreach (var contract in program.Contracts)
             {
@@ -73,6 +107,10 @@ namespace Contract.Compiler.Semantics
 
             foreach (var param in func.Parameters)
             {
+                if (!_typeRegistry.IsValidType(param.Type))
+                {
+                    _diagnostics.AddError($"Unknown type '{param.Type}' for parameter '{param.Name}'", param.Line, param.Column);
+                }
                 DeclareVariable(param.Name, param.Type, param.Line, param.Column);
             }
 
@@ -86,6 +124,11 @@ namespace Contract.Compiler.Semantics
 
         private void DeclareVariable(string name, string type, int line, int column)
         {
+            if (!_typeRegistry.IsValidType(type))
+            {
+                _diagnostics.AddError($"Unknown type '{type}'", line, column);
+            }
+
             var currentScope = _scopes.Peek();
             if (currentScope.ContainsKey(name))
             {
@@ -193,6 +236,12 @@ namespace Contract.Compiler.Semantics
                     }
                     break;
                 case LiteralExpression _:
+                    break;
+                case NewExpression newExpr:
+                    if (!_typeRegistry.IsValidType(newExpr.TypeName))
+                    {
+                        _diagnostics.AddError($"Unknown type '{newExpr.TypeName}'", newExpr.Line, newExpr.Column);
+                    }
                     break;
             }
         }

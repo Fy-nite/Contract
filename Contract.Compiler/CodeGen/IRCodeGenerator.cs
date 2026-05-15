@@ -48,6 +48,15 @@ public class IRCodeGenerator
             {
                 if (member is FunctionDeclaration func)
                     GenerateFunction(classBuilder, func);
+                else if (member is StructDeclaration structDecl)
+                {
+                    var structBuilder = b.Struct(structDecl.Name);
+                    foreach (var field in structDecl.Fields)
+                    {
+                        structBuilder.Field(field.Name, MapType(field.Type));
+                    }
+                    structBuilder.EndStruct();
+                }
             }
             classBuilder.EndClass();
         }
@@ -194,6 +203,14 @@ public class IRCodeGenerator
                         ib.Stelem();
                         return;
                     }
+                    else if (bin.Left is MemberExpression memTarget)
+                    {
+                        GenerateExpression(ib, memTarget.Object, paramMap);
+                        GenerateExpression(ib, bin.Right, paramMap);
+                        var targetName = memTarget.Object is IdentifierExpression targetId ? targetId.Name : "TODO_DYNAMIC_TYPE";
+                        ib.Stfld(new FieldReference(new TypeRef(targetName), memTarget.Property, TypeRef.Int32));
+                        return;
+                    }
 
                     GenerateExpression(ib, bin.Right, paramMap);
                     if (bin.Left is IdentifierExpression target)
@@ -247,8 +264,14 @@ public class IRCodeGenerator
                 }
                 break;
                 
+            case NewExpression newExpr:
+                ib.Newobj(new TypeRef(newExpr.TypeName));
+                break;
+                
             case MemberExpression mem:
                 GenerateExpression(ib, mem.Object, paramMap);
+                var objName = mem.Object is IdentifierExpression memId ? memId.Name : "TODO_DYNAMIC_TYPE";
+                ib.Ldfld(new FieldReference(new TypeRef(objName), mem.Property, TypeRef.Int32));
                 break;
 
             case IndexExpression indexExpr:
@@ -268,7 +291,7 @@ public class IRCodeGenerator
                 _program!.Functions.Add(func);
                 
                 // Emitting the function name as a literal for reference
-                ib.Ldstr(name); 
+                // ib.Ldstr(name); 
                 break;
 
             case PipeExpression pipe:

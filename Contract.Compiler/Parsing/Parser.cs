@@ -44,6 +44,11 @@ namespace Contract.Compiler.Parsing
                         program.Imports.Add(importPath);
                         Consume(TokenType.Semicolon, "Expected ';' after import statement");
                     }
+                    else if (Match(TokenType.Types))
+                    {
+                        var typesDecl = ParseTypes();
+                        program.Types.Add(typesDecl);
+                    }
                     else if (Match(TokenType.Contract))
                     {
                         var contract = ParseContract();
@@ -85,6 +90,52 @@ namespace Contract.Compiler.Parsing
             return program;
         }
 
+        private TypesDeclaration ParseTypes()
+        {
+            int line = Previous.Line;
+            int column = Previous.Column;
+
+            Consume(TokenType.LBrace, "Expected '{' after 'Types'");
+            var typesDecl = new TypesDeclaration(line, column);
+
+            while (!Check(TokenType.RBrace) && !IsAtEnd())
+            {
+                // We don't just match 'type'. It must be here if it's a type def.
+                // The loop should continue as long as we have 'type' definitions.
+                if (Match(TokenType.Type)) {
+                    Consume(TokenType.Identifier, "Expected type name");
+                    var typeName = Previous.Text;
+                    
+                    var customType = new CustomTypeDefinition(typeName, Previous.Line, Previous.Column);
+                    
+                    Consume(TokenType.LBrace, "Expected '{' after type name");
+                    
+                    while (!Check(TokenType.RBrace) && !IsAtEnd())
+                    {
+                        Consume(TokenType.Identifier, "Expected field name");
+                        string fieldName = Previous.Text;
+                        
+                        Consume(TokenType.Colon, "Expected ':'");
+                        string fieldType = ParseType();
+                        
+                        customType.Fields.Add(new StructField(fieldName, fieldType, Previous.Line, Previous.Column));
+                        Consume(TokenType.Semicolon, "Expected ';' after field definition");
+                        
+                        if (Match(TokenType.Comma)) continue;
+                    }
+                    
+                    Consume(TokenType.RBrace, "Expected '}'");
+                    typesDecl.Definitions.Add(customType);
+                } else {
+                    _diagnostics.AddError("Expected 'type' keyword", Current.Line, Current.Column);
+                    Advance();
+                }
+            }
+
+            Consume(TokenType.RBrace, "Expected '}' after Types block");
+            return typesDecl;
+        }
+
         private StructDeclaration ParseStruct()
         {
             int line = Previous.Line;
@@ -99,17 +150,25 @@ namespace Contract.Compiler.Parsing
 
             while (!Check(TokenType.RBrace) && !IsAtEnd())
             {
+                int startPos = _current;
                 Consume(TokenType.Identifier, "Expected field name");
                 string fieldName = Previous.Text;
 
                 Consume(TokenType.Colon, "Expected ':' after field name");
                 string fieldType = ParseType();
+                Consume(TokenType.Semicolon, "Expected ';' after field definition");
 
                 structDecl.Fields.Add(new StructField(fieldName, fieldType, Previous.Line, Previous.Column));
 
                 if (Match(TokenType.Comma))
                 {
                     continue;
+                }
+                
+                if (_current == startPos)
+                {
+                    _diagnostics.AddError("Parser failed to advance in ParseStruct", Current.Line, Current.Column);
+                    break;
                 }
             }
 
@@ -145,6 +204,11 @@ namespace Contract.Compiler.Parsing
                 if (Match(TokenType.Constructor))
                 {
                     contract.Constructors.Add(ParseConstructor());
+                }
+                else if (Match(TokenType.Struct))
+                {
+                    var structDecl = ParseStruct();
+                    contract.Members.Add(structDecl);
                 }
                 else if (Match(TokenType.Fn))
                 {
@@ -645,6 +709,19 @@ namespace Contract.Compiler.Parsing
                 var body = ParseExpression();
 
                 return new LambdaExpression(new List<string> { param }, body, line, column);
+            }
+            else if (Match(TokenType.New))
+            {
+                int line = Previous.Line;
+                int column = Previous.Column;
+
+                Consume(TokenType.Identifier, "Expected type name after 'new'");
+                string typeName = Previous.Text;
+                
+                Consume(TokenType.LParen, "Expected '(' after type name");
+                Consume(TokenType.RParen, "Expected ')' after '('");
+
+                return new NewExpression(typeName, line, column);
             }
             else if (Match(TokenType.Identifier))
             {

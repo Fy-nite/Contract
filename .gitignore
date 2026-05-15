@@ -17,6 +17,10 @@
 *.aux
 *.out
 *.oir
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.toc
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
 

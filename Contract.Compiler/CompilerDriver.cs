@@ -47,6 +47,8 @@ namespace Contract.Compiler
                 var program = parser.Parse();
 
                 // Merge into full program
+                foreach (var typesDecl in program.Types)
+                    fullProgram.Types.Add(typesDecl);
                 foreach (var contract in program.Contracts)
                     fullProgram.Contracts.Add(contract);
                 foreach (var func in program.Functions)

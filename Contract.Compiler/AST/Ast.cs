@@ -18,11 +18,30 @@ namespace Contract.Compiler.AST
     public class Program : Node
     {
         public List<string> Imports { get; } = new();
+        public List<TypesDeclaration> Types { get; } = new();
         public List<ContractDeclaration> Contracts { get; } = new();
         public List<StructDeclaration> Structs { get; } = new();
         public List<FunctionDeclaration> Functions { get; } = new();
 
         public Program(int line, int column) : base(line, column) { }
+    }
+
+    public class TypesDeclaration : Node
+    {
+        public List<CustomTypeDefinition> Definitions { get; } = new();
+
+        public TypesDeclaration(int line, int column) : base(line, column) { }
+    }
+
+    public class CustomTypeDefinition : Node
+    {
+        public string Name { get; }
+        public List<StructField> Fields { get; } = new();
+
+        public CustomTypeDefinition(string name, int line, int column) : base(line, column)
+        {
+            Name = name;
+        }
     }
 
     public class ContractDeclaration : Node
@@ -296,6 +315,16 @@ namespace Contract.Compiler.AST
         {
             Parameters = parameters;
             Body = body;
+        }
+    }
+
+    public class NewExpression : Expression
+    {
+        public string TypeName { get; }
+
+        public NewExpression(string typeName, int line, int column) : base(line, column)
+        {
+            TypeName = typeName;
         }
     }
 

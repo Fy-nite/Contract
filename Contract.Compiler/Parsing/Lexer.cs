@@ -8,7 +8,7 @@ namespace Contract.Compiler.Parsing
     {
         // Keywords
         Contract, Fn, If, Else, While, Switch, Case, Return, Var, Let, Static,
-        Public, Private, Protected, Internal, Null, Import, Constructor, Struct, Export, Fun,
+        Public, Private, Protected, Internal, Null, Import, Constructor, Struct, Export, Fun, Types, Type, New,
         
         // Literals
         Identifier, IntLiteral, StringLiteral,
@@ -70,7 +70,10 @@ namespace Contract.Compiler.Parsing
             ["import"] = TokenType.Import,
             ["constructor"] = TokenType.Constructor,
             ["struct"] = TokenType.Struct,
-            ["export"] = TokenType.Export
+            ["export"] = TokenType.Export,
+            ["Types"] = TokenType.Types,
+            ["type"] = TokenType.Type,
+            ["new"] = TokenType.New
         };
 
         public Lexer(string source, DiagnosticBag diagnostics)
