@@ -1,0 +1,25 @@
+Contract Program
+{
+    static fn Main()
+    {
+        var l: int = 1;
+        var r: int = 10;
+        while (l < r)
+        {
+            var m: int = (l + r) / 2;
+            if (m * m == 25)
+            {
+                IO.Println("Found it: " + m);
+                
+            }
+            else if (m * m < 25)
+            {
+                l = m + 1;
+            }
+            else
+            {
+                r = m - 1;
+            }
+        }
+    }
+}
