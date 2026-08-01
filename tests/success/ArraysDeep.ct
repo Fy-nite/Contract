@@ -1,0 +1,59 @@
+Contract Program {
+    fn sum(arr: int[]) -> int {
+        var total: int = 0;
+        for (var i: int = 0; i < arr.Length; i = i + 1) {
+            total += arr[i];
+        }
+        return total;
+    }
+
+    fn makeRange(n: int) -> int[] {
+        var result: int[] = new int[n];
+        for (var i: int = 0; i < n; i = i + 1) {
+            result[i] = i * i;
+        }
+        return result;
+    }
+
+    fn firstWord(s: string) -> string {
+        var parts: string[] = String.Split(s, " ");
+        if (parts.Length > 0) {
+            return parts[0];
+        }
+        return "";
+    }
+
+    static fn Main() {
+        // Array parameter
+        var nums: int[] = [1, 2, 3, 4];
+        let total = sum(nums);
+        IO.Println(total);
+
+        // Array return
+        var squares: int[] = makeRange(5);
+        IO.Println(squares[0]);
+        IO.Println(squares[2]);
+        IO.Println(squares.Length);
+
+        // Array of strings (element type from identifier inference)
+        var a: string = "ada";
+        var b: string = "grace";
+        var names: string[] = [a, b];
+        IO.Println(names[1]);
+
+        // String.Split returns string[]
+        let first = firstWord("hello world");
+        IO.Println(first);
+
+        // Empty array literal with explicit type
+        var empty: string[] = [];
+        IO.Println(empty.Length);
+
+        // Array of custom types
+        var grid: int[] = new int[3];
+        grid[0] = 5;
+        grid[1] = 6;
+        grid[2] = 7;
+        IO.Println(grid[0] + grid[1] + grid[2]);
+    }
+}

@@ -7,16 +7,18 @@ namespace Contract.Compiler.Parsing
     public enum TokenType
     {
         // Keywords
-        Contract, Fn, If, Else, While, Switch, Case, Return, Var, Let, Static,
+        Contract, Fn, If, Else, While, For, Switch, Case, Return, Var, Let, Static,
         Public, Private, Protected, Internal, Null, Import, Constructor, Struct, Export, Fun, Types, Type, New,
+        Break, Continue, True, False,
         
         // Literals
-        Identifier, IntLiteral, StringLiteral,
+        Identifier, IntLiteral, FloatLiteral, StringLiteral, InterpolatedString,
         
         // Symbols
         LParen, RParen, LBrace, RBrace, LBracket, RBracket,
-        Semicolon, Colon, DoubleColon, Comma, Dot, Plus, Minus, Star, Slash,
+        Semicolon, Colon, DoubleColon, Comma, Dot, Plus, Minus, Star, Slash, Percent,
         Less, LessEqual, Greater, GreaterEqual, EqualEqual, Bang, BangEqual, Assign, Arrow, Pipe,
+        PlusEqual, MinusEqual, StarEqual, SlashEqual, PercentEqual, AndAnd, OrOr,
         
         // Special
         EOF
@@ -73,7 +75,12 @@ namespace Contract.Compiler.Parsing
             ["export"] = TokenType.Export,
             ["Types"] = TokenType.Types,
             ["type"] = TokenType.Type,
-            ["new"] = TokenType.New
+            ["new"] = TokenType.New,
+            ["for"] = TokenType.For,
+            ["break"] = TokenType.Break,
+            ["continue"] = TokenType.Continue,
+            ["true"] = TokenType.True,
+            ["false"] = TokenType.False
         };
 
         public Lexer(string source, DiagnosticBag diagnostics)
@@ -212,8 +219,21 @@ namespace Contract.Compiler.Parsing
                 _column++;
             }
 
+            // Float literals: digits '.' digits (e.g. 3.14, 2.0)
+            if (_position + 1 < _source.Length && _source[_position] == '.' && char.IsDigit(_source[_position + 1]))
+            {
+                _position++; // '.'
+                _column++;
+                while (_position < _source.Length && char.IsDigit(_source[_position]))
+                {
+                    _position++;
+                    _column++;
+                }
+            }
+
             string text = _source.Substring(start, _position - start);
-            return new Token(TokenType.IntLiteral, text, _line, startColumn);
+            bool isFloat = text.Contains('.');
+            return new Token(isFloat ? TokenType.FloatLiteral : TokenType.IntLiteral, text, _line, startColumn);
         }
 
         private Token ReadString()
@@ -244,7 +264,20 @@ namespace Contract.Compiler.Parsing
             }
 
             string text = _source.Substring(start, _position - start);
-            return new Token(TokenType.StringLiteral, text, _line, startColumn);
+            bool interpolated = ContainsInterpolation(text);
+            return new Token(interpolated ? TokenType.InterpolatedString : TokenType.StringLiteral, text, _line, startColumn);
+        }
+
+        private static bool ContainsInterpolation(string text)
+        {
+            for (int i = 0; i < text.Length - 1; i++)
+            {
+                if (text[i] != '{') continue;
+                int j = i + 1;
+                while (j < text.Length && (char.IsLetterOrDigit(text[j]) || text[j] == '_')) j++;
+                if (j < text.Length && text[j] == '}') return true;
+            }
+            return false;
         }
 
         private Token? ReadSymbol()
@@ -277,9 +310,24 @@ namespace Contract.Compiler.Parsing
                     break;
                 case ',': type = TokenType.Comma; break;
                 case '.': type = TokenType.Dot; break;
-                case '+': type = TokenType.Plus; break;
+                case '+':
+                    if (_position + 1 < _source.Length && _source[_position + 1] == '=')
+                    {
+                        type = TokenType.PlusEqual;
+                        length = 2;
+                    }
+                    else
+                    {
+                        type = TokenType.Plus;
+                    }
+                    break;
                 case '-':
-                    if (_position + 1 < _source.Length && _source[_position + 1] == '>')
+                    if (_position + 1 < _source.Length && _source[_position + 1] == '=')
+                    {
+                        type = TokenType.MinusEqual;
+                        length = 2;
+                    }
+                    else if (_position + 1 < _source.Length && _source[_position + 1] == '>')
                     {
                         type = TokenType.Arrow;
                         length = 2;
@@ -289,12 +337,62 @@ namespace Contract.Compiler.Parsing
                         type = TokenType.Minus;
                     }
                     break;
-                case '*': type = TokenType.Star; break;
-                case '/': type = TokenType.Slash; break;
+                case '*':
+                    if (_position + 1 < _source.Length && _source[_position + 1] == '=')
+                    {
+                        type = TokenType.StarEqual;
+                        length = 2;
+                    }
+                    else
+                    {
+                        type = TokenType.Star;
+                    }
+                    break;
+                case '/':
+                    if (_position + 1 < _source.Length && _source[_position + 1] == '=')
+                    {
+                        type = TokenType.SlashEqual;
+                        length = 2;
+                    }
+                    else
+                    {
+                        type = TokenType.Slash;
+                    }
+                    break;
+                case '%':
+                    if (_position + 1 < _source.Length && _source[_position + 1] == '=')
+                    {
+                        type = TokenType.PercentEqual;
+                        length = 2;
+                    }
+                    else
+                    {
+                        type = TokenType.Percent;
+                    }
+                    break;
                 case '|':
                     if (_position + 1 < _source.Length && _source[_position + 1] == '>')
                     {
                         type = TokenType.Pipe;
+                        length = 2;
+                    }
+                    else if (_position + 1 < _source.Length && _source[_position + 1] == '|')
+                    {
+                        type = TokenType.OrOr;
+                        length = 2;
+                    }
+                    else
+                    {
+                        _diagnostics.AddError($"Unexpected character: {c}", _line, _column);
+                        _position++;
+                        _column++;
+                        return null;
+                    }
+                    break;
+                case '&':
+                    if (_position + 1 < _source.Length && _source[_position + 1] == '&')
+                    {
+                        type = TokenType.AndAnd;
                         length = 2;
                     }
                     else

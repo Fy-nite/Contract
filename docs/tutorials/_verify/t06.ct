@@ -1,0 +1,24 @@
+Contract Program {
+    fn addOne(x: int) -> int {
+        return x + 1;
+    }
+
+    fn square(x: int) -> int {
+        return x * x;
+    }
+
+    fn halve(x: int) -> int {
+        return x / 2;
+    }
+
+    static fn Main() {
+        let inc = fun x -> x + 1;
+        IO.Println(inc(5));
+        let result = 3 |> addOne |> square;
+        IO.Println(result);
+        let doubled = 10 |> fun x -> x + 5;
+        IO.Println(doubled);
+        let final = 100 |> halve |> halve;
+        IO.Println(final);
+    }
+}

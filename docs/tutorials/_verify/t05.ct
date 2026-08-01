@@ -1,0 +1,20 @@
+Types {
+    type Rectangle {
+        width: int;
+        height: int;
+    }
+}
+
+Contract Counter {
+    constructor(start: int) {
+        IO.Println("Counter started at " + start);
+    }
+
+    static fn Main() {
+        var r: Rectangle = new Rectangle();
+        r.width = 5;
+        r.height = 3;
+        IO.Println(r.width * r.height);
+        var c: Counter = new Counter();
+    }
+}

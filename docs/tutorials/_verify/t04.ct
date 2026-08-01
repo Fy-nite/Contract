@@ -1,0 +1,13 @@
+Contract Program {
+    fn max(a: int, b: int) -> int {
+        if (a > b) {
+            return a;
+        }
+        return b;
+    }
+
+    static fn Main() {
+        var result: int = max(4, 9);
+        IO.Println(result);
+    }
+}

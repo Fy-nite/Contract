@@ -1,0 +1,53 @@
+Contract Program {
+    fn abs(n: int) -> int {
+        if (n < 0) {
+            return -n;
+        }
+        return n;
+    }
+
+    fn canDrive(age: int, hasLicense: bool) -> bool {
+        return age >= 18 && hasLicense;
+    }
+
+    static fn Main() {
+        // Unary minus and not
+        var neg: int = -5;
+        var absVal: int = abs(neg);
+        var notDone: bool = !true;
+        IO.Println(absVal);
+        IO.Println(notDone);
+
+        // Logical and / or
+        var ok1: bool = true && false;
+        var ok2: bool = false || true;
+        var drive: bool = canDrive(21, true);
+        IO.Println(ok1);
+        IO.Println(ok2);
+        IO.Println(drive);
+
+        // Multi-parameter lambda
+        let addPair = fun a b -> a + b;
+        IO.Println(addPair(2, 3));
+
+        // String interpolation
+        var name: string = "Ada";
+        let msg = "Hello, {name}!";
+        IO.Println(msg);
+
+        // Array literals
+        var nums: int[] = [10, 20, 30];
+        nums[1] = 25;
+        IO.Println(nums[0]);
+        IO.Println(nums[1]);
+        IO.Println(nums.Length);
+
+        // Array allocation
+        var sizes: int[] = new int[4];
+        sizes[0] = 7;
+        sizes[3] = 42;
+        IO.Println(sizes[0]);
+        IO.Println(sizes[3]);
+        IO.Println(sizes.Length);
+    }
+}

@@ -1,0 +1,17 @@
+Contract Program {
+    fn smain() {
+        let inc: int = fun x -> x + 1;
+        let val: int = 10 |> inc;
+        IO.Println(val);  // 11
+    }
+    
+    fn square(x: int) {
+        return x * x;
+    }
+    
+    static fn Main() {
+        let result: int = 5 |> square;
+	smain();
+        IO.Println(result);  // 25
+    }
+}

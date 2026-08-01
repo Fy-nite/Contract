@@ -1,0 +1,7 @@
+Contract Program {
+    static fn Main() {
+        IO.Print("What's your name? ");
+        var name: string = IO.Readln();
+        IO.Println("Hi, " + name + "!");
+    }
+}

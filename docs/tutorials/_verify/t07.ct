@@ -1,0 +1,36 @@
+Contract Program {
+    static fn Main() {
+        var scores: int[] = [90, 85, 100];
+        var total: int = 0;
+
+        for (var i: int = 0; i < scores.Length; i = i + 1) {
+            total += scores[i];
+        }
+
+        IO.Println(total);
+
+        var values: int[] = [3, 9, 4, 12, 7];
+        var largest: int = values[0];
+
+        for (var i: int = 1; i < values.Length; i = i + 1) {
+            if (values[i] > largest) {
+                largest = values[i];
+            }
+        }
+
+        IO.Println(largest);
+
+        var age: int = 20;
+        var isAdult: bool = age >= 18;
+        var hasId: bool = true;
+        var allowed: bool = isAdult && hasId;
+        var notAdult: bool = !isAdult;
+        IO.Println(allowed);
+        IO.Println(notAdult);
+
+        let nums = [1, 2, 3];
+        let sizes = new int[8];
+        IO.Println(nums.Length);
+        IO.Println(sizes.Length);
+    }
+}

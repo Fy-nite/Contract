@@ -1,0 +1,51 @@
+Contract Program {
+    static fn Main() {
+        // List — void* maps to object
+        var list = List.Create();
+        List.Add(list, 10);
+        List.Add(list, "hello");
+        List.Add(list, true);
+        IO.Println(List.Count(list));
+        IO.Println(List.Get(list, 0));
+        IO.Println(List.Get(list, 1));
+        List.RemoveAt(list, 0);
+        IO.Println(List.Get(list, 0));
+        IO.Println(List.Count(list));
+
+        // Dict
+        var dict = Dict.Create();
+        Dict.Set(dict, "name", "Ada");
+        Dict.Set(dict, "age", 36);
+        IO.Println(Dict.ContainsKey(dict, "name"));
+        IO.Println(Dict.Get(dict, "name"));
+        IO.Println(Dict.Count(dict));
+        Dict.Remove(dict, "name");
+        IO.Println(Dict.ContainsKey(dict, "name"));
+
+        // Array helper on a language array
+        var nums: int[] = [5, 6, 7];
+        IO.Println(Array.Length(nums));
+        IO.Println(Array.Get(nums, 1));
+        Array.Set(nums, 2, 9);
+        IO.Println(nums[2]);
+
+        // object inference
+        let l2 = List.Create();
+        IO.Println(l2);
+
+        // Time returns int64
+        let now = Time.Now();
+        IO.Println(now);
+
+        // Misc safe calls
+        Thread.Sleep(1);
+        GC.Collect();
+        Debug.Assert(true, "ok");
+        IO.Println(File.Exists("."));
+        IO.Println(Environment.GetEnv("PATH"));
+
+        // String.Split still returns string[]
+        var parts: string[] = String.Split("a b c", " ");
+        IO.Println(parts.Length);
+    }
+}

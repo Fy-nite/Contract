@@ -1,0 +1,34 @@
+Contract Program {
+    static fn Main() {
+        var name: string = "ada";
+        IO.Println(String.ToUpper(name));
+        IO.Println(String.Length(name));
+        IO.Println(String.Substring(name, 0, 2));
+        IO.Println(String.StartsWith(name, "a"));
+        IO.Println(String.Replace(name, "a", "o"));
+        IO.Println(Math.Abs(-7));
+        IO.Println(Math.Min(3, 9));
+        IO.Println(Math.Max(3, 9));
+        var n: int = Convert.ToInt32("42");
+        var s: string = Convert.ToString(7);
+        var b: bool = Convert.ToBool("true");
+        IO.Println(n);
+        IO.Println(s);
+        IO.Println(b);
+        var die: int = Random.NextInt(6) + 1;
+        IO.Println(die);
+
+        var cmd: string = "stop";
+        switch (cmd) {
+            case "start": IO.Println("starting");
+            case "stop": IO.Println("stopping");
+            else: IO.Println("unknown command");
+        }
+
+        var cleaned: string = String.ToLower(String.Trim("  GO  "));
+        switch (cleaned) {
+            case "go": IO.Println("yes");
+            else: IO.Println("no");
+        }
+    }
+}

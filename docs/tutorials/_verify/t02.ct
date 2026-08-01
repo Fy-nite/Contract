@@ -1,0 +1,12 @@
+Contract Program {
+    static fn Main() {
+        var count: int = 0;
+        let pi: double = 3.14159;
+        count = count + 1;
+        let temperature = 23.5;
+        var score: int = 10;
+        score = score + 5;
+        IO.Println(temperature);
+        IO.Println(score);
+    }
+}

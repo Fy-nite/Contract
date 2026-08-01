@@ -1,8 +1,14 @@
-import "Utils.ct";
+Contract Utils
+{
 
+fn utils_func()
+{
+    IO.Println("Hello from Utils!");
+}
+}
 Contract Program
 {
-    static fn Main(args: string[])
+    static fn Main()
     {
         Utils::utils_func();
         IO.Println("hello world");

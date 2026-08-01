@@ -72,9 +72,9 @@ namespace Contract.Compiler.AST
     public class StructField : Node
     {
         public string Name { get; }
-        public string Type { get; }
+        public TypeDescriptor Type { get; }
 
-        public StructField(string name, string type, int line, int column) : base(line, column)
+        public StructField(string name, TypeDescriptor type, int line, int column) : base(line, column)
         {
             Name = name;
             Type = type;
@@ -107,6 +107,7 @@ namespace Contract.Compiler.AST
         public string? ContractName { get; set; }
         public bool IsStatic { get; set; }
         public AccessModifier Access { get; set; } = AccessModifier.Default;
+        public TypeDescriptor? ReturnType { get; set; }
 
         public FunctionDeclaration(string name, int line, int column) : base(line, column)
         {
@@ -117,9 +118,9 @@ namespace Contract.Compiler.AST
     public class Parameter : Node
     {
         public string Name { get; }
-        public string Type { get; }
+        public TypeDescriptor Type { get; }
 
-        public Parameter(string name, string type, int line, int column) : base(line, column)
+        public Parameter(string name, TypeDescriptor type, int line, int column) : base(line, column)
         {
             Name = name;
             Type = type;
@@ -151,10 +152,10 @@ namespace Contract.Compiler.AST
     public class VariableDeclaration : Statement
     {
         public string Name { get; }
-        public string Type { get; }
+        public TypeDescriptor Type { get; set; }
         public Expression? Initializer { get; }
 
-        public VariableDeclaration(string name, string type, Expression? initializer, int line, int column) : base(line, column)
+        public VariableDeclaration(string name, TypeDescriptor type, Expression? initializer, int line, int column) : base(line, column)
         {
             Name = name;
             Type = type;
@@ -188,6 +189,32 @@ namespace Contract.Compiler.AST
         }
     }
 
+    public class ForStatement : Statement
+    {
+        public Statement? Initializer { get; }
+        public Expression? Condition { get; }
+        public Expression? Update { get; }
+        public Statement Body { get; }
+
+        public ForStatement(Statement? initializer, Expression? condition, Expression? update, Statement body, int line, int column) : base(line, column)
+        {
+            Initializer = initializer;
+            Condition = condition;
+            Update = update;
+            Body = body;
+        }
+    }
+
+    public class BreakStatement : Statement
+    {
+        public BreakStatement(int line, int column) : base(line, column) { }
+    }
+
+    public class ContinueStatement : Statement
+    {
+        public ContinueStatement(int line, int column) : base(line, column) { }
+    }
+
     public class ReturnStatement : Statement
     {
         public Expression? Value { get; }
@@ -212,6 +239,7 @@ namespace Contract.Compiler.AST
     public class SwitchCase : Node
     {
         public int? Value { get; } // null for 'else' case
+        public string? StringValue { get; set; } // set for string cases like case "start":
         public List<Statement> Statements { get; } = new();
 
         public SwitchCase(int? value, int line, int column) : base(line, column)
@@ -250,12 +278,26 @@ namespace Contract.Compiler.AST
         public Expression Left { get; }
         public string Operator { get; }
         public Expression Right { get; }
+        /// <summary>Resolved result type (e.g. string for concat), set during semantic analysis.</summary>
+        public TypeDescriptor? ResolvedType { get; set; }
 
         public BinaryExpression(Expression left, string op, Expression right, int line, int column) : base(line, column)
         {
             Left = left;
             Operator = op;
             Right = right;
+        }
+    }
+
+    public class UnaryExpression : Expression
+    {
+        public Expression Operand { get; }
+        public string Operator { get; }
+
+        public UnaryExpression(Expression operand, string op, int line, int column) : base(line, column)
+        {
+            Operand = operand;
+            Operator = op;
         }
     }
 
@@ -321,11 +363,22 @@ namespace Contract.Compiler.AST
     public class NewExpression : Expression
     {
         public string TypeName { get; }
+        public Expression? Size { get; }
 
-        public NewExpression(string typeName, int line, int column) : base(line, column)
+        public NewExpression(string typeName, int line, int column, Expression? size = null) : base(line, column)
         {
             TypeName = typeName;
+            Size = size;
         }
+    }
+
+    public class ArrayLiteralExpression : Expression
+    {
+        public List<Expression> Elements { get; } = new();
+        /// <summary>Element type, resolved during semantic analysis.</summary>
+        public TypeDescriptor? ElementType { get; set; }
+
+        public ArrayLiteralExpression(int line, int column) : base(line, column) { }
     }
 
     public class PipeExpression : Expression

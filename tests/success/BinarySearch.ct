@@ -7,9 +7,11 @@ Contract Program
         while (l < r)
         {
             var m: int = (l + r) / 2;
-            if (m * m == 25)
+            m = m * m;
+            if (m == 25)
             {
-                IO.Println("Found it: " + m);
+                IO.Println("Found it: ");
+                IO.Print(m);
                 
             }
             else if (m * m < 25)

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Contract.Compiler.AST;
 using Contract.Compiler.Parsing;
 using Contract.Compiler.Diagnostics;
@@ -118,7 +119,7 @@ namespace Contract.Compiler.Parsing
                         Consume(TokenType.Colon, "Expected ':'");
                         string fieldType = ParseType();
                         
-                        customType.Fields.Add(new StructField(fieldName, fieldType, Previous.Line, Previous.Column));
+                        customType.Fields.Add(new StructField(fieldName, TypeDescriptor.Parse(fieldType), Previous.Line, Previous.Column));
                         Consume(TokenType.Semicolon, "Expected ';' after field definition");
                         
                         if (Match(TokenType.Comma)) continue;
@@ -158,7 +159,7 @@ namespace Contract.Compiler.Parsing
                 string fieldType = ParseType();
                 Consume(TokenType.Semicolon, "Expected ';' after field definition");
 
-                structDecl.Fields.Add(new StructField(fieldName, fieldType, Previous.Line, Previous.Column));
+                structDecl.Fields.Add(new StructField(fieldName, TypeDescriptor.Parse(fieldType), Previous.Line, Previous.Column));
 
                 if (Match(TokenType.Comma))
                 {
@@ -256,7 +257,7 @@ namespace Contract.Compiler.Parsing
                         paramType = ParseType();
                     }
 
-                    ctor.Parameters.Add(new Parameter(paramName, paramType, Previous.Line, Previous.Column));
+                    ctor.Parameters.Add(new Parameter(paramName, TypeDescriptor.Parse(paramType), Previous.Line, Previous.Column));
                 } while (Match(TokenType.Comma));
             }
 
@@ -299,11 +300,16 @@ namespace Contract.Compiler.Parsing
                         paramType = ParseType();
                     }
 
-                    function.Parameters.Add(new Parameter(paramName, paramType, Previous.Line, Previous.Column));
+                    function.Parameters.Add(new Parameter(paramName, TypeDescriptor.Parse(paramType), Previous.Line, Previous.Column));
                 } while (Match(TokenType.Comma));
             }
 
             Consume(TokenType.RParen, "Expected ')' after parameters");
+
+            if (Match(TokenType.Arrow))
+            {
+                function.ReturnType = TypeDescriptor.Parse(ParseType());
+            }
 
             if (Match(TokenType.LBrace))
             {
@@ -363,9 +369,27 @@ namespace Contract.Compiler.Parsing
             {
                 return ParseWhileStatement();
             }
+            else if (Match(TokenType.For))
+            {
+                return ParseForStatement();
+            }
             else if (Match(TokenType.Switch))
             {
                 return ParseSwitchStatement();
+            }
+            else if (Match(TokenType.Break))
+            {
+                int line = Previous.Line;
+                int column = Previous.Column;
+                Consume(TokenType.Semicolon, "Expected ';' after 'break'");
+                return new BreakStatement(line, column);
+            }
+            else if (Match(TokenType.Continue))
+            {
+                int line = Previous.Line;
+                int column = Previous.Column;
+                Consume(TokenType.Semicolon, "Expected ';' after 'continue'");
+                return new ContinueStatement(line, column);
             }
             else if (Match(TokenType.Return))
             {
@@ -403,7 +427,7 @@ namespace Contract.Compiler.Parsing
 
             Consume(TokenType.Semicolon, "Expected ';' after variable declaration");
 
-            return new VariableDeclaration(name, type, initializer, line, column);
+            return new VariableDeclaration(name, TypeDescriptor.Parse(type), initializer, line, column);
         }
 
         private IfStatement ParseIfStatement()
@@ -440,6 +464,49 @@ namespace Contract.Compiler.Parsing
             return new WhileStatement(condition, body, line, column);
         }
 
+        private ForStatement ParseForStatement()
+        {
+            int line = Previous.Line;
+            int column = Previous.Column;
+
+            Consume(TokenType.LParen, "Expected '(' after 'for'");
+
+            // Initializer: variable declaration, expression, or empty
+            Statement? initializer = null;
+            if (Match(TokenType.Var) || Match(TokenType.Let))
+            {
+                initializer = ParseVariableDeclaration();
+            }
+            else if (!Check(TokenType.Semicolon))
+            {
+                initializer = ParseExpressionStatement();
+            }
+            else
+            {
+                Consume(TokenType.Semicolon, "Expected ';' after for initializer");
+            }
+
+            // Condition (optional)
+            Expression? condition = null;
+            if (!Check(TokenType.Semicolon))
+            {
+                condition = ParseExpression();
+            }
+            Consume(TokenType.Semicolon, "Expected ';' after for condition");
+
+            // Update (optional)
+            Expression? update = null;
+            if (!Check(TokenType.RParen))
+            {
+                update = ParseExpression();
+            }
+            Consume(TokenType.RParen, "Expected ')' after for update");
+
+            var body = ParseStatement();
+
+            return new ForStatement(initializer, condition, update, body, line, column);
+        }
+
         private SwitchStatement ParseSwitchStatement()
         {
             int line = Previous.Line;
@@ -458,8 +525,21 @@ namespace Contract.Compiler.Parsing
                 int startPos = _current;
                 if (Match(TokenType.Case))
                 {
-                    Consume(TokenType.IntLiteral, "Expected integer literal after 'case'");
-                    int caseValue = int.Parse(Previous.Text);
+                    int? caseValue = null;
+                    string? caseString = null;
+                    if (Match(TokenType.IntLiteral))
+                    {
+                        caseValue = int.Parse(Previous.Text);
+                    }
+                    else if (Match(TokenType.StringLiteral))
+                    {
+                        caseString = Previous.Text;
+                    }
+                    else
+                    {
+                        _diagnostics.AddError("Expected integer or string literal after 'case'", Current.Line, Current.Column);
+                        Advance();
+                    }
                     Consume(TokenType.Colon, "Expected ':' after case value");
 
                     var caseStatements = new List<Statement>();
@@ -475,7 +555,7 @@ namespace Contract.Compiler.Parsing
                         }
                     }
 
-                    var switchCase = new SwitchCase(caseValue, Previous.Line, Previous.Column);
+                    var switchCase = new SwitchCase(caseValue, Previous.Line, Previous.Column) { StringValue = caseString };
                     switchCase.Statements.AddRange(caseStatements);
                     switchStmt.Cases.Add(switchCase);
                 }
@@ -548,19 +628,58 @@ namespace Contract.Compiler.Parsing
 
         private Expression ParseAssignment()
         {
-            var expr = ParseEquality();
+            var expr = ParseOr();
 
-            if (Match(TokenType.Assign))
+            if (Match(TokenType.Assign, TokenType.PlusEqual, TokenType.MinusEqual, TokenType.StarEqual, TokenType.SlashEqual, TokenType.PercentEqual))
             {
-                var equals = Previous;
+                var opToken = Previous;
+                string op = opToken.Type switch
+                {
+                    TokenType.Assign => "=",
+                    TokenType.PlusEqual => "+=",
+                    TokenType.MinusEqual => "-=",
+                    TokenType.StarEqual => "*=",
+                    TokenType.SlashEqual => "/=",
+                    TokenType.PercentEqual => "%=",
+                    _ => "="
+                };
+
                 var value = ParseAssignment();
 
                 if (expr is IdentifierExpression || expr is MemberExpression || expr is IndexExpression)
                 {
-                    return new BinaryExpression(expr, "=", value, equals.Line, equals.Column);
+                    return new BinaryExpression(expr, op, value, opToken.Line, opToken.Column);
                 }
 
-                _diagnostics.AddError("Invalid assignment target", equals.Line, equals.Column);
+                _diagnostics.AddError("Invalid assignment target", opToken.Line, opToken.Column);
+            }
+
+            return expr;
+        }
+
+        private Expression ParseOr()
+        {
+            var expr = ParseAnd();
+
+            while (Match(TokenType.OrOr))
+            {
+                var op = Previous.Text;
+                var right = ParseAnd();
+                expr = new BinaryExpression(expr, op, right, expr.Line, expr.Column);
+            }
+
+            return expr;
+        }
+
+        private Expression ParseAnd()
+        {
+            var expr = ParseEquality();
+
+            while (Match(TokenType.AndAnd))
+            {
+                var op = Previous.Text;
+                var right = ParseEquality();
+                expr = new BinaryExpression(expr, op, right, expr.Line, expr.Column);
             }
 
             return expr;
@@ -610,16 +729,28 @@ namespace Contract.Compiler.Parsing
 
         private Expression ParseMultiplication()
         {
-            var expr = ParsePostfix();
+            var expr = ParseUnary();
 
-            while (Match(TokenType.Star, TokenType.Slash))
+            while (Match(TokenType.Star, TokenType.Slash, TokenType.Percent))
             {
                 var op = Previous.Text;
-                var right = ParsePostfix();
+                var right = ParseUnary();
                 expr = new BinaryExpression(expr, op, right, expr.Line, expr.Column);
             }
 
             return expr;
+        }
+
+        private Expression ParseUnary()
+        {
+            if (Match(TokenType.Minus, TokenType.Bang))
+            {
+                var op = Previous;
+                var operand = ParseUnary();
+                return new UnaryExpression(operand, op.Text, op.Line, op.Column);
+            }
+
+            return ParsePostfix();
         }
 
         private Expression ParsePostfix()
@@ -688,27 +819,65 @@ namespace Contract.Compiler.Parsing
             {
                 return new LiteralExpression(int.Parse(Previous.Text), Previous.Line, Previous.Column);
             }
+            else if (Match(TokenType.FloatLiteral))
+            {
+                if (double.TryParse(Previous.Text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double floatValue))
+                {
+                    return new LiteralExpression(floatValue, Previous.Line, Previous.Column);
+                }
+                _diagnostics.AddError($"Invalid float literal: '{Previous.Text}'", Previous.Line, Previous.Column);
+                return new LiteralExpression(0.0, Previous.Line, Previous.Column);
+            }
             else if (Match(TokenType.StringLiteral))
             {
                 return new LiteralExpression(Previous.Text, Previous.Line, Previous.Column);
             }
+            else if (Match(TokenType.InterpolatedString))
+            {
+                return ParseInterpolatedString(Previous.Text, Previous.Line, Previous.Column);
+            }
+            else if (Match(TokenType.True))
+            {
+                return new LiteralExpression(true, Previous.Line, Previous.Column);
+            }
+            else if (Match(TokenType.False))
+            {
+                return new LiteralExpression(false, Previous.Line, Previous.Column);
+            }
             else if (Match(TokenType.Null))
             {
                 return new LiteralExpression(null, Previous.Line, Previous.Column);
+            }
+            else if (Match(TokenType.LBracket))
+            {
+                var arrayLit = new ArrayLiteralExpression(Previous.Line, Previous.Column);
+                if (!Check(TokenType.RBracket))
+                {
+                    do
+                    {
+                        arrayLit.Elements.Add(ParseExpression());
+                    } while (Match(TokenType.Comma));
+                }
+                Consume(TokenType.RBracket, "Expected ']' after array literal");
+                return arrayLit;
             }
             else if (Match(TokenType.Fun))
             {
                 int line = Previous.Line;
                 int column = Previous.Column;
 
-                // Handle single identifier parameter (simple lambda)
-                Consume(TokenType.Identifier, "Expected parameter name after 'fun'");
-                var param = Previous.Text;
-                
-                Consume(TokenType.Arrow, "Expected '->' after lambda parameter");
+                // Parameters: one or more identifiers, e.g. 'fun x -> ...' or 'fun x y -> ...'
+                var parameters = new List<string>();
+                do
+                {
+                    Consume(TokenType.Identifier, "Expected parameter name after 'fun'");
+                    parameters.Add(Previous.Text);
+                } while (Check(TokenType.Identifier));
+
+                Consume(TokenType.Arrow, "Expected '->' after lambda parameters");
                 var body = ParseExpression();
 
-                return new LambdaExpression(new List<string> { param }, body, line, column);
+                return new LambdaExpression(parameters, body, line, column);
             }
             else if (Match(TokenType.New))
             {
@@ -717,11 +886,21 @@ namespace Contract.Compiler.Parsing
 
                 Consume(TokenType.Identifier, "Expected type name after 'new'");
                 string typeName = Previous.Text;
-                
-                Consume(TokenType.LParen, "Expected '(' after type name");
-                Consume(TokenType.RParen, "Expected ')' after '('");
 
-                return new NewExpression(typeName, line, column);
+                Expression? size = null;
+                if (Match(TokenType.LBracket))
+                {
+                    // Array allocation: new Type[expr]
+                    size = ParseExpression();
+                    Consume(TokenType.RBracket, "Expected ']' after array size");
+                }
+                else
+                {
+                    Consume(TokenType.LParen, "Expected '(' after type name");
+                    Consume(TokenType.RParen, "Expected ')' after '('");
+                }
+
+                return new NewExpression(typeName, line, column, size);
             }
             else if (Match(TokenType.Identifier))
             {
@@ -738,6 +917,59 @@ namespace Contract.Compiler.Parsing
             var dummy = new LiteralExpression(0, Current.Line, Current.Column);
             Advance(); // Advance to prevent infinite loop
             return dummy;
+        }
+
+        private Expression ParseInterpolatedString(string raw, int line, int column)
+        {
+            // raw includes the surrounding quotes: "Hello, {name}!"
+            string content = raw.Length >= 2 ? raw.Substring(1, raw.Length - 2) : raw;
+            var parts = new List<Expression>();
+            int i = 0;
+
+            while (i < content.Length)
+            {
+                int open = content.IndexOf('{', i);
+                if (open < 0)
+                {
+                    parts.Add(new LiteralExpression("\"" + content.Substring(i) + "\"", line, column));
+                    break;
+                }
+
+                if (open > i)
+                {
+                    parts.Add(new LiteralExpression("\"" + content.Substring(i, open - i) + "\"", line, column));
+                }
+
+                int close = content.IndexOf('}', open);
+                if (close < 0)
+                {
+                    _diagnostics.AddError("Unterminated interpolation in string literal", line, column);
+                    parts.Add(new LiteralExpression(content.Substring(i), line, column));
+                    break;
+                }
+
+                string name = content.Substring(open + 1, close - open - 1);
+                if (name.Length == 0 || !(char.IsLetter(name[0]) || name[0] == '_') ||
+                    name.Any(c => !(char.IsLetterOrDigit(c) || c == '_')))
+                {
+                    _diagnostics.AddError($"Invalid interpolation expression: '{{{name}}}'", line, column);
+                }
+                else
+                {
+                    parts.Add(new IdentifierExpression(name, line, column));
+                }
+
+                i = close + 1;
+            }
+
+            if (parts.Count == 0) return new LiteralExpression("", line, column);
+
+            Expression result = parts[0];
+            for (int k = 1; k < parts.Count; k++)
+            {
+                result = new BinaryExpression(result, "+", parts[k], line, column);
+            }
+            return result;
         }
 
         private bool Match(params TokenType[] types)

@@ -1,0 +1,49 @@
+Contract Program {
+    fn twice(x: int) -> int {
+        return x * 2;
+    }
+
+    fn describe(v: bool) -> string {
+        if (v == true) {
+            return "yes";
+        } else {
+            return "no";
+        }
+    }
+
+    fn sumTo(n: int) -> int {
+        var total: int = 0;
+        for (var i: int = 0; i < n; i = i + 1) {
+            if (i == 3) {
+                continue;
+            }
+            total += i;
+            if (total > 100) {
+                break;
+            }
+        }
+        return total;
+    }
+
+    static fn Main() {
+        let a = 5;             // inferred int
+        let b = "hello";       // inferred string
+        let c = true;          // inferred bool
+        let d = 3.5;           // inferred double
+        var n: double = 2.5;
+        n += 1.5;
+        n *= 2.0;
+        n -= 1.0;
+        n /= 2.0;
+        let result: int = sumTo(10);
+        let doubled: int = twice(result);
+        let desc: string = describe(c);
+        IO.Println(a);
+        IO.Println(b);
+        IO.Println(c);
+        IO.Println(d);
+        IO.Println(n);
+        IO.Println(doubled);
+        IO.Println(desc);
+    }
+}
