@@ -45,11 +45,6 @@ namespace Contract.Compiler.Parsing
                         program.Imports.Add(importPath);
                         Consume(TokenType.Semicolon, "Expected ';' after import statement");
                     }
-                    else if (Match(TokenType.Types))
-                    {
-                        var typesDecl = ParseTypes();
-                        program.Types.Add(typesDecl);
-                    }
                     else if (Match(TokenType.Contract))
                     {
                         var contract = ParseContract();
@@ -89,52 +84,6 @@ namespace Contract.Compiler.Parsing
             }
 
             return program;
-        }
-
-        private TypesDeclaration ParseTypes()
-        {
-            int line = Previous.Line;
-            int column = Previous.Column;
-
-            Consume(TokenType.LBrace, "Expected '{' after 'Types'");
-            var typesDecl = new TypesDeclaration(line, column);
-
-            while (!Check(TokenType.RBrace) && !IsAtEnd())
-            {
-                // We don't just match 'type'. It must be here if it's a type def.
-                // The loop should continue as long as we have 'type' definitions.
-                if (Match(TokenType.Type)) {
-                    Consume(TokenType.Identifier, "Expected type name");
-                    var typeName = Previous.Text;
-                    
-                    var customType = new CustomTypeDefinition(typeName, Previous.Line, Previous.Column);
-                    
-                    Consume(TokenType.LBrace, "Expected '{' after type name");
-                    
-                    while (!Check(TokenType.RBrace) && !IsAtEnd())
-                    {
-                        Consume(TokenType.Identifier, "Expected field name");
-                        string fieldName = Previous.Text;
-                        
-                        Consume(TokenType.Colon, "Expected ':'");
-                        string fieldType = ParseType();
-                        
-                        customType.Fields.Add(new StructField(fieldName, TypeDescriptor.Parse(fieldType), Previous.Line, Previous.Column));
-                        Consume(TokenType.Semicolon, "Expected ';' after field definition");
-                        
-                        if (Match(TokenType.Comma)) continue;
-                    }
-                    
-                    Consume(TokenType.RBrace, "Expected '}'");
-                    typesDecl.Definitions.Add(customType);
-                } else {
-                    _diagnostics.AddError("Expected 'type' keyword", Current.Line, Current.Column);
-                    Advance();
-                }
-            }
-
-            Consume(TokenType.RBrace, "Expected '}' after Types block");
-            return typesDecl;
         }
 
         private StructDeclaration ParseStruct()
@@ -219,6 +168,15 @@ namespace Contract.Compiler.Parsing
                     function.Access = access;
                     contract.Members.Add(function);
                 }
+                else if (Match(TokenType.Identifier))
+                {
+                    // A field declaration: name: type;
+                    string fieldName = Previous.Text;
+                    Consume(TokenType.Colon, "Expected ':' after field name");
+                    string fieldType = ParseType();
+                    Consume(TokenType.Semicolon, "Expected ';' after field declaration");
+                    contract.Fields.Add(new StructField(fieldName, TypeDescriptor.Parse(fieldType), Previous.Line, Previous.Column));
+                }
                 else
                 {
                     _diagnostics.AddError($"Unexpected token in contract: {Current.Type}", Current.Line, Current.Column);
@@ -232,6 +190,16 @@ namespace Contract.Compiler.Parsing
             }
 
             Consume(TokenType.RBrace, "Expected '}' after contract body");
+
+            // A non-static member fn is an instance method only when the
+            // contract declares instance fields — that's the "class" case.
+            // Contracts without fields keep the legacy module-function behavior.
+            bool hasFields = contract.Fields.Count > 0;
+            foreach (var member in contract.Members)
+            {
+                if (member is FunctionDeclaration f)
+                    f.IsInstance = hasFields && !f.IsStatic;
+            }
 
             return contract;
         }
@@ -325,8 +293,46 @@ namespace Contract.Compiler.Parsing
 
         private string ParseType()
         {
+            // Function type: (T1, T2) -> R
+            if (Match(TokenType.LParen))
+            {
+                var paramTypes = new List<string>();
+                if (!Check(TokenType.RParen))
+                {
+                    do
+                    {
+                        paramTypes.Add(ParseType());
+                    } while (Match(TokenType.Comma));
+                }
+                Consume(TokenType.RParen, "Expected ')' after function parameter types");
+                Consume(TokenType.Arrow, "Expected '->' in function type");
+                var returnType = ParseType();
+                return $"({string.Join(", ", paramTypes)}) -> {returnType}";
+            }
+
             Consume(TokenType.Identifier, "Expected type name");
             string type = Previous.Text;
+
+            // Generic instance: Name<T1, T2>
+            if (Match(TokenType.Less))
+            {
+                type += "<";
+                if (!Check(TokenType.Greater))
+                {
+                    do
+                    {
+                        type += ParseType();
+                        if (Check(TokenType.Comma))
+                        {
+                            Advance();
+                            type += ", ";
+                        }
+                    } while (!Check(TokenType.Greater) && !IsAtEnd());
+                }
+                Consume(TokenType.Greater, "Expected '>' after generic type arguments");
+                type += ">";
+            }
+
             while (Match(TokenType.LBracket))
             {
                 Consume(TokenType.RBracket, "Expected ']' after '[' in type");
@@ -866,18 +872,50 @@ namespace Contract.Compiler.Parsing
                 int line = Previous.Line;
                 int column = Previous.Column;
 
-                // Parameters: one or more identifiers, e.g. 'fun x -> ...' or 'fun x y -> ...'
+                // Parameters, two forms:
+                //   fun x -> ... | fun a b -> ...          (space-separated)
+                //   fun (x) -> ... | fun (x: int, y) -> ... (parenthesized)
                 var parameters = new List<string>();
-                do
+                var paramTypes = new List<string>();
+
+                if (Match(TokenType.LParen))
                 {
-                    Consume(TokenType.Identifier, "Expected parameter name after 'fun'");
-                    parameters.Add(Previous.Text);
-                } while (Check(TokenType.Identifier));
+                    if (!Check(TokenType.RParen))
+                    {
+                        do
+                        {
+                            Consume(TokenType.Identifier, "Expected parameter name");
+                            parameters.Add(Previous.Text);
+                            string pt = "";
+                            if (Match(TokenType.Colon)) pt = ParseType();
+                            paramTypes.Add(pt);
+                        } while (Match(TokenType.Comma));
+                    }
+                    Consume(TokenType.RParen, "Expected ')' after lambda parameters");
+                }
+                else
+                {
+                    while (Check(TokenType.Identifier))
+                    {
+                        parameters.Add(Advance().Text);
+                        paramTypes.Add("");
+                    }
+                }
 
-                Consume(TokenType.Arrow, "Expected '->' after lambda parameters");
+                if (!Match(TokenType.Arrow))
+                {
+                    _diagnostics.AddError("Expected '->' after lambda parameters", Previous.Line, Previous.Column);
+                }
+
+                // Body: an expression, or a block when '{' follows.
+                if (Match(TokenType.LBrace))
+                {
+                    var blockBody = ParseBlock(); // consumes the closing '}'
+                    return new LambdaExpression(parameters, paramTypes, null, blockBody, line, column);
+                }
+
                 var body = ParseExpression();
-
-                return new LambdaExpression(parameters, body, line, column);
+                return new LambdaExpression(parameters, paramTypes, body, null, line, column);
             }
             else if (Match(TokenType.New))
             {

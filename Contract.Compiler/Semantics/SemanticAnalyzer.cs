@@ -14,6 +14,7 @@ namespace Contract.Compiler.Semantics
         private readonly Stack<Dictionary<string, VariableDeclaration>> _scopes = new();
         private readonly HashSet<string> _definedFunctions = new();
         private readonly Dictionary<string, TypeDescriptor> _functionReturnTypes = new();
+        private readonly List<ContractDeclaration> _contractsWithFields = new();
 
         public SemanticAnalyzer(SymbolTable symbolTable, DiagnosticBag diagnostics)
         {
@@ -23,19 +24,12 @@ namespace Contract.Compiler.Semantics
 
         public void Analyze(Program program)
         {
-            // Register custom types
-            foreach (var typesDecl in program.Types)
-            {
-                foreach (var customType in typesDecl.Definitions)
-                {
-                    _typeRegistry.RegisterCustomType(customType.Name);
-                }
-            }
-            
             // Register contracts as valid types
             foreach (var contract in program.Contracts)
             {
                 _typeRegistry.RegisterCustomType(contract.Name);
+                if (contract.Fields.Count > 0)
+                    _contractsWithFields.Add(contract);
             }
 
             // Register structs as valid types
@@ -296,7 +290,11 @@ namespace Contract.Compiler.Semantics
                     AnalyzeExpression(indexExpr.Index);
                     break;
                 case IdentifierExpression id:
-                    if (!IsVariableDefined(id.Name) && !_definedFunctions.Contains(id.Name) && !_symbolTable.GetBoundClasses().Contains(id.Name))
+                    if (id.Name == "this") break; // instance context
+                    if (!IsVariableDefined(id.Name)
+                        && !_definedFunctions.Contains(id.Name)
+                        && !_symbolTable.GetBoundClasses().Contains(id.Name)
+                        && !IsContractField(id.Name))
                     {
                         _diagnostics.AddError($"Undefined variable: '{id.Name}'", id.Line, id.Column);
                     }
@@ -324,7 +322,56 @@ namespace Contract.Compiler.Semantics
                         _diagnostics.AddError($"Unknown type '{newExpr.TypeName}'", newExpr.Line, newExpr.Column);
                     }
                     break;
+                case LambdaExpression lambda:
+                    // Validate annotated param types and analyze the body so
+                    // calls inside lambdas get symbol-linked and errors surface.
+                    for (int i = 0; i < lambda.Parameters.Count; i++)
+                    {
+                        string pt = i < lambda.ParameterTypes.Count ? lambda.ParameterTypes[i] : "";
+                        if (!string.IsNullOrEmpty(pt) && !_typeRegistry.IsValidType(pt))
+                        {
+                            _diagnostics.AddError($"Unknown type '{pt}' for lambda parameter '{lambda.Parameters[i]}'", lambda.Line, lambda.Column);
+                        }
+                    }
+                    _scopes.Push(new Dictionary<string, VariableDeclaration>());
+                    foreach (var p in lambda.Parameters)
+                        DeclareVariable(p, new TypeDescriptor.Named("int"), lambda.Line, lambda.Column);
+                    if (lambda.BlockBody != null)
+                    {
+                        foreach (var stmt in lambda.BlockBody.Statements)
+                            AnalyzeStatement(stmt);
+                    }
+                    else if (lambda.Body != null)
+                    {
+                        AnalyzeExpression(lambda.Body);
+                    }
+                    _scopes.Pop();
+                    break;
             }
+        }
+
+        private static TypeDescriptor? FindBlockReturnType(Contract.Compiler.AST.BlockStatement block)
+        {
+            foreach (var stmt in block.Statements)
+            {
+                if (stmt is ReturnStatement ret && ret.Value != null)
+                {
+                    var t = ret.Value switch
+                    {
+                        LiteralExpression lit => lit.Value switch
+                        {
+                            int => "int",
+                            string => "string",
+                            bool => "bool",
+                            double => "double",
+                            _ => null
+                        },
+                        _ => "int" // default for other expression forms
+                    };
+                    if (t != null) return TypeDescriptor.Parse(t);
+                }
+            }
+            return null;
         }
 
         private bool IsVariableDefined(string name)
@@ -332,6 +379,17 @@ namespace Contract.Compiler.Semantics
             foreach (var scope in _scopes)
             {
                 if (scope.ContainsKey(name)) return true;
+            }
+            return false;
+        }
+
+        private bool IsContractField(string name)
+        {
+            // True when a contract has a field with this name (bare field access
+            // in an instance method).
+            foreach (var contract in _contractsWithFields)
+            {
+                if (contract.Fields.Any(f => f.Name == name)) return true;
             }
             return false;
         }
@@ -369,10 +427,21 @@ namespace Contract.Compiler.Semantics
                     return new TypeDescriptor.ArrayOf(element);
                 case LambdaExpression lambda:
                     var lambdaParams = lambda.Parameters
-                        .Select(_ => new TypeDescriptor.Named("int"))
+                        .Select((p, i) => (TypeDescriptor)(i < lambda.ParameterTypes.Count && !string.IsNullOrEmpty(lambda.ParameterTypes[i])
+                            ? TypeDescriptor.Parse(lambda.ParameterTypes[i])
+                            : new TypeDescriptor.Named("int")))
                         .ToList();
-                    var lambdaReturn = InferType(lambda.Body) ?? new TypeDescriptor.Named("int");
-                    return new TypeDescriptor.Function(lambdaParams, lambdaReturn);
+                    TypeDescriptor? lambdaReturn;
+                    if (lambda.BlockBody != null)
+                    {
+                        // Block bodies: default to int unless we can find a return.
+                        lambdaReturn = FindBlockReturnType(lambda.BlockBody);
+                    }
+                    else
+                    {
+                        lambdaReturn = InferType(lambda.Body);
+                    }
+                    return new TypeDescriptor.Function(lambdaParams, lambdaReturn ?? new TypeDescriptor.Named("int"));
                 case CallExpression call:
                     if (call.Symbol is ExternalMethod em)
                     {
@@ -440,11 +509,33 @@ namespace Contract.Compiler.Semantics
                 if (_symbolTable.TryGetMethod(className, methodName, out var method))
                 {
                     call.Symbol = method;
+                    return;
                 }
-                else
+
+                // User-contract instance method call: c.method() where c is a
+                // variable whose type is a contract with that method.
+                if (IsVariableDefined(className))
                 {
-                    _diagnostics.AddError($"External method '{className}.{methodName}' not found.", call.Line, call.Column);
+                    var varType = FindVariableType(className);
+                    if (varType is TypeDescriptor.Named n)
+                    {
+                        var contract = _contractsWithFields.FirstOrDefault(c => c.Name == n.Name);
+                        if (contract != null)
+                        {
+                            var member = contract.Members
+                                .OfType<FunctionDeclaration>()
+                                .FirstOrDefault(f => f.Name == methodName && f.IsInstance);
+                            if (member != null)
+                            {
+                                call.Symbol = member;
+                                return;
+                            }
+                        }
+                    }
+                    // Fall through to error below.
                 }
+
+                _diagnostics.AddError($"External method '{className}.{methodName}' not found.", call.Line, call.Column);
             }
             else if (call.Callee is IdentifierExpression ident)
             {

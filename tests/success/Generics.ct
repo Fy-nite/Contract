@@ -1,0 +1,31 @@
+Contract Program {
+    static fn Main() {
+        // Type-erased generics: List<int> maps to the object-backed List.
+        var nums: List<int> = List.Create();
+        List.Add(nums, 10);
+        List.Add(nums, 20);
+        List.Add(nums, 30);
+        IO.Println(List.Count(nums));   // 3
+        IO.Println(List.Get(nums, 1));  // 20
+
+        // Dict<string, int>
+        var scores: Dict<string, int> = Dict.Create();
+        Dict.Set(scores, "ada", 95);
+        Dict.Set(scores, "grace", 100);
+        IO.Println(Dict.Count(scores));        // 2
+        IO.Println(Dict.Get(scores, "ada"));   // 95
+        IO.Println(Dict.ContainsKey(scores, "grace"));  // true
+
+        // Generic types are valid in signatures
+        var total: int = sum(nums);
+        IO.Println(total);  // 60
+    }
+
+    fn sum(xs: List<int>) -> int {
+        var total: int = 0;
+        for (var i: int = 0; i < List.Count(xs); i = i + 1) {
+            total += List.Get(xs, i);
+        }
+        return total;
+    }
+}

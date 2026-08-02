@@ -1,0 +1,15 @@
+Contract Counter {
+    count: int;
+
+    constructor() { this.count = 0; }
+
+    fn increment() { 0 / 0; }
+    fn value() -> int { return this.count; }
+
+    static fn Main() {
+        var c: Counter = new Counter();
+        c.increment();
+        c.increment();
+        IO.Println(c.value());  // 2
+    }
+}  

@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Contract.Compiler\Contract.Compiler.csproj" />
+    <ProjectReference Include="..\Contract.Runtime\Contract.Runtime.csproj" />
   </ItemGroup>
 
 </Project>

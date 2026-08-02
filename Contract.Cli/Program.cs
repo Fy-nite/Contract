@@ -1,261 +1,205 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
-using Contract.Compiler;
-using Contract.Compiler.Parsing;
-using Contract.Compiler.AST;
-using Contract.Compiler.Diagnostics;
-using Contract.Compiler.CodeGen;
-using Contract.Compiler.Semantics;
-using Contract.Compiler.StandardLibrary;
-using Contract.Compiler.StandardLibrary.Builtins;
+using Contract.Runtime;
 
 namespace Contract.Cli
 {
     class Program
     {
-        static void Main(string[] args)
+        static int Main(string[] args)
         {
-            var debug = false;
+            if (args.Length == 0)
+            {
+                Help();
+                return 1;
+            }
+
             if (args.Length == 1 && args[0] == "--test")
             {
                 TestRunner.RunTests();
-                return;
+                return 0;
             }
 
-            if (args.Length < 1)
+            var compileOnly = false;
+            var debug = false;
+            var verbose = false;
+            string? outPath = null;
+            string? format = null;
+            string? methodCall = null;
+            string? bindAssembly = null;
+            var files = new System.Collections.Generic.List<string>();
+
+            for (int i = 0; i < args.Length; i++)
             {
-                Console.WriteLine("Usage: Contract.Cli <file.ct>");
-                Console.WriteLine("       Contract.Cli --test");
-                return;
+                switch (args[i])
+                {
+                    case "-h" or "--help": Help(); return 0;
+                    case "-c" or "--compile": compileOnly = true; break;
+                    case "-d" or "--debug": debug = true; break;
+                    case "-v" or "--verbose": verbose = true; break;
+                    case "-o" or "--output":
+                        if (++i >= args.Length) { Error("--output requires a path"); return 1; }
+                        outPath = args[i]; break;
+                    case "-f" or "--format":
+                        if (++i >= args.Length) { Error("--format requires oil|orbt"); return 1; }
+                        format = args[i].ToLowerInvariant();
+                        if (format is not ("oil" or "orbt")) { Error($"Unknown format '{format}' (expected oil|orbt)"); return 1; }
+                        break;
+                    case "-m" or "--method":
+                        if (++i >= args.Length) { Error("--method requires a name"); return 1; }
+                        methodCall = args[i]; break;
+                    case "--bind":
+                        if (++i >= args.Length) { Error("--bind requires an assembly path"); return 1; }
+                        bindAssembly = args[i]; break;
+                    case "run":
+                        break; // subcommand marker; the remaining positional is the file
+                    default:
+                        if (args[i].StartsWith('-')) { Error($"Unknown option: {args[i]}"); return 1; }
+                        files.Add(args[i]); break;
+                }
             }
 
-            string filePath = args[0];
-            if (args.Contains("--debug"))
-            {
-                debug = true;
-            }
-            if (!File.Exists(filePath))
-            {
-                Console.WriteLine($"File not found: {filePath}");
-                return;
-            }
+            if (files.Count == 0) { Error("No input file."); Help(); return 1; }
+            var filePath = files[0];
 
             try
             {
-                // Diagnostics and Standard Library Setup
-                var diagnostics = new DiagnosticBag();
-                diagnostics.SourceCode = File.ReadAllText(filePath);
-                var symbolTable = new SymbolTable();
-                symbolTable.RegisterAssembly(typeof(IO).Assembly);
-
-                // Use CompilerDriver to handle imports and recursive loading
-                Console.WriteLine("Loading and parsing files...");
-                var driver = new CompilerDriver(diagnostics);
-                var program = driver.Compile(filePath);
-
-                if (diagnostics.HasErrors)
+                var rt = new ContractRuntime();
+                if (bindAssembly != null)
                 {
-                    Console.WriteLine("\nErrors during loading/parsing:");
+                    if (!File.Exists(bindAssembly)) { Error($"Binding assembly not found: {bindAssembly}"); return 1; }
+                    var asm = System.Reflection.Assembly.LoadFrom(bindAssembly);
+                    rt.RegisterBindingAssembly(asm);
+                    if (verbose) Console.Error.WriteLine($"; Loaded bindings from {bindAssembly}");
+                }
+
+                var ext = Path.GetExtension(filePath).ToLowerInvariant();
+
+                // ── Run precompiled modules (.orbt / .oil / .oir) ─────────
+                if (ext is ".orbt" or ".oil" or ".oir")
+                {
+                    if (verbose) Console.Error.WriteLine($"; Running {filePath}");
+                    var module = rt.LoadModuleFileAuto(filePath);
+                    if (methodCall != null)
+                    {
+                        var result = rt.CallMethod<object?>(methodCall);
+                        PrintResult(result);
+                    }
+                    else
+                    {
+                        rt.RunModule(module);
+                    }
+                    return 0;
+                }
+
+                // ── Compile .ct source ────────────────────────────────────
+                if (verbose) Console.Error.WriteLine($"; Compiling {filePath}");
+                var ir = ContractCompiler.CompileFile(filePath, out var diagnostics);
+                if (ir == null)
+                {
                     diagnostics.ReportToConsole();
-                    return;
+                    return 1;
                 }
-
-                // Semantic Analysis (Symbol Linking)
-                Console.WriteLine("Starting semantic analysis...");
-                var analyzer = new SemanticAnalyzer(symbolTable, diagnostics);
-                analyzer.Analyze(program);
-
-                // Report diagnostics
-                if (diagnostics.Diagnostics.Count > 0)
-                {
-                    Console.WriteLine("\nDiagnostics:");
-                    diagnostics.ReportToConsole();
-                }
-
-                if (diagnostics.HasErrors)
-                {
-                    Console.WriteLine("Compilation failed due to errors.");
-                    return;
-                }
-
                 if (debug)
                 {
-                    Console.WriteLine("\nParsed AST:");
-                    PrintAstSimple(program);
+                    Console.WriteLine(ir);
                 }
 
-                // Code generation
-                Console.WriteLine("\nGenerating IR...");
-                var codeGenerator = new IRCodeGenerator(diagnostics);
-                codeGenerator.Generate(program);
-                
-                string outputPath = Path.ChangeExtension(filePath, ".oir");
-                codeGenerator.WriteToFile(outputPath);
-                Console.WriteLine($"Bytecode written to: {outputPath}");
+                // Compile only → write .oil / .orbt (format from -f or -o extension; default orbt).
+                if (compileOnly || outPath != null)
+                {
+                    var (outFile, outFormat) = ResolveOutput(filePath, outPath, format);
+                    if (outFormat == "oil")
+                    {
+                        File.WriteAllText(outFile, ir);
+                    }
+                    else
+                    {
+                        var module = rt.LoadTextModule(ir);
+                        var bytes = new ObjectRT.Reader.ORBTWriter().WriteModule(module);
+                        File.WriteAllBytes(outFile, bytes);
+                    }
+                    Console.WriteLine(outFile);
+                    return 0;
+                }
+
+                // ── One-shot: compile then run ───────────────────────────
+                if (verbose) Console.Error.WriteLine($"; Running compiled module");
+                var runModule = rt.LoadTextModule(ir);
+                if (methodCall != null)
+                {
+                    var result = rt.CallMethod<object?>(methodCall);
+                    PrintResult(result);
+                }
+                else
+                {
+                    rt.RunModule(runModule);
+                }
+                return 0;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Unexpected error: {ex.Message}");
+                Error(ex.Message);
+                return 1;
             }
         }
 
-        static void PrintAstSimple(Node node, int indent = 0)
+        /// <summary>Picks the output path and format. Format: -f flag, else the -o extension (.oil = text), else default .orbt.</summary>
+        static (string Path, string Format) ResolveOutput(string inputPath, string? outPath, string? format)
         {
-            string prefix = new string(' ', indent * 2);
-            string symbolInfo = "";
-            if (node.Symbol is ExternalMethod em)
+            var outFile = outPath ?? Path.ChangeExtension(inputPath, format == "oil" ? ".oil" : ".orbt");
+            if (!outFile.EndsWith(".oil", StringComparison.OrdinalIgnoreCase)
+                && !outFile.EndsWith(".orbt", StringComparison.OrdinalIgnoreCase))
             {
-                symbolInfo = $" \u001b[32m[Linked to {em.ClassName}.{em.MethodName}]\u001b[0m";
+                outFile += format == "oil" ? ".oil" : ".orbt";
             }
-            Console.WriteLine($"{prefix}{node.GetType().Name} at ({node.Line}:{node.Column}){symbolInfo}");
-
-            // Recursively print children
-            if (node is Contract.Compiler.AST.Program p)
-            {
-                foreach (var contract in p.Contracts)
-                    PrintAstSimple(contract, indent + 1);
-                foreach (var func in p.Functions)
-                    PrintAstSimple(func, indent + 1);
-            }
-            else if (node is ContractDeclaration c)
-            {
-                Console.WriteLine($"{prefix}  Name: {c.Name}");
-                foreach (var member in c.Members)
-                    PrintAstSimple(member, indent + 1);
-            }
-            else if (node is FunctionDeclaration f)
-            {
-                string staticPart = f.IsStatic ? "static " : "";
-                string accessPart = f.Access != AccessModifier.Default ? f.Access.ToString().ToLower() + " " : "";
-                Console.WriteLine($"{prefix}  Name: {accessPart}{staticPart}{f.Name}");
-                if (f.Body != null)
-                    PrintAstSimple(f.Body, indent + 1);
-            }
-            else if (node is BlockStatement b)
-            {
-                foreach (var stmt in b.Statements)
-                    PrintAstSimple(stmt, indent + 1);
-            }
-            else if (node is VariableDeclaration v)
-            {
-                Console.WriteLine($"{prefix}  Name: {v.Name}, Type: {v.Type}");
-                if (v.Initializer != null)
-                    PrintAstSimple(v.Initializer, indent + 1);
-            }
-            else if (node is IfStatement ifs)
-            {
-                PrintAstSimple(ifs.Condition, indent + 1);
-                PrintAstSimple(ifs.ThenBranch, indent + 1);
-                if (ifs.ElseBranch != null)
-                    PrintAstSimple(ifs.ElseBranch, indent + 1);
-            }
-            else if (node is WhileStatement w)
-            {
-                PrintAstSimple(w.Condition, indent + 1);
-                PrintAstSimple(w.Body, indent + 1);
-            }
-            else if (node is SwitchStatement sw)
-            {
-                PrintAstSimple(sw.Expression, indent + 1);
-                foreach (var caseStmt in sw.Cases)
-                    PrintAstSimple(caseStmt, indent + 1);
-            }
-            else if (node is SwitchCase sc)
-            {
-                Console.WriteLine($"{prefix}  Value: {sc.Value?.ToString() ?? "else"}");
-                foreach (var stmt in sc.Statements)
-                    PrintAstSimple(stmt, indent + 1);
-            }
-            else if (node is ReturnStatement r)
-            {
-                if (r.Value != null)
-                    PrintAstSimple(r.Value, indent + 1);
-            }
-            else if (node is ExpressionStatement e)
-            {
-                PrintAstSimple(e.Expression, indent + 1);
-            }
-            else if (node is BinaryExpression bin)
-            {
-                Console.WriteLine($"{prefix}  Operator: {bin.Operator}");
-                PrintAstSimple(bin.Left, indent + 1);
-                PrintAstSimple(bin.Right, indent + 1);
-            }
-            else if (node is CallExpression call)
-            {
-                PrintAstSimple(call.Callee, indent + 1);
-                foreach (var arg in call.Arguments)
-                    PrintAstSimple(arg, indent + 1);
-            }
-            else if (node is IdentifierExpression id)
-            {
-                Console.WriteLine($"{prefix}  Name: {id.Name}");
-            }
-            else if (node is LiteralExpression lit)
-            {
-                Console.WriteLine($"{prefix}  Value: {lit.Value}");
-            }
-            else if (node is MemberExpression mem)
-            {
-                Console.WriteLine($"{prefix}  Property: {mem.Property}");
-                PrintAstSimple(mem.Object, indent + 1);
-            }
-            else if (node is IndexExpression idx)
-            {
-                PrintAstSimple(idx.Target, indent + 1);
-                PrintAstSimple(idx.Index, indent + 1);
-            }
+            var outFormat = format ?? (outFile.EndsWith(".oil", StringComparison.OrdinalIgnoreCase) ? "oil" : "orbt");
+            return (outFile, outFormat);
         }
-        static void PrintInlineExpr(Expression expr)
+
+        static void PrintResult(object? result)
         {
-            switch (expr)
+            Console.WriteLine(result switch
             {
-                case IdentifierExpression id:
-                    Console.Write($"\u001b[1;36m{id.Name}\u001b[0m");
-                    break;
-                case LiteralExpression lit when lit.Value == null:
-                    Console.Write("\u001b[1;31mnull\u001b[0m");
-                    break;
-                case LiteralExpression lit:
-                    string valueStr = lit.Value switch
-                    {
-                        string s => $"\"{s}\"",
-                        int i => i.ToString(),
-                        _ => lit.Value?.ToString() ?? "null"
-                    };
-                    Console.Write($"\u001b[1;33m{valueStr}\u001b[0m");
-                    break;
-                case BinaryExpression bin:
-                    PrintInlineExpr(bin.Left);
-                    Console.Write($" \u001b[33m{bin.Operator}\u001b[0m ");
-                    PrintInlineExpr(bin.Right);
-                    break;
-                case CallExpression call:
-                    PrintInlineExpr(call.Callee);
-                    Console.Write("(");
-                    for (int i = 0; i < call.Arguments.Count; i++)
-                    {
-                        if (i > 0) Console.Write(", ");
-                        PrintInlineExpr(call.Arguments[i]);
-                    }
-                    Console.Write(")");
-                    break;
-                case MemberExpression mem:
-                    PrintInlineExpr(mem.Object);
-                    Console.Write($".\u001b[1;35m{mem.Property}\u001b[0m");
-                    break;
-                case IndexExpression idx:
-                    PrintInlineExpr(idx.Target);
-                    Console.Write("[");
-                    PrintInlineExpr(idx.Index);
-                    Console.Write("]");
-                    break;
-                default:
-                    Console.Write($"\u001b[37m{expr.GetType().Name.Replace("Expression", "")}\u001b[0m");
-                    break;
-            }
+                null => "null",
+                int i => i.ToString(),
+                bool b => b ? "True" : "False",
+                _ => result.ToString()
+            });
+        }
+
+        static void Error(string msg) => Console.Error.WriteLine($"Error: {msg}");
+
+        static void Help()
+        {
+            Console.WriteLine("""
+Contract CLI — compile and run Contract programs.
+
+Usage:
+  contract <file.ct> [options]          Compile and run in one go
+  contract -c <file.ct> [-o out]        Compile only (default output .orbt)
+  contract run <file.orbt|oil|oir>      Run a precompiled module
+  contract --test                       Run the compiler test suite
+
+Options:
+  -o, --output <path>    Output path; extension drives format (.oil = text, .orbt = binary)
+  -f, --format <fmt>     Force output format: oil | orbt (default orbt)
+  -c, --compile          Compile only, do not run
+  -m, --method <name>    Call a specific method (e.g. "Program.Main")
+  -v, --verbose          Show pipeline stages
+  -d, --debug            Print the generated IR
+      --bind <assembly>  Load custom host bindings from a .dll (see Contract.Runtime)
+  -h, --help             Show this message
+
+Examples:
+  contract hello.ct                      Compile + run
+  contract -c hello.ct -o hello.orbt     Compile to binary (default)
+  contract -c hello.ct -f oil            Compile to .oil text
+  contract run hello.orbt                Run precompiled binary
+  contract run hello.oir                 Run precompiled text
+  contract -m Program.Main app.ct        Compile + call a specific method
+""");
         }
     }
 }

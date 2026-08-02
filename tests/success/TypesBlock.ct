@@ -1,12 +1,9 @@
-Types {
-    type MyType {
-        value: int;
-    }
+struct MyType {
+    value: int;
 }
-Contract Program 
-{
 
-fn main() {
-    var x: MyType = new MyType();
-}
+Contract Program {
+    fn main() {
+        var x: MyType = new MyType();
+    }
 }

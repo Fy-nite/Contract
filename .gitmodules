@@ -1,3 +1,6 @@
 [submodule "libs/ObjektRT.Core"]
 	path = libs/ObjektRT.Core
 	url = https://git.finite.ovh/ObjektRT.Core
+[submodule "libs/Objekt-RT"]
+	path = libs/Objekt-RT
+	url = https://git.finite.ovh/Objekt-RT

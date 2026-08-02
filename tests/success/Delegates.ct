@@ -1,0 +1,27 @@
+Contract Program {
+    fn apply(f: (int) -> int, x: int) -> int {
+        return f(x);
+    }
+
+    fn twice(f: (int) -> int, x: int) -> int {
+        return f(f(x));
+    }
+
+    static fn Main() {
+        let inc = fun x -> x + 1;
+        let double = fun x -> x * 2;
+
+        // Direct lambda calls (fast path)
+        IO.Println(inc(5));       // 6
+        IO.Println(double(5));    // 10
+
+        // Passed as values, invoked through the delegate
+        IO.Println(apply(inc, 10));      // 11
+        IO.Println(apply(double, 10));   // 20
+        IO.Println(twice(inc, 10));      // 12
+        IO.Println(twice(double, 10));   // 40
+
+        // Lambda passed directly without a local
+        IO.Println(apply(fun y -> y + 100, 1));  // 101
+    }
+}

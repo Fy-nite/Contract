@@ -1,0 +1,170 @@
+module Program version 1.0.0
+
+class Program {
+    method apply(f: object, x: int32) -> int32 {
+        // #line 3:18 "return f(x);"
+        ldarg 1
+        // #line 3:16 "return f(x);"
+        ldarg 0
+        // #line 3:16 "return f(x);"
+        callvirt Delegate.Invoke(int32) -> int32
+        // #line 3:16 "return f(x);"
+        ret
+    }
+
+    method twice(f: object, x: int32) -> int32 {
+        // #line 7:20 "return f(f(x));"
+        ldarg 1
+        // #line 7:18 "return f(f(x));"
+        ldarg 0
+        // #line 7:18 "return f(f(x));"
+        callvirt Delegate.Invoke(int32) -> int32
+        // #line 7:16 "return f(f(x));"
+        ldarg 0
+        // #line 7:16 "return f(f(x));"
+        callvirt Delegate.Invoke(int32) -> int32
+        // #line 7:16 "return f(f(x));"
+        ret
+    }
+
+    static method Main() -> void {
+        local inc: object
+        local double: object
+
+        // #line 11:9 "let inc = fun x -> x + 1;"
+        newobj Delegate.constructor()
+        // #line 11:9 "let inc = fun x -> x + 1;"
+        dup
+        // #line 11:9 "let inc = fun x -> x + 1;"
+        ldstr Global.__lambda_0
+        // #line 11:9 "let inc = fun x -> x + 1;"
+        stfld Delegate::target
+        // #line 11:9 "let inc = fun x -> x + 1;"
+        stloc inc
+        // #line 12:9 "let double = fun x -> x * 2;"
+        newobj Delegate.constructor()
+        // #line 12:9 "let double = fun x -> x * 2;"
+        dup
+        // #line 12:9 "let double = fun x -> x * 2;"
+        ldstr Global.__lambda_1
+        // #line 12:9 "let double = fun x -> x * 2;"
+        stfld Delegate::target
+        // #line 12:9 "let double = fun x -> x * 2;"
+        stloc double
+        // #line 15:24 "IO.Println(inc(5));       // 6"
+        ldc.i4 5
+        // #line 15:24 "IO.Println(inc(5));       // 6"
+        call Global.__lambda_0(int32) -> int32
+        // #line 15:24 "IO.Println(inc(5));       // 6"
+        call IO.Println(object) -> void
+        // #line 15:24 "IO.Println(inc(5));       // 6"
+        pop
+        // #line 16:27 "IO.Println(double(5));    // 10"
+        ldc.i4 5
+        // #line 16:27 "IO.Println(double(5));    // 10"
+        call Global.__lambda_1(int32) -> int32
+        // #line 16:27 "IO.Println(double(5));    // 10"
+        call IO.Println(object) -> void
+        // #line 16:27 "IO.Println(double(5));    // 10"
+        pop
+        // #line 19:26 "IO.Println(apply(inc, 10));      // 11"
+        ldloc inc
+        // #line 19:31 "IO.Println(apply(inc, 10));      // 11"
+        ldc.i4 10
+        // #line 19:31 "IO.Println(apply(inc, 10));      // 11"
+        call Program.apply(object, int32) -> int32
+        // #line 19:31 "IO.Println(apply(inc, 10));      // 11"
+        call IO.Println(object) -> void
+        // #line 19:31 "IO.Println(apply(inc, 10));      // 11"
+        pop
+        // #line 20:26 "IO.Println(apply(double, 10));   // 20"
+        ldloc double
+        // #line 20:34 "IO.Println(apply(double, 10));   // 20"
+        ldc.i4 10
+        // #line 20:34 "IO.Println(apply(double, 10));   // 20"
+        call Program.apply(object, int32) -> int32
+        // #line 20:34 "IO.Println(apply(double, 10));   // 20"
+        call IO.Println(object) -> void
+        // #line 20:34 "IO.Println(apply(double, 10));   // 20"
+        pop
+        // #line 21:26 "IO.Println(twice(inc, 10));      // 12"
+        ldloc inc
+        // #line 21:31 "IO.Println(twice(inc, 10));      // 12"
+        ldc.i4 10
+        // #line 21:31 "IO.Println(twice(inc, 10));      // 12"
+        call Program.twice(object, int32) -> int32
+        // #line 21:31 "IO.Println(twice(inc, 10));      // 12"
+        call IO.Println(object) -> void
+        // #line 21:31 "IO.Println(twice(inc, 10));      // 12"
+        pop
+        // #line 22:26 "IO.Println(twice(double, 10));   // 40"
+        ldloc double
+        // #line 22:34 "IO.Println(twice(double, 10));   // 40"
+        ldc.i4 10
+        // #line 22:34 "IO.Println(twice(double, 10));   // 40"
+        call Program.twice(object, int32) -> int32
+        // #line 22:34 "IO.Println(twice(double, 10));   // 40"
+        call IO.Println(object) -> void
+        // #line 22:34 "IO.Println(twice(double, 10));   // 40"
+        pop
+        // #line 25:26 "IO.Println(apply(fun y -> y + 100, 1));  // 101"
+        newobj Delegate.constructor()
+        // #line 25:26 "IO.Println(apply(fun y -> y + 100, 1));  // 101"
+        dup
+        // #line 25:26 "IO.Println(apply(fun y -> y + 100, 1));  // 101"
+        ldstr Global.__lambda_2
+        // #line 25:26 "IO.Println(apply(fun y -> y + 100, 1));  // 101"
+        stfld Delegate::target
+        // #line 25:44 "IO.Println(apply(fun y -> y + 100, 1));  // 101"
+        ldc.i4 1
+        // #line 25:44 "IO.Println(apply(fun y -> y + 100, 1));  // 101"
+        call Program.apply(object, int32) -> int32
+        // #line 25:44 "IO.Println(apply(fun y -> y + 100, 1));  // 101"
+        call IO.Println(object) -> void
+        // #line 25:44 "IO.Println(apply(fun y -> y + 100, 1));  // 101"
+        pop
+        // #line 25:44 "IO.Println(apply(fun y -> y + 100, 1));  // 101"
+        ret
+    }
+}
+
+class Delegate {
+    public field target: string
+    public field closure: object
+}
+
+class Global {
+    static method __lambda_0(x: int32) -> int32 {
+        // #line 11:28 "let inc = fun x -> x + 1;"
+        ldarg 0
+        // #line 11:32 "let inc = fun x -> x + 1;"
+        ldc.i4 1
+        // #line 11:32 "let inc = fun x -> x + 1;"
+        add
+        // #line 11:32 "let inc = fun x -> x + 1;"
+        ret
+    }
+
+    static method __lambda_1(x: int32) -> int32 {
+        // #line 12:31 "let double = fun x -> x * 2;"
+        ldarg 0
+        // #line 12:35 "let double = fun x -> x * 2;"
+        ldc.i4 2
+        // #line 12:35 "let double = fun x -> x * 2;"
+        mul
+        // #line 12:35 "let double = fun x -> x * 2;"
+        ret
+    }
+
+    static method __lambda_2(y: int32) -> int32 {
+        // #line 25:35 "IO.Println(apply(fun y -> y + 100, 1));  // 101"
+        ldarg 0
+        // #line 25:39 "IO.Println(apply(fun y -> y + 100, 1));  // 101"
+        ldc.i4 100
+        // #line 25:39 "IO.Println(apply(fun y -> y + 100, 1));  // 101"
+        add
+        // #line 25:39 "IO.Println(apply(fun y -> y + 100, 1));  // 101"
+        ret
+    }
+}
+

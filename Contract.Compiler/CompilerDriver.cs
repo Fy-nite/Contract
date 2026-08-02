@@ -47,12 +47,12 @@ namespace Contract.Compiler
                 var program = parser.Parse();
 
                 // Merge into full program
-                foreach (var typesDecl in program.Types)
-                    fullProgram.Types.Add(typesDecl);
                 foreach (var contract in program.Contracts)
                     fullProgram.Contracts.Add(contract);
                 foreach (var func in program.Functions)
                     fullProgram.Functions.Add(func);
+                foreach (var structDecl in program.Structs)
+                    fullProgram.Structs.Add(structDecl);
 
                 // Recursively load imports
                 string directory = Path.GetDirectoryName(absolutePath) ?? "";

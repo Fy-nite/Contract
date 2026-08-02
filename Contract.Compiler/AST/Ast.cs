@@ -18,7 +18,6 @@ namespace Contract.Compiler.AST
     public class Program : Node
     {
         public List<string> Imports { get; } = new();
-        public List<TypesDeclaration> Types { get; } = new();
         public List<ContractDeclaration> Contracts { get; } = new();
         public List<StructDeclaration> Structs { get; } = new();
         public List<FunctionDeclaration> Functions { get; } = new();
@@ -26,29 +25,12 @@ namespace Contract.Compiler.AST
         public Program(int line, int column) : base(line, column) { }
     }
 
-    public class TypesDeclaration : Node
-    {
-        public List<CustomTypeDefinition> Definitions { get; } = new();
-
-        public TypesDeclaration(int line, int column) : base(line, column) { }
-    }
-
-    public class CustomTypeDefinition : Node
-    {
-        public string Name { get; }
-        public List<StructField> Fields { get; } = new();
-
-        public CustomTypeDefinition(string name, int line, int column) : base(line, column)
-        {
-            Name = name;
-        }
-    }
-
     public class ContractDeclaration : Node
     {
         public string Name { get; }
         public bool IsExported { get; set; }
         public List<ConstructorDeclaration> Constructors { get; } = new();
+        public List<StructField> Fields { get; } = new();
         public List<Node> Members { get; } = new();
 
         public ContractDeclaration(string name, int line, int column) : base(line, column)
@@ -62,6 +44,7 @@ namespace Contract.Compiler.AST
         public string Name { get; }
         public bool IsExported { get; set; }
         public List<StructField> Fields { get; } = new();
+        public List<FunctionDeclaration> Methods { get; } = new();
 
         public StructDeclaration(string name, int line, int column) : base(line, column)
         {
@@ -106,6 +89,7 @@ namespace Contract.Compiler.AST
         public BlockStatement? Body { get; set; }
         public string? ContractName { get; set; }
         public bool IsStatic { get; set; }
+        public bool IsInstance { get; set; }
         public AccessModifier Access { get; set; } = AccessModifier.Default;
         public TypeDescriptor? ReturnType { get; set; }
 
@@ -351,12 +335,25 @@ namespace Contract.Compiler.AST
     public class LambdaExpression : Expression
     {
         public List<string> Parameters { get; } = new();
-        public Expression Body { get; }
+        /// <summary>Optional param type annotations (aligned with Parameters; "" when absent).</summary>
+        public List<string> ParameterTypes { get; } = new();
+        /// <summary>Expression body (fun x -> expr).</summary>
+        public Expression? Body { get; }
+        /// <summary>Block body (fun (x) -> { stmts }). Mutually exclusive with Body.</summary>
+        public BlockStatement? BlockBody { get; }
 
         public LambdaExpression(List<string> parameters, Expression body, int line, int column) : base(line, column)
         {
             Parameters = parameters;
             Body = body;
+        }
+
+        public LambdaExpression(List<string> parameters, List<string>? parameterTypes, Expression? body, BlockStatement? blockBody, int line, int column) : base(line, column)
+        {
+            Parameters = parameters;
+            if (parameterTypes != null) ParameterTypes = parameterTypes;
+            Body = body;
+            BlockBody = blockBody;
         }
     }
 

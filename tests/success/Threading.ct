@@ -1,0 +1,17 @@
+Contract Program {
+    static fn Main() {
+        IO.Println("main start");
+
+        // Non-capturing lambda on a thread
+        Thread.Spawn(fun -> { IO.Println("hello from thread"); });
+
+        // Capturing lambda on a thread (closure lives in the shared heap)
+        var n: int = 0;
+        let bump = fun -> { n += 1; IO.Println(n); };
+        Thread.Spawn(bump);
+
+        // Give the background threads time to run
+        Thread.Sleep(200);
+        IO.Println("main end");
+    }
+}

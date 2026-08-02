@@ -1,0 +1,12 @@
+Contract Program {
+    fn divide(a: int, b: int) -> int {
+        return a / b;
+    }
+
+    static fn Main() {
+        var x: int = 10;
+        var y: int = 0;
+        var z: int = divide(x, y);
+        IO.Println(z);
+    }
+}

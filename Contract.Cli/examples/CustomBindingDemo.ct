@@ -1,0 +1,7 @@
+Contract Program {
+    static fn Main() {
+        IO.Println("before custom binding");
+        Greeter.SayHi();
+        IO.Println("after custom binding");
+    }
+}

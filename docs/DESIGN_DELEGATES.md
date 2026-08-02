@@ -169,26 +169,41 @@ sealed record DelegateNode(
 This mirrors the `.h`'s `{ instance, methodName }` shape, but with a **real
 method token instead of a string** — no reflection-based dispatch.
 
-### 4.2 New instruction: `InvokeDelegate`
+### 4.2 Invocation: reuse `call` where possible, `callvirt Delegate.Invoke` for value calls
 
-Indirect call through a delegate value:
+**DECIDED (implemented Phase 1, 2026-08): do it the C# way — no new instruction.**
 
+- **Direct calls use `call`.** `let inc = fun x -> x + 1; inc(5)` compiles to
+  `call Global.__lambda_N(int32) -> int32` — the compiler knows the target.
+  Zero delegate value involved. This stays the fast path.
+- **Function-typed *value* calls use `callvirt Delegate.Invoke`.** A lambda value
+  is an instance of a compiler-generated `class Delegate { field target: string }`.
+  The lambda site emits `newobj Delegate; dup; ldstr "Global.__lambda_N";
+  stfld Delegate.target`. A call `f(x)` where `f` is function-typed emits
+  `ldarg f; <args>; callvirt Delegate.Invoke(...)`. The interpreter special-cases
+  `Delegate.Invoke`: pops the receiver, reads its `target` field, resolves that
+  module function in `FunctionMap`, and calls it with the args.
+
+This is exactly the `.h` `{ instance, methodName }` model, with the target as a
+real module-function name (not reflection). **No wire-format change, no new
+opcode** — `newobj`, `stfld`, `ldfld`, and `callvirt` all already exist.
+
+> **Why not `Calli`:** it's declared in the `OpCode` enum but has no wire
+> encoding (the library's tests list it under `expectedUnmapped`). Reusing
+> `callvirt` avoids touching the wire table entirely.
+
+The runtime dispatch (Interpreter.cs, `callvirt Delegate.Invoke`):
 ```
-ldloc inc          ; the delegate object
-ldc.i4 5           ; args
-invoke.delegate (int32) -> int32
+pop receiver (must be a Delegate object)
+pop argc args
+read receiver.target (a string) from the heap at the Delegate class's field offset
+resolve target in Mod.FunctionMap
+call it with the args
 ```
 
-The operand is the signature. The VM resolves the delegate's target method and
-calls it — static target, or instance method on the closure.
-
-> **Do not reuse `Calli`.** `Calli` is declared in the `OpCode` enum and the
-> text parser's opcode map, but it has no wire encoding — the library's own
-> tests list it under "AST opcodes without wire encoding" (`expectedUnmapped`
-> in `tests/ObjektRT.Core.Tests/Program.cs`). It's a defined name with no
-> implementation. A new `InvokeDelegate` (or `Invoke`/`Invokevirt`) with a
-> defined operand + builder helper + converter support is the clean path; this
-> also matches Charlie's reading that calli effectively doesn't exist.
+**Validated end-to-end** (`tests/success/Delegates.ct`): direct calls, passing
+lambdas as values, higher-order functions (`apply`, `twice`), and inline lambdas
+passed directly — output `6 10 11 20 12 40 101`.
 
 ### 4.3 Lowering: lambdas as instance methods
 
@@ -244,33 +259,65 @@ Grow types from strings to descriptors; add `FunctionType`; make lambdas infer
 a function type. No behavior change for existing programs (string-based types
 remain the common case). *Prereq for everything.*
 
-### Phase 1 — Non-capturing delegates
-- `GenerateLambda` keeps producing `Global.__lambda_N`, but a lambda *value*
-  now emits `DelegateNode` (zero-field closure) instead of only recording a name.
-- Call sites: delegate-typed callee → `InvokeDelegate`.
-- `Thread.Spawn(inc)` compiles (the value is just an object).
-- Test: pass a lambda into a function parameter, call it inside, verify IR.
+### Phase 1 — Non-capturing delegates (DONE, 2026-08)
+- Lambda values emit a compiler-generated `Delegate` class (`{ target: string,
+  closure: object }`) via `newobj` + `stfld`; direct calls stay `call`.
+- Function-typed values call via `callvirt Delegate.Invoke` (the C# way, §4.2).
+- Validated end-to-end: `tests/success/Delegates.ct` → `6 10 11 20 12 40 101`.
 
-### Phase 2 — Capture / closures (the hard part)
-- Analyzer finds **free variables** in the lambda body (referenced but not
-  parameters). Reports an error on none-v1 cases (e.g., capturing is fine;
-  `this`/contract fields deferred).
-- Compiler hoists captures: generate `__closure_N` class, move the lambda body
-  into an instance method, rewrite body references to closure fields, and emit
-  the closure allocation at the lambda site.
-- The `DelegateNode` binds the instance method + closure object.
-- **Capture semantics decision (see §7): by reference (C#-like) — a closure
-  cell.**
+### Phase 2 — Capture / closures (DONE, 2026-08)
+- Free-variable analysis collects identifiers in the lambda body not bound by
+  lambda params / nested params / block locals, whose type is known in the
+  enclosing function scope.
+- Captures hoist into a generated `__closure_N` class (a field per capture).
+  The lambda becomes `Global.__lambda_N(__closure: object, ...params)`, and the
+  body reads/writes captures as `ldfld __closure_N::v` on the closure arg.
+- Lambda value emission: allocate the Delegate, then the closure, fill capture
+  fields from the enclosing scope, store the closure into `Delegate.closure`,
+  store the target name. `Delegate.Invoke` dispatch prepends the closure object
+  as the target's first argument when present.
+- **Capture semantics: BY VALUE** (the closure field copies the value at
+  creation). This deviates from the §7 "C#-like by-reference" recommendation —
+  writes *through the closure field* work (counters, factories), but mutations
+  of the original variable after capture are not seen. A C#-style closure cell
+  is future work.
+- **New syntax:** `fun (x: int, y) -> { stmts }` — parenthesized params
+  (optional types) + block bodies; the old `fun x -> expr` and `fun a b -> expr`
+  forms still work. Block bodies are real statement blocks (`return` works).
+- **v1 boundary:** nested lambdas can't capture the outer lambda's params/locals
+  (only the enclosing *function's* scope). Closure *factories* work because the
+  factory's own locals are its method scope (see `makeCounter` in
+  `tests/success/Closures.ct`).
+- Validated end-to-end: `tests/success/Closures.ct` →
+  `10 11 15 1 2 11 12 101 13` (block lambda, by-value capture, captured write
+  counter, independent closure-factory counters).
 
-### Phase 3 — Threading
-- `Thread.Spawn(d)` compiles today (Phase 1). Runtime side: thread entry =
-  `InvokeDelegate(d)`.
-- v1 threading surface: `Thread.Spawn`, `Thread.Sleep` (already bound), plus a
-  way to wait — recommend `Thread.Join(delegate)` or a `Thread.State` query
-  rather than `.h`'s fire-and-forget only.
-- **Results:** fire-and-forget `void` first; `Func` returning `object` (boxed)
-  later, or an explicit channel/message type. Do not add locks until a race is
-  actually needed — but document them.
+### Phase 3 — Threading (DONE, 2026-08)
+
+**How it works:** the interpreter's call stack (`_stack`/`_frames`) is
+per-executor, but the heap/statics/string table live on a shared
+`ExecutorState`. A spawned thread gets a **fresh `Interpreter` sharing the
+module state** — so the delegate handle and its closure (created on the main
+thread) are valid on the new thread, and the thread has its own call stack.
+
+- `ObjectRT.VM.ExecutorState` — the shared heap/statics/strings (string table
+  locked; heap allocation unlocked, documented as programmer's responsibility).
+  `ExecutorBase` now owns a `State` reference with `Heap`/`StaticFields`/
+  `InternString`/`GetStringValue` aliases so existing code is unchanged.
+- `Interpreter.ReadDelegate(mod, state, handle)` — the delegate-dispatch
+  resolution (target name + closure) extracted from the `Delegate.Invoke` case
+  and shared with threads. `Interpreter.RunDelegate(handle, args)` runs a
+  delegate's target as a standalone call (thread entry point).
+- `Runtime.SpawnThread(handle)` — registers `Thread.Spawn` as an explicit
+  native; spawns a background `Thread` running `RunDelegate` on a fresh
+  interpreter with `NativeCallHandler` wired to the runtime's resolver chain.
+- Compiler: `ThreadModule.Spawn(object d)` stub so the analyzer accepts the
+  call; the runtime host binding takes precedence at dispatch.
+- **v1 surface:** `Thread.Spawn(delegate)` (fire-and-forget, background
+  thread), `Thread.Sleep`. No join/result/locks yet.
+- Validated end-to-end: `tests/success/Threading.ct` → non-capturing lambda
+  prints from a thread; a **capturing** lambda mutates its closure field
+  (`n += 1`) on the spawned thread through the shared heap.
 
 ---
 
@@ -279,10 +326,11 @@ remain the common case). *Prereq for everything.*
 1. **A canonical object representation.** `ObjectNode` must stop being a stub:
    objects need a type tag, field slots (for closures and struct instances),
    and either a method-dispatch table or token-based method resolution.
-2. **Indirect invocation.** Execute `InvokeDelegate`: given an object + method
-   token + args, call the method (static or instance).
+2. **Indirect invocation.** Execute a delegate: given a heap handle, read the
+   target method name + closure, call the module function (static or instance).
+   Implemented as `Interpreter.ReadDelegate`/`RunDelegate`.
 3. **Thread entry.** Start an OS thread whose entry point is "invoke this
-   delegate".
+   delegate" — implemented via `Runtime.SpawnThread` sharing `ExecutorState`.
 4. **Boxing.** Values stored in `object` slots (delegate args/results of type
    `object`) need boxing. The IR already has `Box`/`Unbox` opcodes.
 5. **Allocation + lifecycle.** Closure objects must outlive the frame that

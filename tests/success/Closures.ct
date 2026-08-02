@@ -1,0 +1,36 @@
+Contract Program {
+    fn apply(f: (int) -> int, x: int) -> int {
+        return f(x);
+    }
+
+    fn makeCounter(start: int) -> () -> int {
+        var n: int = start;
+        return fun () -> { n += 1; return n; };
+    }
+
+    static fn Main() {
+        // Block-bodied lambda with typed params
+        let double = fun (x: int) -> { return x * 2; };
+        IO.Println(double(5));            // 10
+
+        // Capture a local by value
+        var base: int = 10;
+        let addBase = fun x -> x + base;
+        IO.Println(addBase(1));           // 11
+        IO.Println(apply(addBase, 5));    // 15
+
+        // Captured write (closure field mutation) — a simple counter
+        var count: int = 0;
+        let bump = fun -> { count += 1; return count; };
+        IO.Println(bump());               // 1
+        IO.Println(bump());               // 2
+
+        // Closure factory: inner lambda captures the outer lambda's local
+        let c1 = makeCounter(10);
+        let c2 = makeCounter(100);
+        IO.Println(c1());                 // 11
+        IO.Println(c1());                 // 12
+        IO.Println(c2());                 // 101
+        IO.Println(c1());                 // 13  (independent from c2)
+    }
+}

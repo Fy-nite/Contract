@@ -62,6 +62,48 @@ public abstract class TypeDescriptor
         public override int GetHashCode() => Element.GetHashCode();
     }
 
+    /// <summary>
+    /// An instantiated generic type, e.g. "List&lt;int&gt;" or
+    /// "Dict&lt;string, int&gt;". In version 1.0 these are type-erased: the
+    /// runtime sees the same object-backed class (the unbound name), and the
+    /// element types exist only for compile-time checking.
+    /// </summary>
+    public sealed class GenericInstance : TypeDescriptor, IEquatable<GenericInstance>
+    {
+        public string Name { get; }
+        public IReadOnlyList<TypeDescriptor> Arguments { get; }
+
+        public GenericInstance(string name, IReadOnlyList<TypeDescriptor> arguments)
+        {
+            Name = name;
+            Arguments = arguments;
+        }
+
+        public override string ToString() => $"{Name}<{string.Join(", ", Arguments)}>";
+
+        public bool Equals(GenericInstance? other)
+        {
+            if (other is null) return false;
+            if (!string.Equals(Name, other.Name, StringComparison.Ordinal)) return false;
+            if (Arguments.Count != other.Arguments.Count) return false;
+            for (int i = 0; i < Arguments.Count; i++)
+            {
+                if (!Arguments[i].Equals(other.Arguments[i])) return false;
+            }
+            return true;
+        }
+
+        public override bool Equals(object? obj) => Equals(obj as GenericInstance);
+
+        public override int GetHashCode()
+        {
+            var h = new HashCode();
+            h.Add(Name);
+            foreach (var a in Arguments) h.Add(a);
+            return h.ToHashCode();
+        }
+    }
+
     /// <summary>A function type, e.g. "(int, bool) -> string".</summary>
     public sealed class Function : TypeDescriptor, IEquatable<Function>
     {
@@ -117,9 +159,12 @@ public abstract class TypeDescriptor
             {
                 var paramPart = s.Substring(1, close - 1);
                 var returnPart = s.Substring(arrow + 2).Trim();
-                var parameters = paramPart.Split(',')
-                    .Select(p => Parse(p))
-                    .ToList();
+                var parameters = new List<TypeDescriptor>();
+                if (!string.IsNullOrWhiteSpace(paramPart))
+                {
+                    foreach (var p in paramPart.Split(','))
+                        parameters.Add(Parse(p));
+                }
                 return new Function(parameters, Parse(returnPart));
             }
         }
@@ -128,6 +173,21 @@ public abstract class TypeDescriptor
         if (s.EndsWith("[]", StringComparison.Ordinal))
         {
             return new ArrayOf(Parse(s[..^2]));
+        }
+
+        // Generic instance: "Name<T1, T2>" (no nested >, no function types inside).
+        int lt = s.IndexOf('<');
+        if (lt > 0 && s.EndsWith(">", StringComparison.Ordinal))
+        {
+            var name = s[..lt].Trim();
+            var argsPart = s[(lt + 1)..^1];
+            var args = new List<TypeDescriptor>();
+            foreach (var a in argsPart.Split(','))
+            {
+                var t = a.Trim();
+                if (t.Length > 0) args.Add(Parse(t));
+            }
+            return new GenericInstance(name, args);
         }
 
         return new Named(s);
