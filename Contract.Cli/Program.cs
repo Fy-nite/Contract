@@ -1,13 +1,14 @@
 using System;
 using System.IO;
 using System.Linq;
+using Contract.LanguageServer;
 using Contract.Runtime;
 
 namespace Contract.Cli
 {
     class Program
     {
-        static int Main(string[] args)
+        static async Task<int> Main(string[] args)
         {
             if (args.Length == 0)
             {
@@ -19,6 +20,12 @@ namespace Contract.Cli
             {
                 TestRunner.RunTests();
                 return 0;
+            }
+
+            if (args.Length > 0 && args[0] == "lsp")
+            {
+                // Host the language server over stdio: ccl lsp [--trace]
+                return await ServerMain.RunLsp(args.Contains("--trace", StringComparer.OrdinalIgnoreCase));
             }
 
             var compileOnly = false;
@@ -66,11 +73,12 @@ namespace Contract.Cli
             try
             {
                 var rt = new ContractRuntime();
+                System.Reflection.Assembly? bindingAsm = null;
                 if (bindAssembly != null)
                 {
                     if (!File.Exists(bindAssembly)) { Error($"Binding assembly not found: {bindAssembly}"); return 1; }
-                    var asm = System.Reflection.Assembly.LoadFrom(bindAssembly);
-                    rt.RegisterBindingAssembly(asm);
+                    bindingAsm = System.Reflection.Assembly.LoadFrom(bindAssembly);
+                    rt.RegisterBindingAssembly(bindingAsm);
                     if (verbose) Console.Error.WriteLine($"; Loaded bindings from {bindAssembly}");
                 }
 
@@ -95,7 +103,8 @@ namespace Contract.Cli
 
                 // ── Compile .ct source ────────────────────────────────────
                 if (verbose) Console.Error.WriteLine($"; Compiling {filePath}");
-                var ir = ContractCompiler.CompileFile(filePath, out var diagnostics);
+                var ir = ContractCompiler.CompileFile(filePath, out var diagnostics,
+                    bindingAsm != null ? new[] { bindingAsm } : null);
                 if (ir == null)
                 {
                     diagnostics.ReportToConsole();
@@ -180,6 +189,7 @@ Usage:
   contract <file.ct> [options]          Compile and run in one go
   contract -c <file.ct> [-o out]        Compile only (default output .orbt)
   contract run <file.orbt|oil|oir>      Run a precompiled module
+  contract lsp [--trace]                Run the language server (LSP over stdio)
   contract --test                       Run the compiler test suite
 
 Options:

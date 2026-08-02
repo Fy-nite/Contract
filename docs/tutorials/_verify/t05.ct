@@ -1,20 +1,26 @@
-Types {
-    type Rectangle {
-        width: int;
-        height: int;
+Contract Rectangle {
+    width: int;
+    height: int;
+
+    fn area() -> int {
+        return this.width * this.height;
     }
 }
 
 Contract Counter {
-    constructor(start: int) {
-        IO.Println("Counter started at " + start);
+    count: int;
+
+    constructor() {
+        this.count = 7;
+        IO.Println("Counter created");
     }
 
     static fn Main() {
         var r: Rectangle = new Rectangle();
         r.width = 5;
         r.height = 3;
-        IO.Println(r.width * r.height);
+        IO.Println(r.area());
         var c: Counter = new Counter();
     }
 }
+

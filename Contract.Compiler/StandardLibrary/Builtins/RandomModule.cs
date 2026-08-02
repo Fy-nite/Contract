@@ -9,9 +9,11 @@ namespace Contract.Compiler.StandardLibrary.Builtins
     [ClassBinding("Random")]
     public static class RandomModule
     {
+        /// <summary>Random integer in [0, <paramref name="max"/>).</summary>
         [MethodBinding]
         public static int NextInt(int max) => Random.Shared.Next(max);
 
+        /// <summary>Random float in [0.0, 1.0).</summary>
         [MethodBinding]
         public static float NextFloat() => Random.Shared.NextSingle();
     }

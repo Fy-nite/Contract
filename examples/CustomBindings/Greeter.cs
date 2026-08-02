@@ -10,6 +10,10 @@ namespace Contract.CustomBindings
     [ClassBinding("Greeter")]
     public static class Greeter
     {
+        [MethodBinding]
         public static void SayHi() => Console.WriteLine("hi from a custom binding!");
+
+        [MethodBinding]
+        public static int Add(int a, int b) => a + b;
     }
 }

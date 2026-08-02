@@ -1,0 +1,53 @@
+module Program version 1.0.0
+
+class Global {
+    method main() -> int32 {
+        local x: int32
+
+        // #line 6:39 "ObjektRT.Stdlib.System.IO.Println("hello from ns");"
+        ldstr "hello from ns"
+        // #line 6:39 "ObjektRT.Stdlib.System.IO.Println("hello from ns");"
+        call ObjektRT.Stdlib.System.IO.Println(object) -> void
+        // #line 6:39 "ObjektRT.Stdlib.System.IO.Println("hello from ns");"
+        pop
+        // #line 9:16 "IO.Println("short IO after import");"
+        ldstr "short IO after import"
+        // #line 9:16 "IO.Println("short IO after import");"
+        call IO.Println(object) -> void
+        // #line 9:16 "IO.Println("short IO after import");"
+        pop
+        // #line 12:40 "ObjektRT.Stdlib.System.IO::Println("scoped dotted");"
+        ldstr "scoped dotted"
+        // #line 12:40 "ObjektRT.Stdlib.System.IO::Println("scoped dotted");"
+        pop
+        // #line 15:52 "var x: int = ObjektRT.Stdlib.Math.Numbers.Abs(-42);"
+        ldc.i4 42
+        // #line 15:52 "var x: int = ObjektRT.Stdlib.Math.Numbers.Abs(-42);"
+        neg
+        // #line 15:52 "var x: int = ObjektRT.Stdlib.Math.Numbers.Abs(-42);"
+        call ObjektRT.Stdlib.Math.Numbers.Abs(int32) -> int32
+        // #line 15:52 "var x: int = ObjektRT.Stdlib.Math.Numbers.Abs(-42);"
+        stloc x
+        // #line 16:16 "IO.Println(x);"
+        ldloc x
+        // #line 16:16 "IO.Println(x);"
+        call IO.Println(object) -> void
+        // #line 16:16 "IO.Println(x);"
+        pop
+        // #line 17:28 "IO.Println(Numbers.Max(3, 9));"
+        ldc.i4 3
+        // #line 17:31 "IO.Println(Numbers.Max(3, 9));"
+        ldc.i4 9
+        // #line 17:31 "IO.Println(Numbers.Max(3, 9));"
+        call ObjektRT.Stdlib.Math.Numbers.Max(int32, int32) -> int32
+        // #line 17:31 "IO.Println(Numbers.Max(3, 9));"
+        call IO.Println(object) -> void
+        // #line 17:31 "IO.Println(Numbers.Max(3, 9));"
+        pop
+        // #line 17:31 "IO.Println(Numbers.Max(3, 9));"
+        ldc.i4 0
+        // #line 17:31 "IO.Println(Numbers.Max(3, 9));"
+        ret
+    }
+}
+

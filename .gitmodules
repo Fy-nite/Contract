@@ -4,3 +4,6 @@
 [submodule "libs/Objekt-RT"]
 	path = libs/Objekt-RT
 	url = https://git.finite.ovh/Objekt-RT
+[submodule "libs/Stdlib"]
+	path = libs/Stdlib
+	url = https://github.com/OpenStudioCorp/ObjectRT.Stdlib

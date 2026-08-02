@@ -13,9 +13,11 @@ namespace Contract.Compiler.StandardLibrary.Builtins
     [ClassBinding("Thread")]
     public static class ThreadModule
     {
+        /// <summary>Suspends the current thread for <paramref name="ms"/> milliseconds.</summary>
         [MethodBinding]
         public static void Sleep(int ms) => System.Threading.Thread.Sleep(ms);
 
+        /// <summary>Runs the delegate <paramref name="d"/> on a new thread (host binding).</summary>
         [MethodBinding]
         public static void Spawn(object d)
         {

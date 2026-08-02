@@ -1,0 +1,22 @@
+import ObjektRT.Stdlib.System;
+import ObjektRT.Stdlib.Math;
+
+Contract Program {
+    static fn Main() {
+        // Fully-qualified dotted module access.
+        ObjektRT.Stdlib.System.IO.Println("hello from ns");
+
+        // Short name after namespace import.
+        IO.Println("short IO after import");
+
+        // Dotted scoped access.
+        ObjektRT.Stdlib.System.IO::Println("scoped dotted");
+
+        // Dotted math module.
+        var x: int = ObjektRT.Stdlib.Math.Numbers.Abs(-42);
+        IO.Println(x);
+
+        // Short math name after import.
+        IO.Println(Numbers.Max(3, 9));
+    }
+}

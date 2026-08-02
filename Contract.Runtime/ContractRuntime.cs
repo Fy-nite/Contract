@@ -64,6 +64,12 @@ public class ContractRuntime
         RegisterBinding("Debug", typeof(DebugModule));
         RegisterBinding("Time", typeof(TimeModule));
         RegisterBinding("Thread", typeof(ThreadModule));
+
+        // Generic ObjektRT stdlib, registered under its fully-qualified names.
+        RegisterBinding("ObjektRT.Stdlib.System.IO", typeof(ObjektRT.Stdlib.System.IO));
+        RegisterBinding("ObjektRT.Stdlib.Math.Numbers", typeof(ObjektRT.Stdlib.Math.Numbers));
+        RegisterBinding("ObjektRT.Stdlib.Threading.Thread", typeof(ObjektRT.Stdlib.Threading.Thread));
+        RegisterBinding("ObjektRT.Stdlib.Generics.Array", typeof(ObjektRT.Stdlib.Generics.Array));
     }
 
     /// <summary>

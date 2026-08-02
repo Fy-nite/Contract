@@ -932,6 +932,16 @@ public class IRCodeGenerator
                     var paramTypes = instanceFunc.Parameters.Select(p => MapType(p.Type)).ToList();
                     ib.Call(new MethodReference(new TypeRef(instanceFunc.ContractName ?? "TODO"), instanceFunc.Name, returnType, paramTypes));
                 }
+                else if (call.Symbol is FunctionDeclaration staticFunc && staticFunc.IsStatic)
+                {
+                    // Static method on a contract: Contract::Method(...) or
+                    // Contract.Method(...). No receiver to push.
+                    var returnType = staticFunc.ReturnType != null
+                        ? MapType(staticFunc.ReturnType)
+                        : TypeRef.Int32;
+                    var paramTypes = staticFunc.Parameters.Select(p => MapType(p.Type)).ToList();
+                    ib.Call(new MethodReference(new TypeRef(staticFunc.ContractName ?? "Global"), staticFunc.Name, returnType, paramTypes));
+                }
                 else if (call.Callee is IdentifierExpression calleeIdent)
                 {
                     if (_lambdaVariableMap.TryGetValue(calleeIdent.Name, out var lambdaInfo))

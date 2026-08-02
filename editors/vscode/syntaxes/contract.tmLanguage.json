@@ -1,0 +1,67 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Contract",
+  "scopeName": "source.contract",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#functionCalls" },
+    { "include": "#identifiers" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "match": "//.*$", "name": "comment.line.double-slash.contract" }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "begin": "\"",
+          "end": "\"",
+          "name": "string.quoted.double.contract",
+          "patterns": [
+            { "match": "\\\\.", "name": "constant.character.escape.contract" }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        { "match": "\\b\\d+(\\.\\d+)?\\b", "name": "constant.numeric.contract" }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "match": "\\b(Contract|fn|if|else|while|for|switch|case|return|var|let|fun|static|public|private|protected|internal|null|import|constructor|struct|export|Types|type|new|break|continue|true|false)\\b",
+          "name": "keyword.control.contract"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "match": "\\b(int|int64|long|string|bool|double|float|object|void)\\b",
+          "name": "storage.type.contract"
+        }
+      ]
+    },
+    "functionCalls": {
+      "patterns": [
+        {
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()",
+          "name": "entity.name.function.contract"
+        }
+      ]
+    },
+    "identifiers": {
+      "patterns": [
+        { "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b", "name": "variable.other.contract" }
+      ]
+    }
+  }
+}

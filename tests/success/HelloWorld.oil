@@ -1,0 +1,15 @@
+module Program version 1.0.0
+
+class Program {
+    static method Main() -> void {
+        // #line 3:20 "IO.Println("hello world");"
+        ldstr "hello world"
+        // #line 3:20 "IO.Println("hello world");"
+        call IO.Println(object) -> void
+        // #line 3:20 "IO.Println("hello world");"
+        pop
+        // #line 3:20 "IO.Println("hello world");"
+        ret
+    }
+}
+

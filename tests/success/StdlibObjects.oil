@@ -1,0 +1,306 @@
+module Program version 1.0.0
+
+class Program {
+    static method Main() -> void {
+        local list: object
+        local dict: object
+        local nums: int[]
+        local l2: object
+        local now: int64
+        local parts: string[]
+
+        // #line 4:20 "var list = List.Create();"
+        call List.Create() -> object
+        // #line 4:20 "var list = List.Create();"
+        stloc list
+        // #line 5:18 "List.Add(list, 10);"
+        ldloc list
+        // #line 5:24 "List.Add(list, 10);"
+        ldc.i4 10
+        // #line 5:24 "List.Add(list, 10);"
+        call List.Add(object, object) -> void
+        // #line 5:24 "List.Add(list, 10);"
+        pop
+        // #line 6:18 "List.Add(list, "hello");"
+        ldloc list
+        // #line 6:24 "List.Add(list, "hello");"
+        ldstr "hello"
+        // #line 6:24 "List.Add(list, "hello");"
+        call List.Add(object, object) -> void
+        // #line 6:24 "List.Add(list, "hello");"
+        pop
+        // #line 7:18 "List.Add(list, true);"
+        ldloc list
+        // #line 7:24 "List.Add(list, true);"
+        ldc.i4 1
+        // #line 7:24 "List.Add(list, true);"
+        call List.Add(object, object) -> void
+        // #line 7:24 "List.Add(list, true);"
+        pop
+        // #line 8:31 "IO.Println(List.Count(list));"
+        ldloc list
+        // #line 8:31 "IO.Println(List.Count(list));"
+        call List.Count(object) -> int32
+        // #line 8:31 "IO.Println(List.Count(list));"
+        call IO.Println(object) -> void
+        // #line 8:31 "IO.Println(List.Count(list));"
+        pop
+        // #line 9:29 "IO.Println(List.Get(list, 0));"
+        ldloc list
+        // #line 9:35 "IO.Println(List.Get(list, 0));"
+        ldc.i4 0
+        // #line 9:35 "IO.Println(List.Get(list, 0));"
+        call List.Get(object, int32) -> object
+        // #line 9:35 "IO.Println(List.Get(list, 0));"
+        call IO.Println(object) -> void
+        // #line 9:35 "IO.Println(List.Get(list, 0));"
+        pop
+        // #line 10:29 "IO.Println(List.Get(list, 1));"
+        ldloc list
+        // #line 10:35 "IO.Println(List.Get(list, 1));"
+        ldc.i4 1
+        // #line 10:35 "IO.Println(List.Get(list, 1));"
+        call List.Get(object, int32) -> object
+        // #line 10:35 "IO.Println(List.Get(list, 1));"
+        call IO.Println(object) -> void
+        // #line 10:35 "IO.Println(List.Get(list, 1));"
+        pop
+        // #line 11:23 "List.RemoveAt(list, 0);"
+        ldloc list
+        // #line 11:29 "List.RemoveAt(list, 0);"
+        ldc.i4 0
+        // #line 11:29 "List.RemoveAt(list, 0);"
+        call List.RemoveAt(object, int32) -> void
+        // #line 11:29 "List.RemoveAt(list, 0);"
+        pop
+        // #line 12:29 "IO.Println(List.Get(list, 0));"
+        ldloc list
+        // #line 12:35 "IO.Println(List.Get(list, 0));"
+        ldc.i4 0
+        // #line 12:35 "IO.Println(List.Get(list, 0));"
+        call List.Get(object, int32) -> object
+        // #line 12:35 "IO.Println(List.Get(list, 0));"
+        call IO.Println(object) -> void
+        // #line 12:35 "IO.Println(List.Get(list, 0));"
+        pop
+        // #line 13:31 "IO.Println(List.Count(list));"
+        ldloc list
+        // #line 13:31 "IO.Println(List.Count(list));"
+        call List.Count(object) -> int32
+        // #line 13:31 "IO.Println(List.Count(list));"
+        call IO.Println(object) -> void
+        // #line 13:31 "IO.Println(List.Count(list));"
+        pop
+        // #line 16:20 "var dict = Dict.Create();"
+        call Dict.Create() -> object
+        // #line 16:20 "var dict = Dict.Create();"
+        stloc dict
+        // #line 17:18 "Dict.Set(dict, "name", "Ada");"
+        ldloc dict
+        // #line 17:24 "Dict.Set(dict, "name", "Ada");"
+        ldstr "name"
+        // #line 17:32 "Dict.Set(dict, "name", "Ada");"
+        ldstr "Ada"
+        // #line 17:32 "Dict.Set(dict, "name", "Ada");"
+        call Dict.Set(object, object, object) -> void
+        // #line 17:32 "Dict.Set(dict, "name", "Ada");"
+        pop
+        // #line 18:18 "Dict.Set(dict, "age", 36);"
+        ldloc dict
+        // #line 18:24 "Dict.Set(dict, "age", 36);"
+        ldstr "age"
+        // #line 18:31 "Dict.Set(dict, "age", 36);"
+        ldc.i4 36
+        // #line 18:31 "Dict.Set(dict, "age", 36);"
+        call Dict.Set(object, object, object) -> void
+        // #line 18:31 "Dict.Set(dict, "age", 36);"
+        pop
+        // #line 19:37 "IO.Println(Dict.ContainsKey(dict, "name"));"
+        ldloc dict
+        // #line 19:43 "IO.Println(Dict.ContainsKey(dict, "name"));"
+        ldstr "name"
+        // #line 19:43 "IO.Println(Dict.ContainsKey(dict, "name"));"
+        call Dict.ContainsKey(object, object) -> bool
+        // #line 19:43 "IO.Println(Dict.ContainsKey(dict, "name"));"
+        call IO.Println(object) -> void
+        // #line 19:43 "IO.Println(Dict.ContainsKey(dict, "name"));"
+        pop
+        // #line 20:29 "IO.Println(Dict.Get(dict, "name"));"
+        ldloc dict
+        // #line 20:35 "IO.Println(Dict.Get(dict, "name"));"
+        ldstr "name"
+        // #line 20:35 "IO.Println(Dict.Get(dict, "name"));"
+        call Dict.Get(object, object) -> object
+        // #line 20:35 "IO.Println(Dict.Get(dict, "name"));"
+        call IO.Println(object) -> void
+        // #line 20:35 "IO.Println(Dict.Get(dict, "name"));"
+        pop
+        // #line 21:31 "IO.Println(Dict.Count(dict));"
+        ldloc dict
+        // #line 21:31 "IO.Println(Dict.Count(dict));"
+        call Dict.Count(object) -> int32
+        // #line 21:31 "IO.Println(Dict.Count(dict));"
+        call IO.Println(object) -> void
+        // #line 21:31 "IO.Println(Dict.Count(dict));"
+        pop
+        // #line 22:21 "Dict.Remove(dict, "name");"
+        ldloc dict
+        // #line 22:27 "Dict.Remove(dict, "name");"
+        ldstr "name"
+        // #line 22:27 "Dict.Remove(dict, "name");"
+        call Dict.Remove(object, object) -> bool
+        // #line 22:27 "Dict.Remove(dict, "name");"
+        pop
+        // #line 23:37 "IO.Println(Dict.ContainsKey(dict, "name"));"
+        ldloc dict
+        // #line 23:43 "IO.Println(Dict.ContainsKey(dict, "name"));"
+        ldstr "name"
+        // #line 23:43 "IO.Println(Dict.ContainsKey(dict, "name"));"
+        call Dict.ContainsKey(object, object) -> bool
+        // #line 23:43 "IO.Println(Dict.ContainsKey(dict, "name"));"
+        call IO.Println(object) -> void
+        // #line 23:43 "IO.Println(Dict.ContainsKey(dict, "name"));"
+        pop
+        // #line 26:27 "var nums: int[] = [5, 6, 7];"
+        ldc.i4 3
+        // #line 26:27 "var nums: int[] = [5, 6, 7];"
+        newarr int32
+        // #line 26:27 "var nums: int[] = [5, 6, 7];"
+        dup
+        // #line 26:27 "var nums: int[] = [5, 6, 7];"
+        ldc.i4 0
+        // #line 26:28 "var nums: int[] = [5, 6, 7];"
+        ldc.i4 5
+        // #line 26:28 "var nums: int[] = [5, 6, 7];"
+        stelem
+        // #line 26:28 "var nums: int[] = [5, 6, 7];"
+        dup
+        // #line 26:28 "var nums: int[] = [5, 6, 7];"
+        ldc.i4 1
+        // #line 26:31 "var nums: int[] = [5, 6, 7];"
+        ldc.i4 6
+        // #line 26:31 "var nums: int[] = [5, 6, 7];"
+        stelem
+        // #line 26:31 "var nums: int[] = [5, 6, 7];"
+        dup
+        // #line 26:31 "var nums: int[] = [5, 6, 7];"
+        ldc.i4 2
+        // #line 26:34 "var nums: int[] = [5, 6, 7];"
+        ldc.i4 7
+        // #line 26:34 "var nums: int[] = [5, 6, 7];"
+        stelem
+        // #line 26:34 "var nums: int[] = [5, 6, 7];"
+        stloc nums
+        // #line 27:33 "IO.Println(Array.Length(nums));"
+        ldloc nums
+        // #line 27:33 "IO.Println(Array.Length(nums));"
+        call Array.Length(object) -> int32
+        // #line 27:33 "IO.Println(Array.Length(nums));"
+        call IO.Println(object) -> void
+        // #line 27:33 "IO.Println(Array.Length(nums));"
+        pop
+        // #line 28:30 "IO.Println(Array.Get(nums, 1));"
+        ldloc nums
+        // #line 28:36 "IO.Println(Array.Get(nums, 1));"
+        ldc.i4 1
+        // #line 28:36 "IO.Println(Array.Get(nums, 1));"
+        call Array.Get(object, int32) -> object
+        // #line 28:36 "IO.Println(Array.Get(nums, 1));"
+        call IO.Println(object) -> void
+        // #line 28:36 "IO.Println(Array.Get(nums, 1));"
+        pop
+        // #line 29:19 "Array.Set(nums, 2, 9);"
+        ldloc nums
+        // #line 29:25 "Array.Set(nums, 2, 9);"
+        ldc.i4 2
+        // #line 29:28 "Array.Set(nums, 2, 9);"
+        ldc.i4 9
+        // #line 29:28 "Array.Set(nums, 2, 9);"
+        call Array.Set(object, int32, object) -> void
+        // #line 29:28 "Array.Set(nums, 2, 9);"
+        pop
+        // #line 30:20 "IO.Println(nums[2]);"
+        ldloc nums
+        // #line 30:25 "IO.Println(nums[2]);"
+        ldc.i4 2
+        // #line 30:25 "IO.Println(nums[2]);"
+        ldelem
+        // #line 30:25 "IO.Println(nums[2]);"
+        call IO.Println(object) -> void
+        // #line 30:25 "IO.Println(nums[2]);"
+        pop
+        // #line 33:18 "let l2 = List.Create();"
+        call List.Create() -> object
+        // #line 33:18 "let l2 = List.Create();"
+        stloc l2
+        // #line 34:20 "IO.Println(l2);"
+        ldloc l2
+        // #line 34:20 "IO.Println(l2);"
+        call IO.Println(object) -> void
+        // #line 34:20 "IO.Println(l2);"
+        pop
+        // #line 37:19 "let now = Time.Now();"
+        call Time.Now() -> int64
+        // #line 37:19 "let now = Time.Now();"
+        stloc now
+        // #line 38:20 "IO.Println(now);"
+        ldloc now
+        // #line 38:20 "IO.Println(now);"
+        call IO.Println(object) -> void
+        // #line 38:20 "IO.Println(now);"
+        pop
+        // #line 41:22 "Thread.Sleep(1);"
+        ldc.i4 1
+        // #line 41:22 "Thread.Sleep(1);"
+        call Thread.Sleep(int32) -> void
+        // #line 41:22 "Thread.Sleep(1);"
+        pop
+        // #line 42:9 "GC.Collect();"
+        call GC.Collect() -> void
+        // #line 42:9 "GC.Collect();"
+        pop
+        // #line 43:22 "Debug.Assert(true, "ok");"
+        ldc.i4 1
+        // #line 43:28 "Debug.Assert(true, "ok");"
+        ldstr "ok"
+        // #line 43:28 "Debug.Assert(true, "ok");"
+        call Debug.Assert(bool, string) -> void
+        // #line 43:28 "Debug.Assert(true, "ok");"
+        pop
+        // #line 44:32 "IO.Println(File.Exists("."));"
+        ldstr "."
+        // #line 44:32 "IO.Println(File.Exists("."));"
+        call File.Exists(string) -> bool
+        // #line 44:32 "IO.Println(File.Exists("."));"
+        call IO.Println(object) -> void
+        // #line 44:32 "IO.Println(File.Exists("."));"
+        pop
+        // #line 45:39 "IO.Println(Environment.GetEnv("PATH"));"
+        ldstr "PATH"
+        // #line 45:39 "IO.Println(Environment.GetEnv("PATH"));"
+        call Environment.GetEnv(string) -> string
+        // #line 45:39 "IO.Println(Environment.GetEnv("PATH"));"
+        call IO.Println(object) -> void
+        // #line 45:39 "IO.Println(Environment.GetEnv("PATH"));"
+        pop
+        // #line 48:44 "var parts: string[] = String.Split("a b c", " ");"
+        ldstr "a b c"
+        // #line 48:53 "var parts: string[] = String.Split("a b c", " ");"
+        ldstr " "
+        // #line 48:53 "var parts: string[] = String.Split("a b c", " ");"
+        call String.Split(string, string) -> string[]
+        // #line 48:53 "var parts: string[] = String.Split("a b c", " ");"
+        stloc parts
+        // #line 49:20 "IO.Println(parts.Length);"
+        ldloc parts
+        // #line 49:20 "IO.Println(parts.Length);"
+        ldlen
+        // #line 49:20 "IO.Println(parts.Length);"
+        call IO.Println(object) -> void
+        // #line 49:20 "IO.Println(parts.Length);"
+        pop
+        // #line 49:20 "IO.Println(parts.Length);"
+        ret
+    }
+}
+

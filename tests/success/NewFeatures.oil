@@ -1,0 +1,278 @@
+module Program version 1.0.0
+
+class Program {
+    method twice(x: int32) -> int32 {
+        // #line 3:16 "return x * 2;"
+        ldarg 0
+        // #line 3:20 "return x * 2;"
+        ldc.i4 2
+        // #line 3:20 "return x * 2;"
+        mul
+        // #line 3:20 "return x * 2;"
+        ret
+    }
+
+    method describe(v: bool) -> string {
+        // #line 7:13 "if (v == true) {"
+        ldarg 0
+        // #line 7:18 "if (v == true) {"
+        ldc.i4 1
+        // #line 7:18 "if (v == true) {"
+        ceq
+        // #line 7:18 "if (v == true) {"
+        if (stack) {
+            // #line 8:20 "return "yes";"
+            ldstr "yes"
+            // #line 8:20 "return "yes";"
+            ret
+        }
+        else {
+            // #line 10:20 "return "no";"
+            ldstr "no"
+            // #line 10:20 "return "no";"
+            ret
+        }
+    }
+
+    method sumTo(n: int32) -> int32 {
+        local total: int32
+        local i: int32
+
+        // #line 15:26 "var total: int = 0;"
+        ldc.i4 0
+        // #line 15:26 "var total: int = 0;"
+        stloc total
+        // #line 16:27 "for (var i: int = 0; i < n; i = i + 1) {"
+        ldc.i4 0
+        // #line 16:27 "for (var i: int = 0; i < n; i = i + 1) {"
+        stloc i
+        // #line 16:30 "for (var i: int = 0; i < n; i = i + 1) {"
+        ldloc i
+        // #line 16:34 "for (var i: int = 0; i < n; i = i + 1) {"
+        ldarg 0
+        // #line 16:34 "for (var i: int = 0; i < n; i = i + 1) {"
+        clt
+        // #line 16:34 "for (var i: int = 0; i < n; i = i + 1) {"
+        while (stack) {
+            // #line 16:34 "for (var i: int = 0; i < n; i = i + 1) {"
+            pop
+            // #line 17:17 "if (i == 3) {"
+            ldloc i
+            // #line 17:22 "if (i == 3) {"
+            ldc.i4 3
+            // #line 17:22 "if (i == 3) {"
+            ceq
+            // #line 17:22 "if (i == 3) {"
+            if (stack) {
+                // #line 16:41 "for (var i: int = 0; i < n; i = i + 1) {"
+                ldloc i
+                // #line 16:45 "for (var i: int = 0; i < n; i = i + 1) {"
+                ldc.i4 1
+                // #line 16:45 "for (var i: int = 0; i < n; i = i + 1) {"
+                add
+                // #line 16:45 "for (var i: int = 0; i < n; i = i + 1) {"
+                dup
+                // #line 16:45 "for (var i: int = 0; i < n; i = i + 1) {"
+                stloc i
+                // #line 16:30 "for (var i: int = 0; i < n; i = i + 1) {"
+                ldloc i
+                // #line 16:34 "for (var i: int = 0; i < n; i = i + 1) {"
+                ldarg 0
+                // #line 16:34 "for (var i: int = 0; i < n; i = i + 1) {"
+                clt
+                // #line 16:34 "for (var i: int = 0; i < n; i = i + 1) {"
+                continue
+            }
+            // #line 20:19 "total += i;"
+            ldloc total
+            // #line 20:22 "total += i;"
+            ldloc i
+            // #line 20:22 "total += i;"
+            add
+            // #line 20:22 "total += i;"
+            dup
+            // #line 20:22 "total += i;"
+            stloc total
+            // #line 20:22 "total += i;"
+            pop
+            // #line 21:17 "if (total > 100) {"
+            ldloc total
+            // #line 21:25 "if (total > 100) {"
+            ldc.i4 100
+            // #line 21:25 "if (total > 100) {"
+            cgt
+            // #line 21:25 "if (total > 100) {"
+            if (stack) {
+                // #line 22:17 "break;"
+                ldc.i4 0
+                // #line 22:17 "break;"
+                break
+            }
+            // #line 16:41 "for (var i: int = 0; i < n; i = i + 1) {"
+            ldloc i
+            // #line 16:45 "for (var i: int = 0; i < n; i = i + 1) {"
+            ldc.i4 1
+            // #line 16:45 "for (var i: int = 0; i < n; i = i + 1) {"
+            add
+            // #line 16:45 "for (var i: int = 0; i < n; i = i + 1) {"
+            dup
+            // #line 16:45 "for (var i: int = 0; i < n; i = i + 1) {"
+            stloc i
+            // #line 16:30 "for (var i: int = 0; i < n; i = i + 1) {"
+            ldloc i
+            // #line 16:34 "for (var i: int = 0; i < n; i = i + 1) {"
+            ldarg 0
+            // #line 16:34 "for (var i: int = 0; i < n; i = i + 1) {"
+            clt
+        }
+        // #line 16:34 "for (var i: int = 0; i < n; i = i + 1) {"
+        pop
+        // #line 25:16 "return total;"
+        ldloc total
+        // #line 25:16 "return total;"
+        ret
+    }
+
+    static method Main() -> void {
+        local a: int32
+        local b: string
+        local c: bool
+        local d: float64
+        local n: float64
+        local result: int32
+        local doubled: int32
+        local desc: string
+
+        // #line 29:17 "let a = 5;             // inferred int"
+        ldc.i4 5
+        // #line 29:17 "let a = 5;             // inferred int"
+        stloc a
+        // #line 30:17 "let b = "hello";       // inferred string"
+        ldstr "hello"
+        // #line 30:17 "let b = "hello";       // inferred string"
+        stloc b
+        // #line 31:17 "let c = true;          // inferred bool"
+        ldc.i4 1
+        // #line 31:17 "let c = true;          // inferred bool"
+        stloc c
+        // #line 32:17 "let d = 3.5;           // inferred double"
+        ldc.r8 3.5
+        // #line 32:17 "let d = 3.5;           // inferred double"
+        stloc d
+        // #line 33:25 "var n: double = 2.5;"
+        ldc.r8 2.5
+        // #line 33:25 "var n: double = 2.5;"
+        stloc n
+        // #line 34:11 "n += 1.5;"
+        ldloc n
+        // #line 34:14 "n += 1.5;"
+        ldc.r8 1.5
+        // #line 34:14 "n += 1.5;"
+        add
+        // #line 34:14 "n += 1.5;"
+        dup
+        // #line 34:14 "n += 1.5;"
+        stloc n
+        // #line 34:14 "n += 1.5;"
+        pop
+        // #line 35:11 "n *= 2.0;"
+        ldloc n
+        // #line 35:14 "n *= 2.0;"
+        ldc.r8 2
+        // #line 35:14 "n *= 2.0;"
+        mul
+        // #line 35:14 "n *= 2.0;"
+        dup
+        // #line 35:14 "n *= 2.0;"
+        stloc n
+        // #line 35:14 "n *= 2.0;"
+        pop
+        // #line 36:11 "n -= 1.0;"
+        ldloc n
+        // #line 36:14 "n -= 1.0;"
+        ldc.r8 1
+        // #line 36:14 "n -= 1.0;"
+        sub
+        // #line 36:14 "n -= 1.0;"
+        dup
+        // #line 36:14 "n -= 1.0;"
+        stloc n
+        // #line 36:14 "n -= 1.0;"
+        pop
+        // #line 37:11 "n /= 2.0;"
+        ldloc n
+        // #line 37:14 "n /= 2.0;"
+        ldc.r8 2
+        // #line 37:14 "n /= 2.0;"
+        div
+        // #line 37:14 "n /= 2.0;"
+        dup
+        // #line 37:14 "n /= 2.0;"
+        stloc n
+        // #line 37:14 "n /= 2.0;"
+        pop
+        // #line 38:33 "let result: int = sumTo(10);"
+        ldc.i4 10
+        // #line 38:33 "let result: int = sumTo(10);"
+        call Program.sumTo(int32) -> int32
+        // #line 38:33 "let result: int = sumTo(10);"
+        stloc result
+        // #line 39:34 "let doubled: int = twice(result);"
+        ldloc result
+        // #line 39:34 "let doubled: int = twice(result);"
+        call Program.twice(int32) -> int32
+        // #line 39:34 "let doubled: int = twice(result);"
+        stloc doubled
+        // #line 40:37 "let desc: string = describe(c);"
+        ldloc c
+        // #line 40:37 "let desc: string = describe(c);"
+        call Program.describe(bool) -> string
+        // #line 40:37 "let desc: string = describe(c);"
+        stloc desc
+        // #line 41:20 "IO.Println(a);"
+        ldloc a
+        // #line 41:20 "IO.Println(a);"
+        call IO.Println(object) -> void
+        // #line 41:20 "IO.Println(a);"
+        pop
+        // #line 42:20 "IO.Println(b);"
+        ldloc b
+        // #line 42:20 "IO.Println(b);"
+        call IO.Println(object) -> void
+        // #line 42:20 "IO.Println(b);"
+        pop
+        // #line 43:20 "IO.Println(c);"
+        ldloc c
+        // #line 43:20 "IO.Println(c);"
+        call IO.Println(object) -> void
+        // #line 43:20 "IO.Println(c);"
+        pop
+        // #line 44:20 "IO.Println(d);"
+        ldloc d
+        // #line 44:20 "IO.Println(d);"
+        call IO.Println(object) -> void
+        // #line 44:20 "IO.Println(d);"
+        pop
+        // #line 45:20 "IO.Println(n);"
+        ldloc n
+        // #line 45:20 "IO.Println(n);"
+        call IO.Println(object) -> void
+        // #line 45:20 "IO.Println(n);"
+        pop
+        // #line 46:20 "IO.Println(doubled);"
+        ldloc doubled
+        // #line 46:20 "IO.Println(doubled);"
+        call IO.Println(object) -> void
+        // #line 46:20 "IO.Println(doubled);"
+        pop
+        // #line 47:20 "IO.Println(desc);"
+        ldloc desc
+        // #line 47:20 "IO.Println(desc);"
+        call IO.Println(object) -> void
+        // #line 47:20 "IO.Println(desc);"
+        pop
+        // #line 47:20 "IO.Println(desc);"
+        ret
+    }
+}
+

@@ -17,7 +17,8 @@ namespace Contract.Compiler.AST
 
     public class Program : Node
     {
-        public List<string> Imports { get; } = new();
+        public List<string> Imports { get; } = new();             // file imports: "path/to/file.ct"
+        public List<string> NamespaceImports { get; } = new();    // namespace imports: ObjektRT.Stdlib.System
         public List<ContractDeclaration> Contracts { get; } = new();
         public List<StructDeclaration> Structs { get; } = new();
         public List<FunctionDeclaration> Functions { get; } = new();

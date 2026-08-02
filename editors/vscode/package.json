@@ -1,0 +1,66 @@
+{
+  "name": "contract-language-support",
+  "displayName": "Contract Language Support",
+  "description": "Language support for the Contract language: syntax highlighting, diagnostics, hover, go-to-definition and document symbols via the Contract language server.",
+  "version": "0.1.0",
+  "publisher": "contractir",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "activationEvents": [
+    "onLanguage:contract"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "contract",
+        "aliases": [
+          "Contract",
+          "contract"
+        ],
+        "extensions": [
+          ".ct"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "contract",
+        "scopeName": "source.contract",
+        "path": "./syntaxes/contract.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Contract",
+      "properties": {
+        "contract.languageServer.path": {
+          "type": "string",
+          "default": "",
+          "description": "Optional explicit path to the CLI binary that hosts the language server. If empty, the extension runs 'ccl lsp' from PATH."
+        },
+        "contract.languageServer.trace": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages"
+          ],
+          "default": "off",
+          "description": "Trace LSP protocol traffic to the 'Contract Language Server' output channel."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "scripts": {
+    "vscode:prepublish": "npm install"
+  }
+}

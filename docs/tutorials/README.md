@@ -39,7 +39,7 @@ dotnet run --project .\Contract.Cli\ -- --test
 | 2 | [Variables and Types](02-variables-and-types.md) | `var`/`let`, all built-in types, type inference |
 | 3 | [Control Flow](03-control-flow.md) | `if`/`else`, `while`, `for`, `break`, `continue`, `switch` |
 | 4 | [Functions](04-functions.md) | Parameters, return types, `return` |
-| 5 | [Structs and Custom Types](05-structs-and-types.md) | `struct`, the `Types` block, `new`, constructors |
+| 5 | [Structs, Classes, and Custom Types](05-structs-and-types.md) | `struct`, classes (contracts with fields), `this`, `new`, constructors, instance methods |
 | 6 | [Functional Programming](06-functional-programming.md) | Lambdas with `fun`, the `|>` pipe operator |
 | 7 | [Arrays and Logic](07-arrays-and-logic.md) | Array literals, `new Type[size]`, indexing, `.Length`, `&&`/`\|\|`/`!` |
 | 8 | [The Standard Library](08-standard-library.md) | `String`, `Math`, `Convert`, `Random`, string switch |

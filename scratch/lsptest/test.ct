@@ -1,0 +1,11 @@
+Contract Greeter {
+    static fn hello(name: string) -> string {
+        return "Hello, " + name;
+    }
+}
+
+fn main() {
+    let msg = Greeter::hello("World");
+    IO.Println(msg);
+    var x: int = "oops";
+}

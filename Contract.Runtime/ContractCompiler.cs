@@ -1,3 +1,4 @@
+using System.Reflection;
 using Contract.Compiler;
 using Contract.Compiler.CodeGen;
 using Contract.Compiler.Diagnostics;
@@ -17,18 +18,24 @@ public static class ContractCompiler
 {
     /// <summary>Compiles a .ct file to ObjektIR text (.oil).</summary>
     /// <returns>The IR text, or null when compilation failed (errors on <paramref name="diagnostics"/>).</returns>
-    public static string? CompileFile(string path, out DiagnosticBag diagnostics)
+    public static string? CompileFile(string path, out DiagnosticBag diagnostics, IEnumerable<Assembly>? bindingAssemblies = null)
     {
         var source = File.ReadAllText(path);
-        return CompileSource(source, path, out diagnostics);
+        return CompileSource(source, path, out diagnostics, bindingAssemblies);
     }
 
     /// <summary>Compiles a .ct source string to ObjektIR text (.oil).</summary>
-    public static string? CompileSource(string source, string? fileName, out DiagnosticBag diagnostics)
+    public static string? CompileSource(string source, string? fileName, out DiagnosticBag diagnostics, IEnumerable<Assembly>? bindingAssemblies = null)
     {
         diagnostics = new DiagnosticBag { SourceCode = source };
         var symbolTable = new SymbolTable();
         symbolTable.RegisterAssembly(typeof(IO).Assembly);
+        StdlibCatalog.RegisterInto(symbolTable);
+        if (bindingAssemblies != null)
+        {
+            foreach (var asm in bindingAssemblies)
+                symbolTable.RegisterAssembly(asm);
+        }
 
         var driver = new CompilerDriver(diagnostics);
         var program = fileName != null ? driver.Compile(fileName) : ParseProgram(source, diagnostics);

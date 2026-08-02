@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Contract.Compiler.AST;
@@ -12,12 +12,18 @@ namespace Contract.Compiler.Parsing
         private readonly List<Token> _tokens;
         private int _current = 0;
         private readonly DiagnosticBag _diagnostics;
+        private readonly string? _sourceFile;
 
-        public Parser(IEnumerable<Token> tokens, DiagnosticBag diagnostics)
+        public Parser(IEnumerable<Token> tokens, DiagnosticBag diagnostics, string? sourceFile = null)
         {
             _tokens = new List<Token>(tokens);
             _diagnostics = diagnostics;
+            _sourceFile = sourceFile;
         }
+
+        /// <summary>Reports a parse error attributed to this parser's source file (if any).</summary>
+        private void AddError(string message, int line, int column)
+            => _diagnostics.AddError(message, line, column, _sourceFile);
 
         public Program Parse()
         {
@@ -40,9 +46,24 @@ namespace Contract.Compiler.Parsing
 
                     if (Match(TokenType.Import))
                     {
-                        Consume(TokenType.StringLiteral, "Expected string literal after 'import'");
-                        string importPath = Previous.Text.Trim('"');
-                        program.Imports.Add(importPath);
+                        if (Match(TokenType.StringLiteral))
+                        {
+                            // File import: import "path/to/file.ct";
+                            string importPath = Previous.Text.Trim('"');
+                            program.Imports.Add(importPath);
+                        }
+                        else
+                        {
+                            // Namespace import: import ObjektRT.Stdlib.System;
+                            Consume(TokenType.Identifier, "Expected namespace name or string literal after 'import'");
+                            var ns = new System.Text.StringBuilder(Previous.Text);
+                            while (Match(TokenType.Dot))
+                            {
+                                Consume(TokenType.Identifier, "Expected identifier after '.' in namespace import");
+                                ns.Append('.').Append(Previous.Text);
+                            }
+                            program.NamespaceImports.Add(ns.ToString());
+                        }
                         Consume(TokenType.Semicolon, "Expected ';' after import statement");
                     }
                     else if (Match(TokenType.Contract))
@@ -67,7 +88,7 @@ namespace Contract.Compiler.Parsing
                     }
                     else
                     {
-                        _diagnostics.AddError($"Unexpected token at top level: {Current.Type} ('{Current.Text}')", Current.Line, Current.Column);
+                        AddError($"Unexpected token at top level: {Current.Type} ('{Current.Text}')", Current.Line, Current.Column);
                         Synchronize();
                     }
                     
@@ -78,7 +99,7 @@ namespace Contract.Compiler.Parsing
                 }
                 catch (Exception ex)
                 {
-                    _diagnostics.AddError($"Parser error: {ex.Message}", Current.Line, Current.Column);
+                    AddError($"Parser error: {ex.Message}", Current.Line, Current.Column);
                     Synchronize();
                 }
             }
@@ -117,7 +138,7 @@ namespace Contract.Compiler.Parsing
                 
                 if (_current == startPos)
                 {
-                    _diagnostics.AddError("Parser failed to advance in ParseStruct", Current.Line, Current.Column);
+                    AddError("Parser failed to advance in ParseStruct", Current.Line, Current.Column);
                     break;
                 }
             }
@@ -179,7 +200,7 @@ namespace Contract.Compiler.Parsing
                 }
                 else
                 {
-                    _diagnostics.AddError($"Unexpected token in contract: {Current.Type}", Current.Line, Current.Column);
+                    AddError($"Unexpected token in contract: {Current.Type}", Current.Line, Current.Column);
                     Advance();
                 }
 
@@ -192,7 +213,7 @@ namespace Contract.Compiler.Parsing
             Consume(TokenType.RBrace, "Expected '}' after contract body");
 
             // A non-static member fn is an instance method only when the
-            // contract declares instance fields — that's the "class" case.
+            // contract declares instance fields â€” that's the "class" case.
             // Contracts without fields keep the legacy module-function behavior.
             bool hasFields = contract.Fields.Count > 0;
             foreach (var member in contract.Members)
@@ -351,7 +372,7 @@ namespace Contract.Compiler.Parsing
                 block.Statements.Add(ParseStatement());
                 if (_current == startPos && !IsAtEnd())
                 {
-                    _diagnostics.AddError($"Unexpected token in block: {Current.Type}", Current.Line, Current.Column);
+                    AddError($"Unexpected token in block: {Current.Type}", Current.Line, Current.Column);
                     Advance();
                 }
             }
@@ -543,7 +564,7 @@ namespace Contract.Compiler.Parsing
                     }
                     else
                     {
-                        _diagnostics.AddError("Expected integer or string literal after 'case'", Current.Line, Current.Column);
+                        AddError("Expected integer or string literal after 'case'", Current.Line, Current.Column);
                         Advance();
                     }
                     Consume(TokenType.Colon, "Expected ':' after case value");
@@ -556,7 +577,7 @@ namespace Contract.Compiler.Parsing
                         if (_current == caseStartPos && !IsAtEnd())
                         {
                             // ParseStatement didn't consume any tokens, skip this token to prevent infinite loop
-                            _diagnostics.AddError("Unexpected token in switch case", Current.Line, Current.Column);
+                            AddError("Unexpected token in switch case", Current.Line, Current.Column);
                             Advance();
                         }
                     }
@@ -577,7 +598,7 @@ namespace Contract.Compiler.Parsing
                         if (_current == elseStartPos && !IsAtEnd())
                         {
                             // ParseStatement didn't consume any tokens, skip this token to prevent infinite loop
-                            _diagnostics.AddError("Unexpected token in switch else", Current.Line, Current.Column);
+                            AddError("Unexpected token in switch else", Current.Line, Current.Column);
                             Advance();
                         }
                     }
@@ -589,7 +610,7 @@ namespace Contract.Compiler.Parsing
                 else
                 {
                     // Unexpected token in switch
-                    _diagnostics.AddError($"Unexpected token in switch: {Current.Type}", Current.Line, Current.Column);
+                    AddError($"Unexpected token in switch: {Current.Type}", Current.Line, Current.Column);
                     Advance();
                 }
 
@@ -657,7 +678,7 @@ namespace Contract.Compiler.Parsing
                     return new BinaryExpression(expr, op, value, opToken.Line, opToken.Column);
                 }
 
-                _diagnostics.AddError("Invalid assignment target", opToken.Line, opToken.Column);
+                AddError("Invalid assignment target", opToken.Line, opToken.Column);
             }
 
             return expr;
@@ -788,15 +809,15 @@ namespace Contract.Compiler.Parsing
                 }
                 else if (Match(TokenType.DoubleColon))
                 {
-                    if (expr is IdentifierExpression moduleExpr)
+                    if (TryGetDottedPath(expr, out string modulePath))
                     {
                         Consume(TokenType.Identifier, "Expected member name after '::'");
                         string member = Previous.Text;
-                        expr = new ScopedAccessExpression(moduleExpr.Name, member, expr.Line, expr.Column);
+                        expr = new ScopedAccessExpression(modulePath, member, expr.Line, expr.Column);
                     }
                     else
                     {
-                        _diagnostics.AddError("Left side of '::' must be a module identifier", expr.Line, expr.Column);
+                        AddError("Left side of '::' must be a module identifier", expr.Line, expr.Column);
                     }
                 }
                 else if (Match(TokenType.LBracket))
@@ -819,6 +840,27 @@ namespace Contract.Compiler.Parsing
             return expr;
         }
 
+        /// <summary>
+        /// Collects a dotted identifier path from an expression: IdentifierExpression("A")
+        /// → "A"; A.B.C (a left-leaning chain of MemberExpressions over identifiers) → "A.B.C".
+        /// Returns false for anything else (calls, indexers, literals, ...).
+        /// </summary>
+        private static bool TryGetDottedPath(Expression expr, out string path)
+        {
+            path = "";
+            var segments = new Stack<string>();
+            var current = expr;
+            while (current is MemberExpression mem)
+            {
+                segments.Push(mem.Property);
+                current = mem.Object;
+            }
+            if (current is not IdentifierExpression root) return false;
+            segments.Push(root.Name);
+            path = string.Join(".", segments);
+            return true;
+        }
+
         private Expression ParsePrimary()
         {
             if (Match(TokenType.IntLiteral))
@@ -831,7 +873,7 @@ namespace Contract.Compiler.Parsing
                 {
                     return new LiteralExpression(floatValue, Previous.Line, Previous.Column);
                 }
-                _diagnostics.AddError($"Invalid float literal: '{Previous.Text}'", Previous.Line, Previous.Column);
+                AddError($"Invalid float literal: '{Previous.Text}'", Previous.Line, Previous.Column);
                 return new LiteralExpression(0.0, Previous.Line, Previous.Column);
             }
             else if (Match(TokenType.StringLiteral))
@@ -904,7 +946,7 @@ namespace Contract.Compiler.Parsing
 
                 if (!Match(TokenType.Arrow))
                 {
-                    _diagnostics.AddError("Expected '->' after lambda parameters", Previous.Line, Previous.Column);
+                    AddError("Expected '->' after lambda parameters", Previous.Line, Previous.Column);
                 }
 
                 // Body: an expression, or a block when '{' follows.
@@ -951,7 +993,7 @@ namespace Contract.Compiler.Parsing
                 return expr;
             }
 
-            _diagnostics.AddError($"Unexpected token in expression: {Current.Type} ('{Current.Text}')", Current.Line, Current.Column);
+            AddError($"Unexpected token in expression: {Current.Type} ('{Current.Text}')", Current.Line, Current.Column);
             var dummy = new LiteralExpression(0, Current.Line, Current.Column);
             Advance(); // Advance to prevent infinite loop
             return dummy;
@@ -981,7 +1023,7 @@ namespace Contract.Compiler.Parsing
                 int close = content.IndexOf('}', open);
                 if (close < 0)
                 {
-                    _diagnostics.AddError("Unterminated interpolation in string literal", line, column);
+                    AddError("Unterminated interpolation in string literal", line, column);
                     parts.Add(new LiteralExpression(content.Substring(i), line, column));
                     break;
                 }
@@ -990,7 +1032,7 @@ namespace Contract.Compiler.Parsing
                 if (name.Length == 0 || !(char.IsLetter(name[0]) || name[0] == '_') ||
                     name.Any(c => !(char.IsLetterOrDigit(c) || c == '_')))
                 {
-                    _diagnostics.AddError($"Invalid interpolation expression: '{{{name}}}'", line, column);
+                    AddError($"Invalid interpolation expression: '{{{name}}}'", line, column);
                 }
                 else
                 {
@@ -1039,7 +1081,7 @@ namespace Contract.Compiler.Parsing
         {
             if (Check(type)) return Advance();
             
-            _diagnostics.AddError(message, Current.Line, Current.Column);
+            AddError(message, Current.Line, Current.Column);
             return new Token(TokenType.Identifier, "", Current.Line, Current.Column); // Return dummy token
         }
 

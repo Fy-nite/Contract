@@ -45,11 +45,12 @@ Contract Program {
 | `static` | Static member |
 | `public` / `private` / `protected` / `internal` | Access modifiers |
 | `import` | Import external modules |
-| `Types` | Type definitions block |
-| `type` | Individual type definition |
 | `null` | Null literal |
 | `true` / `false` | Boolean literals |
 | `constructor` | Class constructor |
+
+`var` is an alias of `let` — both declare variables, and mutability is decided
+by usage (assignment through the binding).
 
 ## Contracts
 
@@ -165,20 +166,77 @@ Inference works from literals, `new` expressions, and other variables. `null` an
 
 Type names are **case-insensitive**: `Int`, `String`, and `int` all refer to the same type.
 
-### Custom Types with `Types` Block
+### Classes (Contracts with Fields)
+
+A contract that declares instance fields acts as a class. Instances are
+created with `new ContractName()`, and non-static member functions become
+instance methods that receive the receiver implicitly:
 
 ```ct
-Types {
-    type Person {
-        name: string;
-        age: int;
+Contract Counter {
+    count: int;                    // instance field
+
+    constructor() {
+        this.count = 0;
     }
-    
-    type Address {
-        street: string;
-        city: string;
-        zipCode: string;
+
+    fn increment() {               // instance method (contract has fields)
+        this.count += 1;
     }
+
+    fn value() -> int {
+        return this.count;
+    }
+
+    static fn Main() {
+        var c: Counter = new Counter();
+        c.increment();
+        c.increment();
+        IO.Println(c.value());  // 2
+    }
+}
+```
+
+Inside an instance method the receiver is available as `this`, and fields can
+be read/written either through `this` or directly by name (`count` vs
+`this.count`). Constructors receive `this` too, so they can initialize fields
+before the instance is returned.
+
+> A non-static member function is an instance method **only when its contract
+> declares fields**. Contracts without fields keep the legacy module-function
+> behavior (no implicit receiver), preserving the module-style use of
+> contracts as namespaces (e.g. `IO`, `Math`, `List`).
+
+### Generic Collections
+
+`List<T>` and `Dict<K, V>` can be written with generic syntax. They are
+**type-erased**: at runtime the value is an `object` handle, and the element
+types exist only for compile-time checking and signatures.
+
+```ct
+var nums: List<int> = List.Create();
+List.Add(nums, 10);
+List.Add(nums, 20);
+IO.Println(List.Count(nums));   // 2
+IO.Println(List.Get(nums, 1));  // 20
+
+var scores: Dict<string, int> = Dict.Create();
+Dict.Set(scores, "ada", 95);
+Dict.Set(scores, "grace", 100);
+IO.Println(Dict.Get(scores, "ada"));            // 95
+IO.Println(Dict.ContainsKey(scores, "grace"));  // true
+```
+
+Generic types are valid in signatures, so helpers can take and return typed
+collections:
+
+```ct
+fn sum(xs: List<int>) -> int {
+    var total: int = 0;
+    for (var i: int = 0; i < List.Count(xs); i = i + 1) {
+        total += List.Get(xs, i);
+    }
+    return total;
 }
 ```
 
@@ -202,7 +260,7 @@ Contract Data {
 
 ```ct
 var p: Point = new Point();
-var addr: Address = new Address();
+var c: Counter = new Counter();  // runs the constructor
 ```
 
 ## Control Flow
@@ -478,19 +536,21 @@ let summed: int = 3 |> add(7);      // 10
 
 ```ct
 Contract Program {
-    fn main() {
-        let inc: Int = fun x -> x + 1;
-        let val: Int = 10 |> inc;
-        IO.Println(val);  // 11
+    fn inc(x: int) -> int {
+        return x + 1;
     }
-    
-    fn square(x: int) {
+
+    fn square(x: int) -> int {
         return x * x;
     }
-    
-    fn main() {
+
+    static fn Main() {
+        let inc: Int = fun x -> x + 1;
+        let val: Int = 10 |> inc;
+        IO.Println(val);      // 11
+
         let result: int = 5 |> square;
-        IO.Println(result);  // 25
+        IO.Println(result);   // 25
     }
 }
 ```
@@ -588,7 +648,9 @@ Array.Set(nums, 2, 9);
 ```
 
 `List` methods: `Create`, `Add(list, item)`, `Get(list, index)`,
-`Set(list, index, item)`, `Count(list)`, `RemoveAt(list, index)`.
+`Set(list, index, item)`, `Count(list)`, `RemoveAt(list, index)`. In typed
+code these are usually written with their generic forms — see
+[Generic Collections](#generic-collections).
 
 `Dict` methods: `Create`, `Set(dict, key, value)`, `Get(dict, key)`,
 `ContainsKey(dict, key)`, `Remove(dict, key)`, `Keys(dict)`, `Count(dict)`.
@@ -621,7 +683,20 @@ GC.Collect();
 Debug.Assert(true, "ok");
 ```
 
-> `Thread.Spawn` takes a delegate, which the language can't express yet.
+### Threading
+
+`Thread.Sleep(ms)` pauses the current thread. `Thread.Spawn` starts a
+background thread running a delegate — any lambda, capturing or not:
+
+```ct
+Thread.Spawn(fun -> { IO.Println("hello from thread"); });
+
+var n: int = 0;
+let bump = fun -> { n += 1; IO.Println(n); };
+Thread.Spawn(bump);   // capturing lambda: closure lives in the shared heap
+
+Thread.Sleep(200);    // give background threads time to run
+```
 
 ## Imports
 
@@ -644,56 +719,51 @@ Contract Secrets {
 
 ## Constructors
 
+A contract with fields can declare a `constructor` that runs when an instance
+is created with `new`:
+
 ```ct
 Contract Person {
-    struct Person {
-        name: string;
-        age: int;
-    }
-    
-    constructor(name: string, age: int) {
-        // Initialize person
+    name: string;
+    age: int;
+
+    constructor() {
+        this.name = "anonymous";
+        this.age = 0;
     }
 }
 ```
 
+> `new` currently supports the no-argument form `new Type()`. Constructor
+> parameters can be declared but are not yet passed through the call site.
+
 ## Complete Example
 
 ```ct
-import "IO";
+Contract Vector2 {
+    x: double;
+    y: double;
 
-Types {
-    type Vector2 {
-        x: double;
-        y: double;
+    constructor() {
+        this.x = 0.0;
+        this.y = 0.0;
     }
-}
 
-Contract Geometry {
-    fn distance(p1: Vector2, p2: Vector2) {
-        var dx: double = p2.x - p1.x;
-        var dy: double = p2.y - p1.y;
-        // Return distance calculation
-        return 0; // Placeholder
+    fn length() -> double {
+        return Math.Sqrt(this.x * this.x + this.y * this.y);
     }
 }
 
 Contract Program {
     static fn Main() {
-        IO.Println("Geometry Calculator");
-        
-        var origin: Vector2 = new Vector2();
-        origin.x = 0;
-        origin.y = 0;
-        
-        var point: Vector2 = new Vector2();
-        point.x = 3;
-        point.y = 4;
-        
-        // Calculate distance
-        var dist: double = Geometry.distance(origin, point);
-        IO.Println("Distance: ");
-        IO.Println(dist);
+        IO.Println("Vector Demo");
+
+        var v: Vector2 = new Vector2();
+        v.x = 3.0;
+        v.y = 4.0;
+        var dist: double = v.length();
+        IO.Println("Length: ");
+        IO.Println(dist);  // 5.0
     }
 }
 ```
@@ -701,25 +771,70 @@ Contract Program {
 ## Compiler Information
 
 - **Compiler**: Contract.Compiler (C#)
-- **CLI**: Contract.Cli
-- **Bytecode Format**: CIL1 (Contract Intermediate Language v1)
-- **Runtime**: Stack-based virtual machine
+- **CLI**: Contract.Cli (installed as `ccl`)
+- **Bytecode Format**: CIL1 (Contract Intermediate Language v1); text form `.oil`, binary form `.orbt`
+- **Runtime**: Stack-based virtual machine (ObjektRT), hosted by `Contract.Runtime`
+
+### Using the CLI
+
+```text
+ccl hello.ct                        # compile + run in one go
+ccl -c hello.ct -o hello.orbt       # compile to .orbt binary (default)
+ccl -c hello.ct -f oil              # compile to .oil text IR
+ccl run hello.orbt                  # run a precompiled module
+ccl --bind MyBindings.dll app.ct    # load custom host bindings
+ccl --test                          # run the compiler test suite
+```
+
+- Output format follows `-f oil|orbt`, else the `-o` extension (`.oil` =
+  text, otherwise binary), else defaults to `.orbt`.
+- `-m Name.Method` calls a specific method instead of the entry point.
+- `-d` prints the generated IR before running.
+- `--bind <assembly>` makes `[ClassBinding]`-annotated classes callable as
+  `Module.Method(...)` from Contract — custom host bindings that stay out of
+  the standard library.
+
+### Runtime Error Reporting
+
+The compiler embeds `// #line N:C "source"` directives into the IR, and the
+runtime reports failures with the error kind, the failing instruction (opcode
++ program counter), the original source line with a caret, and a call stack.
+Output is colourised when stderr is a terminal (`NO_COLOR` disables it).
+
+```text
+runtime error: DivisionByZero: division by zero
+  └─ at Program.divide  [pc=0x6 · div]
+  └─ source line 3:20
+     3 | return a / b;
+                    ^
+  └─ stack: Program.divide@0x6 → Program.Main
+```
 
 ## Grammar (EBNF)
 
 ```ebnf
 Start ::= TopLevel*
 
-TopLevel ::= ContractDecl | FunctionDecl | TypesDecl
+TopLevel ::= ContractDecl | FunctionDecl
 
-ContractDecl ::= 'Contract' IDENTIFIER '{' TopLevel* '}'
+ContractDecl ::= 'Contract' IDENTIFIER '{' Member* '}'
+Member ::= FieldDecl
+         | AccessModifier? 'static'? 'fn' IDENTIFIER '(' ParamList? ')' (ReturnType)? Block
+         | 'constructor' '(' ParamList? ')' Block
+         | StructDecl
 
-FunctionDecl ::= AccessModifier? 'static'? 'fn' IDENTIFIER '(' ParamList? ')' Block
+FieldDecl ::= IDENTIFIER ':' Type ';'
+StructDecl ::= 'struct' IDENTIFIER '{' FieldDecl* '}'
+
+FunctionDecl ::= AccessModifier? 'static'? 'fn' IDENTIFIER '(' ParamList? ')' (ReturnType)? Block
+ReturnType ::= '->' Type
 
 ParamList ::= Param (',' Param)*
 Param ::= IDENTIFIER (':' Type)?
 
 Type ::= IDENTIFIER ('[' ']')*
+       | IDENTIFIER '<' Type (',' Type)* '>'
+       | '(' (Type (',' Type)*)? ')' '->' Type
 
 Block ::= '{' Statement* '}'
 
@@ -727,16 +842,16 @@ Statement ::= ExprStatement | VarDecl | IfStmt | WhileStmt | ForStmt | SwitchStm
 
 ExprStatement ::= Expression ';'
 VarDecl ::= ('var' | 'let') IDENTIFIER (':' Type)? ('=' Expression)? ';'
-IfStmt ::= 'if' '(' Expression ')' Block ('else' ':'? (Block | Statement))?
+IfStmt ::= 'if' '(' Expression ')' Block ('else' Block)?
 WhileStmt ::= 'while' '(' Expression ')' Block
 ForStmt ::= 'for' '(' (VarDecl | ExprStatement | ';') Expression? ';' Expression? ')' Block
 BreakStmt ::= 'break' ';'
 ContinueStmt ::= 'continue' ';'
-SwitchStmt ::= 'switch' Expression '{' ( 'case' INT ':' Statement* )* ('else' ':' Statement* )? '}'
+SwitchStmt ::= 'switch' '(' Expression ')' '{' ( 'case' (INT | STRING) ':' Statement* )* ('else' ':' Statement*)? '}'
 ReturnStmt ::= 'return' Expression? ';'
 
 Expression ::= Assignment
-Assignment ::= Equality ( ('=' | '+=' | '-=' | '*=' | '/=' | '%=') Assignment )?
+Assignment ::= Or ( ('=' | '+=' | '-=' | '*=' | '/=' | '%=') Assignment )?
 Or ::= And ( '||' And )*
 And ::= Equality ( '&&' Equality )*
 Equality ::= Relational ( ('==' | '!=') Relational )*
@@ -746,7 +861,10 @@ Multiplicative ::= Unary ( ('*' | '/' | '%') Unary )*
 Unary ::= ('-' | '!') Unary | Postfix
 Postfix ::= Primary ( '(' ArgList? ')' | '.' IDENTIFIER | '::' IDENTIFIER | '[' Expression ']' | '|>' Primary )*
 
-Primary ::= INT | FLOAT | STRING | INTERPOLATED_STRING | 'true' | 'false' | 'null' | IDENTIFIER | ARRAY_LITERAL | 'fun' IDENTIFIER+ '->' Expression | 'new' IDENTIFIER ('(' ')' | '[' Expression ']') | '(' Expression ')'
+Primary ::= INT | FLOAT | STRING | INTERPOLATED_STRING | 'true' | 'false' | 'null'
+          | IDENTIFIER | ARRAY_LITERAL | Lambda | 'new' IDENTIFIER ('(' ')' | '[' Expression ']')
+          | '(' Expression ')'
+Lambda ::= 'fun' (IDENTIFIER+ | '(' Params? ')') '->' (Expression | Block)
 ARRAY_LITERAL ::= '[' (Expression (',' Expression)*)? ']'
 
 ArgList ::= Expression (',' Expression)*
@@ -754,9 +872,9 @@ ArgList ::= Expression (',' Expression)*
 
 ## Future Extensions
 
-- Enhanced type system with optional annotations
-- First-class string operations in IL
-- Optimized opcodes for small integer constants
-- Array and collection types
-- Exception handling
+- By-reference capture (C\#-style closure cells)
+- Nested-lambda capture of outer lambda scopes
+- Custom user-defined generic types (type parameters)
+- Exception handling (`try`/`throw`)
 - Async/await patterns
+- Contracts as objects (metaclasses)

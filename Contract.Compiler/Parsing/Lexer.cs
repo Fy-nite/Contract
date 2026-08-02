@@ -31,13 +31,20 @@ namespace Contract.Compiler.Parsing
         public int Line { get; }
         public int Column { get; }
 
-        public Token(TokenType type, string text, int line, int column)
+        /// <summary>Length of the token text in characters. End position (exclusive) is Column + Length.</summary>
+        public int Length { get; }
+
+        public Token(TokenType type, string text, int line, int column, int length = 0)
         {
             Type = type;
             Text = text;
             Line = line;
             Column = column;
+            Length = length;
         }
+
+        /// <summary>Column (1-based) of the first character AFTER this token, i.e. start + length.</summary>
+        public int EndColumn => Column + Length;
 
         public override string ToString() => $"{Type}: '{Text}' at {Line}:{Column}";
     }
@@ -49,6 +56,7 @@ namespace Contract.Compiler.Parsing
         private int _line = 1;
         private int _column = 1;
         private readonly DiagnosticBag _diagnostics;
+        private readonly string? _sourceFile;
 
         private static readonly Dictionary<string, TokenType> Keywords = new()
         {
@@ -83,10 +91,11 @@ namespace Contract.Compiler.Parsing
             ["false"] = TokenType.False
         };
 
-        public Lexer(string source, DiagnosticBag diagnostics)
+        public Lexer(string source, DiagnosticBag diagnostics, string? sourceFile = null)
         {
             _source = source;
             _diagnostics = diagnostics;
+            _sourceFile = sourceFile;
         }
 
         public IEnumerable<Token> Tokenize()
@@ -205,7 +214,7 @@ namespace Contract.Compiler.Parsing
 
             TokenType type = Keywords.TryGetValue(text, out var keywordType) ? keywordType : TokenType.Identifier;
 
-            return new Token(type, text, _line, startColumn);
+            return new Token(type, text, _line, startColumn, _position - start);
         }
 
         private Token ReadNumber()
@@ -233,7 +242,7 @@ namespace Contract.Compiler.Parsing
 
             string text = _source.Substring(start, _position - start);
             bool isFloat = text.Contains('.');
-            return new Token(isFloat ? TokenType.FloatLiteral : TokenType.IntLiteral, text, _line, startColumn);
+            return new Token(isFloat ? TokenType.FloatLiteral : TokenType.IntLiteral, text, _line, startColumn, _position - start);
         }
 
         private Token ReadString()
@@ -265,7 +274,7 @@ namespace Contract.Compiler.Parsing
 
             string text = _source.Substring(start, _position - start);
             bool interpolated = ContainsInterpolation(text);
-            return new Token(interpolated ? TokenType.InterpolatedString : TokenType.StringLiteral, text, _line, startColumn);
+            return new Token(interpolated ? TokenType.InterpolatedString : TokenType.StringLiteral, text, _line, startColumn, _position - start);
         }
 
         private static bool ContainsInterpolation(string text)
@@ -383,7 +392,7 @@ namespace Contract.Compiler.Parsing
                     }
                     else
                     {
-                        _diagnostics.AddError($"Unexpected character: {c}", _line, _column);
+                        _diagnostics.AddError($"Unexpected character: {c}", _line, _column, _sourceFile);
                         _position++;
                         _column++;
                         return null;
@@ -397,7 +406,7 @@ namespace Contract.Compiler.Parsing
                     }
                     else
                     {
-                        _diagnostics.AddError($"Unexpected character: {c}", _line, _column);
+                        _diagnostics.AddError($"Unexpected character: {c}", _line, _column, _sourceFile);
                         _position++;
                         _column++;
                         return null;
@@ -448,7 +457,7 @@ namespace Contract.Compiler.Parsing
                     }
                     break;
                 default:
-                    _diagnostics.AddError($"Unexpected character: {c}", _line, _column);
+                    _diagnostics.AddError($"Unexpected character: {c}", _line, _column, _sourceFile);
                     _position++;
                     _column++;
                     // Skip unexpected characters - don't return a token
@@ -459,7 +468,7 @@ namespace Contract.Compiler.Parsing
             _column += length;
 
             string text = _source.Substring(_position - length, length);
-            return new Token(type, text, _line, startColumn);
+            return new Token(type, text, _line, startColumn, length);
         }
     }
 }

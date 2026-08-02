@@ -12,10 +12,17 @@ namespace Contract.Compiler
     {
         private readonly DiagnosticBag _diagnostics;
         private readonly HashSet<string> _loadedFiles = new();
+        private readonly Func<string, string?>? _sourceProvider;
 
-        public CompilerDriver(DiagnosticBag diagnostics)
+        /// <summary>
+        /// When <paramref name="sourceProvider"/> is set, it is consulted (with the absolute file path)
+        /// before reading from disk. Return null to fall back to disk. This lets embedders (e.g. a
+        /// language server) compile documents that only exist in memory.
+        /// </summary>
+        public CompilerDriver(DiagnosticBag diagnostics, Func<string, string?>? sourceProvider = null)
         {
             _diagnostics = diagnostics;
+            _sourceProvider = sourceProvider;
         }
 
         public Program Compile(string mainFilePath)
@@ -31,19 +38,24 @@ namespace Contract.Compiler
             if (_loadedFiles.Contains(absolutePath)) return;
             _loadedFiles.Add(absolutePath);
 
-            if (!File.Exists(absolutePath))
+            string? source = _sourceProvider?.Invoke(absolutePath);
+            if (source == null)
             {
-                _diagnostics.AddError($"Imported file not found: {filePath}", 0, 0);
-                return;
+                if (!File.Exists(absolutePath))
+                {
+                    _diagnostics.AddError($"Imported file not found: {filePath}", 0, 0);
+                    return;
+                }
+
+                source = File.ReadAllText(absolutePath);
             }
 
             try
             {
-                string source = File.ReadAllText(absolutePath);
-                var lexer = new Lexer(source, _diagnostics);
+                var lexer = new Lexer(source, _diagnostics, absolutePath);
                 var tokens = lexer.Tokenize().ToList();
 
-                var parser = new Parser(tokens, _diagnostics);
+                var parser = new Parser(tokens, _diagnostics, absolutePath);
                 var program = parser.Parse();
 
                 // Merge into full program
@@ -53,6 +65,8 @@ namespace Contract.Compiler
                     fullProgram.Functions.Add(func);
                 foreach (var structDecl in program.Structs)
                     fullProgram.Structs.Add(structDecl);
+                foreach (var ns in program.NamespaceImports)
+                    fullProgram.NamespaceImports.Add(ns);
 
                 // Recursively load imports
                 string directory = Path.GetDirectoryName(absolutePath) ?? "";

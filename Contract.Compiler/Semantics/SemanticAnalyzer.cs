@@ -24,6 +24,10 @@ namespace Contract.Compiler.Semantics
 
         public void Analyze(Program program)
         {
+            // Register namespace imports so short module names resolve.
+            foreach (var ns in program.NamespaceImports)
+                _symbolTable.ImportNamespace(ns);
+
             // Register contracts as valid types
             foreach (var contract in program.Contracts)
             {
@@ -266,7 +270,7 @@ namespace Contract.Compiler.Semantics
                     ResolveCall(call);
                     break;
                 case ScopedAccessExpression scoped:
-                    if (!_symbolTable.GetBoundClasses().Contains(scoped.Module))
+                    if (!_symbolTable.IsBoundModule(scoped.Module))
                     {
                         _diagnostics.AddError($"Undefined module: '{scoped.Module}'", scoped.Line, scoped.Column);
                     }
@@ -276,9 +280,9 @@ namespace Contract.Compiler.Semantics
                     }
                     break;
                 case MemberExpression mem:
-                    if (mem.Object is IdentifierExpression objIdent && _symbolTable.GetBoundClasses().Contains(objIdent.Name))
+                    if (IsModuleAccessChain(mem))
                     {
-                        // It's a standard library call, don't analyze the 'object' as a variable
+                        // It's a standard library call, don't analyze the spine as variables
                     }
                     else
                     {
@@ -294,6 +298,7 @@ namespace Contract.Compiler.Semantics
                     if (!IsVariableDefined(id.Name)
                         && !_definedFunctions.Contains(id.Name)
                         && !_symbolTable.GetBoundClasses().Contains(id.Name)
+                        && !_symbolTable.IsBoundModule(id.Name)
                         && !IsContractField(id.Name))
                     {
                         _diagnostics.AddError($"Undefined variable: '{id.Name}'", id.Line, id.Column);
@@ -501,41 +506,67 @@ namespace Contract.Compiler.Semantics
 
         private void ResolveCall(CallExpression call)
         {
-            if (call.Callee is MemberExpression mem && mem.Object is IdentifierExpression objIdent)
+            if (call.Callee is MemberExpression mem)
             {
-                string className = objIdent.Name;
-                string methodName = mem.Property;
-
-                if (_symbolTable.TryGetMethod(className, methodName, out var method))
+                // Collect the dotted base path: IO.Println → "IO",
+                // ObjektRT.Stdlib.System.IO.Println → "ObjektRT.Stdlib.System.IO".
+                if (TryGetModuleAccessPath(mem, out var moduleName))
                 {
-                    call.Symbol = method;
-                    return;
-                }
+                    string methodName = mem.Property;
 
-                // User-contract instance method call: c.method() where c is a
-                // variable whose type is a contract with that method.
-                if (IsVariableDefined(className))
-                {
-                    var varType = FindVariableType(className);
-                    if (varType is TypeDescriptor.Named n)
+                    if (_symbolTable.TryGetMethod(moduleName, methodName, out var moduleMethod))
                     {
-                        var contract = _contractsWithFields.FirstOrDefault(c => c.Name == n.Name);
-                        if (contract != null)
+                        call.Symbol = moduleMethod;
+                        return;
+                    }
+
+                    if (moduleName.Contains('.'))
+                    {
+                        // A dotted chain that isn't a bound module — nothing else to try.
+                        _diagnostics.AddError($"External method '{moduleName}.{methodName}' not found.", call.Line, call.Column);
+                        return;
+                    }
+
+                    // Single-segment base: try the existing instance-method resolution
+                    // (c.method() where c is a variable of a contract type).
+                    string className = moduleName;
+
+                    // User-contract instance method call: c.method() where c is a
+                    // variable whose type is a contract with that method.
+                    if (IsVariableDefined(className))
+                    {
+                        var varType = FindVariableType(className);
+                        if (varType is TypeDescriptor.Named n)
                         {
-                            var member = contract.Members
-                                .OfType<FunctionDeclaration>()
-                                .FirstOrDefault(f => f.Name == methodName && f.IsInstance);
-                            if (member != null)
+                            var contract = _contractsWithFields.FirstOrDefault(c => c.Name == n.Name);
+                            if (contract != null)
                             {
-                                call.Symbol = member;
-                                return;
+                                var member = contract.Members
+                                    .OfType<FunctionDeclaration>()
+                                    .FirstOrDefault(f => f.Name == methodName && f.IsInstance);
+                                if (member != null)
+                                {
+                                    call.Symbol = member;
+                                    return;
+                                }
                             }
                         }
+                        // Fall through to error below.
                     }
-                    // Fall through to error below.
-                }
 
-                _diagnostics.AddError($"External method '{className}.{methodName}' not found.", call.Line, call.Column);
+                    _diagnostics.AddError($"External method '{className}.{methodName}' not found.", call.Line, call.Column);
+                }
+            }
+            else if (call.Callee is ScopedAccessExpression scoped)
+            {
+                // Module::Method(...) — external stdlib or a static function on a contract.
+                if (_symbolTable.TryGetMethod(scoped.Module, scoped.Member, out var scopedMethod))
+                {
+                    call.Symbol = scopedMethod;
+                    return;
+                }
+                // (The undefined-module/member case is already reported by
+                // AnalyzeExpression's ScopedAccessExpression branch.)
             }
             else if (call.Callee is IdentifierExpression ident)
             {
@@ -546,5 +577,31 @@ namespace Contract.Compiler.Semantics
                 }
             }
         }
+
+        /// <summary>
+        /// Collects the dotted identifier spine on the left of a member access:
+        /// IO.Println → "IO"; ObjektRT.Stdlib.System.IO.Println → "ObjektRT.Stdlib.System.IO".
+        /// The outermost <see cref="MemberExpression.Property"/> is the member, not part of the path.
+        /// Returns false when the base is not a pure identifier chain.
+        /// </summary>
+        private static bool TryGetModuleAccessPath(MemberExpression mem, out string modulePath)
+        {
+            modulePath = "";
+            var segments = new Stack<string>();
+            var current = mem.Object;
+            while (current is MemberExpression inner)
+            {
+                segments.Push(inner.Property);
+                current = inner.Object;
+            }
+            if (current is not IdentifierExpression root) return false;
+            segments.Push(root.Name);
+            modulePath = string.Join(".", segments);
+            return true;
+        }
+
+        /// <summary>True when the member chain's base is a bound stdlib module (possibly dotted).</summary>
+        private bool IsModuleAccessChain(MemberExpression mem)
+            => TryGetModuleAccessPath(mem, out var modulePath) && _symbolTable.IsBoundModule(modulePath);
     }
 }

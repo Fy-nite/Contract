@@ -39,6 +39,18 @@ namespace Contract.Compiler.StandardLibrary
         private readonly Dictionary<string, Dictionary<string, ExternalMethod>> _externalBindings = new();
         private readonly Dictionary<string, ContractDeclaration> _userContracts = new();
         private readonly Dictionary<string, StructDeclaration> _userStructs = new();
+        private readonly List<string> _importedNamespaces = new();
+
+        /// <summary>
+        /// Imports a namespace (e.g. "ObjektRT.Stdlib.System") so its modules
+        /// become addressable by their short, last-segment name ("IO").
+        /// </summary>
+        public void ImportNamespace(string ns)
+        {
+            string trimmed = ns.Trim();
+            if (trimmed.Length > 0 && !_importedNamespaces.Contains(trimmed))
+                _importedNamespaces.Add(trimmed);
+        }
 
         public void RegisterAssembly(Assembly assembly)
         {
@@ -46,19 +58,48 @@ namespace Contract.Compiler.StandardLibrary
             {
                 var classAttr = type.GetCustomAttribute<ClassBindingAttribute>();
                 if (classAttr == null) continue;
-
-                if (!_externalBindings.ContainsKey(classAttr.Name))
-                    _externalBindings[classAttr.Name] = new();
-
-                foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance))
-                {
-                    var methodAttr = method.GetCustomAttribute<MethodBindingAttribute>();
-                    if (methodAttr == null) continue;
-
-                    string name = methodAttr.Name ?? method.Name;
-                    _externalBindings[classAttr.Name][name] = new ExternalMethod(classAttr.Name, name, method);
-                }
+                RegisterExternalType(classAttr.Name, type);
             }
+        }
+
+        /// <summary>
+        /// Registers a CLR type's public static methods as an external module
+        /// under the given (possibly dotted) name. Generic — used by the stdlib
+        /// catalog so the official stdlib stays free of Contract-specific
+        /// attributes.
+        /// </summary>
+        public void RegisterExternalType(string className, Type type)
+        {
+            if (!_externalBindings.ContainsKey(className))
+                _externalBindings[className] = new();
+
+            foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+            {
+                if (method.IsSpecialName) continue; // property accessors, operators
+                var methodAttr = method.GetCustomAttribute<MethodBindingAttribute>();
+                string name = methodAttr?.Name ?? method.Name;
+                _externalBindings[className][name] = new ExternalMethod(className, name, method);
+            }
+        }
+
+        /// <summary>Resolves a possibly-short module name to its fully-registered name (honoring namespace imports).</summary>
+        private string? ResolveModuleName(string className)
+        {
+            // Dotted names are already fully qualified.
+            if (className.Contains('.'))
+                return _externalBindings.ContainsKey(className) ? className : null;
+
+            // Imported namespaces take priority over root exact matches, so
+            // `import ObjektRT.Stdlib.System; IO.Println(...)` calls the
+            // stdlib IO, not a same-named root module.
+            foreach (var ns in _importedNamespaces)
+            {
+                string candidate = $"{ns}.{className}";
+                if (_externalBindings.ContainsKey(candidate)) return candidate;
+            }
+
+            if (_externalBindings.ContainsKey(className)) return className;
+            return null;
         }
 
         public void RegisterUserContract(ContractDeclaration contract)
@@ -74,13 +115,11 @@ namespace Contract.Compiler.StandardLibrary
         public bool TryGetMethod(string className, string methodName, out object? method)
         {
             method = null;
-            if (_externalBindings.TryGetValue(className, out var externalMethods))
+            string? resolved = ResolveModuleName(className);
+            if (resolved != null && _externalBindings[resolved].TryGetValue(methodName, out var m))
             {
-                if (externalMethods.TryGetValue(methodName, out var m))
-                {
-                    method = m;
-                    return true;
-                }
+                method = m;
+                return true;
             }
             
             if (_userContracts.TryGetValue(className, out var contract))
@@ -103,6 +142,39 @@ namespace Contract.Compiler.StandardLibrary
             return _userStructs.TryGetValue(structName, out structDecl);
         }
 
-        public IEnumerable<string> GetBoundClasses() => _externalBindings.Keys.Concat(_userContracts.Keys).Concat(_userStructs.Keys);
+        public IEnumerable<string> GetBoundClasses()
+        {
+            var names = _externalBindings.Keys
+                .Concat(_userContracts.Keys)
+                .Concat(_userStructs.Keys)
+                .ToList();
+            // Short last-segment names for modules inside imported namespaces.
+            foreach (var ns in _importedNamespaces)
+            {
+                string prefix = ns + ".";
+                foreach (var full in _externalBindings.Keys)
+                {
+                    if (full.StartsWith(prefix, StringComparison.Ordinal))
+                    {
+                        string shortName = full.Substring(prefix.Length);
+                        if (!names.Contains(shortName)) names.Add(shortName);
+                    }
+                }
+            }
+            return names;
+        }
+
+        /// <summary>True when <paramref name="className"/> is a bound external stdlib module (IO, Math, ...).</summary>
+        public bool IsBoundModule(string className)
+            => ResolveModuleName(className) != null;
+
+        /// <summary>All external methods registered for a stdlib module (e.g. all of IO's methods).</summary>
+        public IEnumerable<ExternalMethod> GetExternalMethods(string className)
+        {
+            string? resolved = ResolveModuleName(className);
+            return resolved != null && _externalBindings.TryGetValue(resolved, out var map)
+                ? map.Values
+                : Enumerable.Empty<ExternalMethod>();
+        }
     }
 }

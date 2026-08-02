@@ -9,10 +9,10 @@
   author: "charlie santana — Finite",
   abstract: "The Contract programming language specification.",
   createtime: "2026-08-02",
-  lang: "au",
+  lang: "en",
   bibliography-style: "ieee",
   preface: [
-    = What this document is
+    *What this document is*
 
     This document defines the Contract programming language, version 1.0: a
     statically-typed language that compiles to ObjektRT (`.oil/.orbt`) text / binary modules.
@@ -27,7 +27,7 @@
     - the lowering model from Contract source to ObjektRT.
     - the runtime execution model (stack machine, heap, threading).
 
-    = What this document is not
+    *What this document is not*
 
     This document does not specify:
 
@@ -39,7 +39,8 @@
 
 #divider()
 #linebreak()
-#set heading(numbering: "1.")
+#set heading(numbering: "1.1")
+#set ref(supplement: "Section")
 #set raw(lang: "text")
 
 #linebreak()
@@ -125,35 +126,20 @@ letters, digits, or underscores:
 identifier ::= (letter | '_') (letter | digit | '_')*
 ```
 
-Identifiers are case-sensitive. Keywords (below) may not be used as
-identifiers.
+Identifiers are case-sensitive. The reserved words listed in @tokens may not
+be used as identifiers.
 
 == Keywords
 
 The following words are reserved and may not be used as identifiers:
 
-| Keyword | Purpose |
-|---|---|
-| `Contract` | Declares a contract (a class-like module unit) |
-| `fn` | Declares a function |
-| `fun` | Declares a lambda |
-| `var` | Declares a mutable variable |
-| `let` | Declares an immutable variable |
-| `if` `else` | Conditional statement |
-| `while` | Loop |
-| `for` | C-style loop |
-| `break` `continue` | Loop control |
-| `switch` `case` | Multi-way branch |
-| `return` | Returns from a function |
-| `struct` | Declares a struct |
-| `new` | Allocates an object or array |
-| `constructor` | Declares a constructor |
-| `static` | Declares a static member |
-| `public` `private` `protected` `internal` | Access modifiers |
-| `import` | Imports another source file |
-| `Types` `type` | Custom type declarations |
-| `export` | Marks a declaration as exported |
-| `null` `true` `false` | Literals |
+`Contract` `fn` `fun` `var` `let` `if` `else` `while` `for` `break`
+`continue` `switch` `case` `return` `struct` `new` `constructor` `static`
+`public` `private` `protected` `internal` `import` `Types` `type` `export`
+`null` `true` `false`
+
+Their meanings, together with every operator and punctuation symbol, are
+listed in the token reference table in @tokens.
 
 == Literals
 
@@ -222,24 +208,53 @@ keyword `null` is the null reference of type `null`.
 
 == Operators and Punctuation
 
-| Token | Meaning |
-|---|---|
-| `+` `-` `*` `/` `%` | Arithmetic |
-| `==` `!=` `<` `<=` `>` `>=` | Comparison |
-| `&&` `\|\|` `!` | Logical and / or / not |
-| `=` `+=` `-=` `*=` `/=` `%=` | Assignment |
-| `++`? | None — use `x += 1` |
-| `->` | Lambda arrow, return-type arrow |
-| `\|>` | Pipe |
-| `::` | Scoped member access |
-| `.` | Member access |
-| `[` `]` | Array index, array type, array literal |
-| `(` `)` | Grouping, call, parameter list |
-| `{` `}` | Block, struct/type body |
-| `,` `;` `:` | Separators |
+<tokens>
 
-The `!` token is a prefix operator (logical not) only; there is no `!=`-style
-postfix.
+The complete set of reserved words, operators, and punctuation symbols, with
+their meanings:
+
+#table(
+  columns: (auto, auto, auto),
+  table.header([*Token*], [*Category*], [*Meaning*]),
+  [`Contract`], [keyword], [Declares a contract (a class-like module unit)],
+  [`fn`], [keyword], [Declares a function],
+  [`fun`], [keyword], [Declares a lambda],
+  [`var`], [keyword], [Declares a mutable variable],
+  [`let`], [keyword], [Declares an immutable variable],
+  [`if` `else`], [keyword], [Conditional statement],
+  [`while`], [keyword], [Loop],
+  [`for`], [keyword], [C-style loop],
+  [`break` `continue`], [keyword], [Loop control],
+  [`switch` `case`], [keyword], [Multi-way branch],
+  [`return`], [keyword], [Returns from a function],
+  [`struct`], [keyword], [Declares a struct],
+  [`new`], [keyword], [Allocates an object or array],
+  [`constructor`], [keyword], [Declares a constructor],
+  [`static`], [keyword], [Declares a static member],
+  [`public` `private` `protected` `internal`], [keyword], [Access modifiers],
+  [`import`], [keyword], [Imports another source file],
+  [`Types` `type`], [keyword], [Custom type declarations],
+  [`export`], [keyword], [Marks a declaration as exported],
+  [`null` `true` `false`], [keyword], [Literals],
+  [`+` `-` `*` `/` `%`], [operator], [Arithmetic],
+  [`==` `!=` `<` `<=` `>` `>=`], [operator], [Comparison],
+  [`&&` `||` `!`], [operator], [Logical and / or / not],
+  [`=` `+=` `-=` `*=` `/=` `%=`], [operator], [Assignment],
+  [`->`], [operator], [Lambda arrow, return-type arrow],
+  [`|>`], [operator], [Pipe],
+  [`::`], [operator], [Scoped member access],
+  [`.`], [operator], [Member access],
+  [`[` `]`], [punctuation], [Array index, array type, array literal],
+  [`(` `)`], [punctuation], [Grouping, call, parameter list],
+  [`{` `}`], [punctuation], [Block, struct/type body],
+  [`,` `;` `:`], [punctuation], [Separators],
+)
+
+Notes:
+
+- The `!` token is a prefix operator (logical not) only; there is no
+  `!=`-style postfix.
+- There is no `++` or `--` operator — use `x += 1`.
 
 #linebreak()
 
@@ -251,17 +266,19 @@ includes three composite shapes: named, array, and function types.
 
 == Built-in Types
 
-| Type | IR name | Description |
-|---|---|---|
-| `int` | `int32` | 32-bit signed integer |
-| `int64` (alias `long`) | `int64` | 64-bit signed integer |
-| `string` | `string` | Text string (reference) |
-| `bool` | `bool` | Boolean (`true`/`false`) |
-| `double` | `float64` | 64-bit IEEE 754 float |
-| `float` | `float32` | 32-bit IEEE 754 float |
-| `object` | `object` | Opaque reference handle |
-| `void` | `void` | No value (return type only) |
-| `null` | — | The null literal's type |
+#table(
+  columns: (auto, auto, auto),
+  table.header([*Type*], [*IR name*], [*Description*]),
+  [`int`], [`int32`], [32-bit signed integer],
+  [`int64` (alias `long`)], [`int64`], [64-bit signed integer],
+  [`string`], [`string`], [Text string (reference)],
+  [`bool`], [`bool`], [Boolean (`true`/`false`)],
+  [`double`], [`float64`], [64-bit IEEE 754 float],
+  [`float`], [`float32`], [32-bit IEEE 754 float],
+  [`object`], [`object`], [Opaque reference handle],
+  [`void`], [`void`], [No value (return type only)],
+  [`null`], [—], [The null literal's type],
+)
 
 Type names are case-insensitive: `int`, `Int`, and `INT` all denote the same
 type.
@@ -301,6 +318,40 @@ function_type ::= '(' (type (',' type)*)? ')' '->' type
 Zero parameters is written `() -> R`. Function-typed values are represented at
 runtime as delegate objects (see @delegates).
 
+== Generic Types
+
+<generics>
+
+A generic type is written as a type name followed by a `<`-delimited argument
+list:
+
+```ebnf
+generic_type ::= identifier '<' type (',' type)* '>'
+```
+
+```text
+List<int>             List<string>
+Dict<string, int>     Dict<string, string[]>
+```
+
+The generic *collections* `List<T>` and `Dict<K, V>` are built into the
+standard library. They are #strong[type-erased]: at runtime the value is an
+`object` handle into the shared heap (the same object-backed `List`/`Dict`
+classes from the stdlib), and the element types exist only for compile-time
+checking and signatures.
+
+```text
+var nums: List<int> = List.Create();
+List.Add(nums, 10);
+var count: int = List.Count(nums);   // int
+
+fn sum(xs: List<int>) -> int { ... }
+```
+
+Generic types are valid when the unbound name is a known generic and every
+argument is a valid type. Custom generic types (user-defined type parameters)
+are planned but not yet part of version 1.0.
+
 == The `object` Type
 
 `object` is an opaque reference handle. It is the type of the runtime's
@@ -333,9 +384,9 @@ system return types), and other variables. When the type cannot be determined
 == Type Registry
 
 The compiler maintains a registry of known type names. The built-in names are
-always present; contracts, structs, and `Types`-block definitions are
-registered during semantic analysis. Array and function types are valid when
-their constituent types are valid.
+always present; contracts and structs are registered during semantic
+analysis. Array, function, and generic types are valid when their constituent
+types are valid.
 
 #linebreak()
 
@@ -343,12 +394,11 @@ their constituent types are valid.
 
 A Contract *program* is a single source file (plus any imported files merged
 by the driver). A program consists of top-level declarations: contracts,
-functions, structs, and `Types` blocks, in any order.
+functions, and structs, in any order.
 
 ```ebnf
 program ::= toplevel*
 toplevel ::= import
-           | Types block
            | contract
            | struct
            | fn
@@ -358,64 +408,71 @@ toplevel ::= import
 == Contracts
 
 A *contract* is the primary organizational unit: a named, class-like container
-for functions, constructors, and nested structs. Contracts are the closest
-analog to a C\# class or a namespace.
+for instance fields, functions, constructors, and nested structs. Contracts
+are the closest analog to a C\# class.
 
 ```ebnf
 contract ::= 'Contract' identifier '{' member* '}'
-member   ::= access_modifier? 'static'? fn
+member   ::= field
+           | access_modifier? 'static'? fn
            | 'constructor' '(' params ')' block-or-semicolon
            | 'struct' struct_body
+field    ::= identifier ':' type ';'
 ```
 
 ```text
-Contract Math {
-    fn add(a: int, b: int) -> int {
-        return a + b;
-    }
+Contract Counter {
+    count: int;
 
-    struct Point {
-        x: int;
-        y: int;
+    constructor() { this.count = 0; }
+
+    fn increment() { this.count += 1; }
+    fn value() -> int { return this.count; }
+
+    static fn Main() {
+        var c: Counter = new Counter();
+        c.increment();
+        IO.Println(c.value());
     }
 }
 ```
 
-A contract compiles to an ObjektIR class. Its functions become methods of that
-class.
+A contract compiles to an ObjektIR class. Its instance fields become class
+fields; its functions become methods of that class.
+
+=== Instance Fields and `this`
+
+A contract may declare instance fields (`name: type;`). When a contract has
+fields, its *non-static* member functions become instance methods: they
+receive the receiver as an implicit first argument, and can read/write fields
+both directly (`count`) and through `this` (`this.count`).
+
+A non-static member function is an instance method #strong[only when its
+contract declares fields]. Contracts without fields keep the legacy
+module-function behavior (no implicit receiver), which preserves the
+module-style use of contracts as namespaces.
+
+Constructors run when an instance is created with `new ContractName()`. They
+receive `this` too, so they can initialize fields:
+
+```text
+constructor() { this.count = 0; }
+```
+
+Instance methods are called with `.` on a value:
+
+```text
+var c: Counter = new Counter();
+c.increment();
+```
+
+which lowers to pushing the receiver then `call Counter.increment`.
 
 == Top-Level Functions
 
 Functions declared outside any contract are collected into a synthetic
 `Global` class in the emitted IR. They are callable from anywhere in the
 program and are static.
-
-== The `Types` Block
-
-A `Types` block declares custom value types (structs) at the top level:
-
-```ebnf
-types_block ::= 'Types' '{' type_def* '}'
-type_def    ::= 'type' identifier '{' field (',' field)* '}'
-field       ::= identifier ':' type ';'
-```
-
-```text
-Types {
-    type Point {
-        x: int;
-        y: int;
-    }
-
-    type Person {
-        name: string;
-        age: int;
-    }
-}
-```
-
-Each `type` compiles to an ObjektIR struct. Instances are created with
-`new TypeName()`.
 
 == Structs
 
@@ -474,14 +531,20 @@ constructor ::= 'constructor' '(' params ')' block
 
 ```text
 Contract Counter {
-    constructor(start: int) {
-        IO.Println("started at " + start);
+    count: int;
+
+    constructor() {
+        this.count = 0;
     }
 }
 ```
 
 Constructors are analysed and code-generated like functions; they are emitted
-as the class's `.ctor`.
+as the class's `.ctor`. They receive `this`, so they can initialise fields
+before the instance is returned.
+
+> `new` currently supports the no-argument form `new Type()`. Constructor
+> parameters can be declared but are not yet passed through the call site.
 
 #linebreak()
 
@@ -684,17 +747,19 @@ path; falling off the end returns the zero value (see @functions).
 
 Expressions are parsed with the following precedence, from lowest to highest:
 
-| Level | Operators | Associativity |
-|---|---|---|
-| Assignment | `=` `+=` `-=` `*=` `/=` `%=` | right |
-| Logical or | `\|\|` | left |
-| Logical and | `&&` | left |
-| Equality | `==` `!=` | left |
-| Comparison | `<` `<=` `>` `>=` | left |
-| Additive | `+` `-` | left |
-| Multiplicative | `*` `/` `%` | left |
-| Unary | `-` `!` | prefix |
-| Postfix | `()` `.` `[]` `::` `\|>` | left |
+#table(
+  columns: (auto, auto, auto),
+  table.header([*Level*], [*Operators*], [*Associativity*]),
+  [Assignment], [`=` `+=` `-=` `*=` `/=` `%=`], [right],
+  [Logical or], [`||`], [left],
+  [Logical and], [`&&`], [left],
+  [Equality], [`==` `!=`], [left],
+  [Comparison], [`<` `<=` `>` `>=`], [left],
+  [Additive], [`+` `-`], [left],
+  [Multiplicative], [`*` `/` `%`], [left],
+  [Unary], [`-` `!`], [prefix],
+  [Postfix], [`()` `.` `[]` `::` `|>`], [left],
+)
 
 == Literals
 
@@ -1010,7 +1075,10 @@ Random.NextFloat() -> float        // [0, 1)
 
 <collections>
 
-These operate on `object` handles created and consumed by the module:
+These operate on `object` handles created and consumed by the module. In
+Contract source they are usually used through their generic forms
+(`List<int>`, `Dict<string, int>` — see @generics), which are type-erased to
+these same object handles:
 
 ```text
 List.Create() -> object
@@ -1028,7 +1096,9 @@ Array.Set(arr, index, value)
 ```
 
 The handles are heap indices into the runtime's object heap (the C++ native
-API historically represented them as `void*`).
+API historically represented them as `void*`). In the managed runtime they are
+external-object handles that round-trip real CLR `List`/`Dictionary` objects
+through the native boundary.
 
 == `File`, `Environment`, `GC`, `Debug`, `Time`, `Thread`
 
@@ -1179,9 +1249,11 @@ types_block ::= 'Types' '{' type_def* '}'
 type_def ::= 'type' identifier '{' struct_field+ '}'
 
 contract ::= 'Contract' identifier '{' member* '}'
-member ::= access_modifier? 'static'? 'fn' function_header
+member ::= field
+         | access_modifier? 'static'? 'fn' function_header
          | 'constructor' '(' params? ')' (block | ';')
          | struct_decl
+field ::= identifier ':' type ';'
 
 struct_decl ::= access_modifier? 'struct' identifier '{' struct_field+ '}'
 struct_field ::= identifier ':' type ';'
@@ -1241,6 +1313,7 @@ array_literal ::= '[' (expression (',' expression)*)? ']'
 lambda ::= 'fun' (identifier+ | '(' params? ')') '->' (expression | block)
 
 type ::= identifier ('[' ']')*
+       | identifier '<' type (',' type)* '>'
        | '(' (type (',' type)*)? ')' '->' type
 ```
 
@@ -1263,6 +1336,58 @@ Key validation programs:
 - `Delegates.ct` — lambda values, higher-order functions.
 - `Closures.ct` — capture, captured writes, closure factories.
 - `Threading.ct` — `Thread.Spawn` with capturing lambdas.
+- `Classes.ct` — instance fields, `this`, constructors, instance methods.
+- `Generics.ct` — `List<int>`/`Dict<string, int>` end-to-end.
+
+#linebreak()
+
+= Tooling and Hosting
+
+== The `contract` CLI
+
+The unified `Contract.Cli` tool compiles and runs Contract programs:
+
+```text
+contract hello.ct                     # compile + run in one go
+contract -c hello.ct -o hello.orbt    # compile to .orbt binary (default)
+contract -c hello.ct -f oil           # compile to .oil text
+contract run hello.orbt / hello.oir   # run a precompiled module
+contract --bind MyBindings.dll app.ct # load custom host bindings
+contract --test                       # run the compiler test suite
+```
+
+- Output format is chosen by `-f oil|orbt`, else the `-o` extension (`.oil` =
+  text, otherwise binary), else defaults to `.orbt`.
+- `-m Name.Method` calls a specific method instead of the entry point.
+- `--bind <assembly>` loads an assembly of `[ClassBinding]`-annotated classes
+  and makes them callable from Contract as `Module.Method(...)` — the
+  mechanism for custom host bindings that stay out of the standard library.
+
+== `Contract.Runtime`
+
+`Contract.Runtime` is the Contract-specific runtime host library. It wraps
+`ObjectRT.Runtime` and pre-registers the standard library bindings, so the
+stdlib registration lives in one place (ready to be split into a standalone
+spec). Custom bindings register through `RegisterBinding(name, type)`,
+`RegisterBindingAssembly(assembly)`, or the CLI's `--bind`.
+
+== VM Error Reporting
+
+The runtime captures `// #line N:C "source"` metadata emitted by the compiler
+and reports runtime failures with full context:
+
+```text
+runtime error: DivisionByZero: division by zero
+  └─ at Program.divide  [pc=0x6 · div]
+  └─ source line 3:20
+     3 | return a / b;
+                    ^
+  └─ stack: Program.divide@0x6 → Program.Main
+```
+
+The report shows the error kind, the failing IR instruction (opcode + pc),
+the original source line with a caret, and the call stack. It is colourised
+when stderr is a terminal (disabled by `NO_COLOR` or when redirected).
 
 #linebreak()
 
@@ -1275,5 +1400,6 @@ The following are planned but not part of version 1.0:
 - `for`-loop `break`/`continue` with values, and `switch` fallthrough.
 - short-circuit `&&`/`||`.
 - implicit numeric-to-string coercion across the native boundary.
-- contracts as objects (metaclasses), generics, exceptions, `try`/`throw`,
+- custom user-defined generic types (type parameters).
+- contracts as objects (metaclasses), exceptions, `try`/`throw`,
   and first-class array operations in the IR.

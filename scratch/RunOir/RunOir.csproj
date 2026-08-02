@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="D:\git\ObjectRT-Vala\src\ObjectRT.Runtime\ObjectRT.Runtime.csproj" />
+    <ProjectReference Include="..\..\libs\Objekt-RT\src\ObjectRT.Runtime\ObjectRT.Runtime.csproj" />
     <ProjectReference Include="..\..\Contract.Compiler\Contract.Compiler.csproj" />
   </ItemGroup>
 
