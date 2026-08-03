@@ -42,6 +42,10 @@ namespace Contract.Cli
                 switch (args[i])
                 {
                     case "-h" or "--help": Help(); return 0;
+                    case "--version":
+                        var version = typeof(Program).Assembly.GetName().Version;
+                        Console.WriteLine($"Contract Compiler {(version != null ? version.ToString(3) : "unknown")} (ccl)");
+                        return 0;
                     case "-c" or "--compile": compileOnly = true; break;
                     case "-d" or "--debug": debug = true; break;
                     case "-v" or "--verbose": verbose = true; break;
@@ -200,6 +204,7 @@ Options:
   -v, --verbose          Show pipeline stages
   -d, --debug            Print the generated IR
       --bind <assembly>  Load custom host bindings from a .dll (see Contract.Runtime)
+      --version          Print the compiler version
   -h, --help             Show this message
 
 Examples:
