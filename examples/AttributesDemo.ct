@@ -27,7 +27,7 @@ Contract Greeter {
 
     <Deprecated("use the new API")>
     fn hello() -> string {
-        return "hello";
+        return this.greeting;
     }
 
     static fn Main() {

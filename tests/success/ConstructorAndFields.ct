@@ -1,0 +1,41 @@
+// Runtime fixes: constructor bodies run on new, cross-instance field access
+// resolves to the declared type, and :: works on user contracts.
+Contract Counter {
+    count: int;
+
+    constructor() {
+        this.count = 5;
+    }
+
+    fn increment() {
+        this.count += 1;
+    }
+
+    fn value() -> int {
+        return this.count;
+    }
+}
+
+Contract Utils {
+    static fn triple(x: int) -> int {
+        return x * 3;
+    }
+}
+
+Contract Program {
+    static fn Main() {
+        // Constructor must run: count starts at 5 (not nil/0).
+        var c: Counter = new Counter();
+        IO.Println(c.value());       // 5
+        c.increment();
+        IO.Println(c.value());       // 6
+
+        // Cross-instance field read/write through a typed variable.
+        IO.Println(c.count);         // 6
+        c.count = 10;
+        IO.Println(c.value());       // 10
+
+        // Static member access with :: on a user contract (same as dot).
+        IO.Println(Utils::triple(5)); // 15
+    }
+}

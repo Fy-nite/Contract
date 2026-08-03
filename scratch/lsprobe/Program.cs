@@ -34,6 +34,25 @@ void Completion(string label, Contract.Compiler.Parsing.Token dotTok)
 foreach (var t in toks.Where(t => t.Type == Contract.Compiler.Parsing.TokenType.Identifier && t.Text == "Println"))
     Hover("hover Println", t);
 
+// Hover the member after :: and after . (the method name tokens).
+foreach (var t in toks.Where(t => t.Type == Contract.Compiler.Parsing.TokenType.Identifier && (t.Text == "triple" || t.Text == "quadruple")))
+    Hover($"hover {t.Text}", t);
+
+// Hover the contract name in Utils:: and Utils.
+foreach (var t in toks.Where(t => t.Type == Contract.Compiler.Parsing.TokenType.Identifier && t.Text == "Utils" && t.Line > 2))
+    Hover("hover Utils", t);
+
+// Completion after :: and after .
+for (int i = 0; i < toks.Count; i++)
+{
+    if (toks[i].Type is Contract.Compiler.Parsing.TokenType.Dot or Contract.Compiler.Parsing.TokenType.DoubleColon
+        && i + 1 < toks.Count && toks[i + 1].Type == Contract.Compiler.Parsing.TokenType.Identifier)
+    {
+        string kind = toks[i].Type == Contract.Compiler.Parsing.TokenType.DoubleColon ? "::" : ".";
+        Completion($"complete after {kind}", toks[i]);
+    }
+}
+
 // Hover the Numbers module use.
 var numbersTok = toks.FirstOrDefault(t => t.Type == Contract.Compiler.Parsing.TokenType.Identifier && t.Text == "Numbers" && t.Line > 3);
 if (numbersTok != null) Hover("hover Numbers", numbersTok);
@@ -44,4 +63,5 @@ for (int i = 0; i < toks.Count; i++)
     if (toks[i].Type == Contract.Compiler.Parsing.TokenType.Dot && i + 1 < toks.Count && toks[i + 1].Type == Contract.Compiler.Parsing.TokenType.Identifier)
         Completion("complete after .", toks[i]);
 }
+
 

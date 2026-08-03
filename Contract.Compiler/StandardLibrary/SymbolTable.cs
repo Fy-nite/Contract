@@ -168,6 +168,10 @@ namespace Contract.Compiler.StandardLibrary
         public bool IsBoundModule(string className)
             => ResolveModuleName(className) != null;
 
+        /// <summary>True when <paramref name="name"/> is a user-declared contract in this compilation.</summary>
+        public bool IsUserContract(string name)
+            => _userContracts.ContainsKey(name);
+
         /// <summary>All external methods registered for a stdlib module (e.g. all of IO's methods).</summary>
         public IEnumerable<ExternalMethod> GetExternalMethods(string className)
         {

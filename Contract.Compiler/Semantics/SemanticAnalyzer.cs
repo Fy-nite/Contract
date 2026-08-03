@@ -53,6 +53,10 @@ namespace Contract.Compiler.Semantics
                     }
                 }
             }
+
+            // Validate every field declaration's type (contracts, structs, and
+            // structs nested inside contracts).
+            ValidateFieldTypes(program);
             
             // First pass: collect all function definitions and register contracts/structs
             foreach (var contract in program.Contracts)
@@ -110,6 +114,62 @@ namespace Contract.Compiler.Semantics
                 if (member is FunctionDeclaration func)
                 {
                     AnalyzeFunction(func);
+                }
+            }
+        }
+
+        // ── Field types ──────────────────────────────────────────────
+
+        /// <summary>
+        /// Validates every field declaration in the program: the declared type
+        /// must be known/valid, must not be <c>void</c>/<c>null</c>, and field
+        /// names must be unique within the declaring type.
+        /// </summary>
+        private void ValidateFieldTypes(Program program)
+        {
+            foreach (var contract in program.Contracts)
+            {
+                ValidateFields(contract.Fields, "contract");
+                foreach (var member in contract.Members)
+                {
+                    if (member is StructDeclaration nestedStruct)
+                        ValidateFields(nestedStruct.Fields, "struct");
+                }
+            }
+
+            foreach (var structDecl in program.Structs)
+            {
+                ValidateFields(structDecl.Fields, "struct");
+            }
+        }
+
+        private void ValidateFields(IReadOnlyList<StructField> fields, string ownerKind)
+        {
+            var seen = new HashSet<string>();
+            foreach (var field in fields)
+            {
+                if (!seen.Add(field.Name))
+                {
+                    _diagnostics.AddError($"Field '{field.Name}' is already declared in this {ownerKind}", field.Line, field.Column);
+                }
+
+                if (field.Type.IsEmpty)
+                {
+                    _diagnostics.AddError($"Field '{field.Name}' must have a type", field.Line, field.Column);
+                    continue;
+                }
+
+                if (field.Type is TypeDescriptor.Named n
+                    && (string.Equals(n.Name, "void", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(n.Name, "null", StringComparison.OrdinalIgnoreCase)))
+                {
+                    _diagnostics.AddError($"Field '{field.Name}' cannot have type '{n.Name}'", field.Line, field.Column);
+                    continue;
+                }
+
+                if (!_typeRegistry.IsValid(field.Type))
+                {
+                    _diagnostics.AddError($"Unknown type '{field.Type}' for field '{field.Name}'", field.Line, field.Column);
                 }
             }
         }
@@ -379,13 +439,26 @@ namespace Contract.Compiler.Semantics
                     ResolveCall(call);
                     break;
                 case ScopedAccessExpression scoped:
-                    if (!_symbolTable.IsBoundModule(scoped.Module))
+                    // Module::member — an stdlib module, or a static member on a
+                    // user contract (Contract::staticMethod works like the dot form).
+                    if (_symbolTable.IsBoundModule(scoped.Module))
+                    {
+                        if (!_symbolTable.TryGetMethod(scoped.Module, scoped.Member, out _))
+                        {
+                            _diagnostics.AddError($"Member '{scoped.Member}' not found in module '{scoped.Module}'", scoped.Line, scoped.Column);
+                        }
+                    }
+                    else if (_symbolTable.IsUserContract(scoped.Module))
+                    {
+                        if (!_symbolTable.TryGetMethod(scoped.Module, scoped.Member, out var cm)
+                            || (cm is FunctionDeclaration cf && !cf.IsStatic))
+                        {
+                            _diagnostics.AddError($"Member '{scoped.Member}' not found in contract '{scoped.Module}'", scoped.Line, scoped.Column);
+                        }
+                    }
+                    else
                     {
                         _diagnostics.AddError($"Undefined module: '{scoped.Module}'", scoped.Line, scoped.Column);
-                    }
-                    else if (!_symbolTable.TryGetMethod(scoped.Module, scoped.Member, out _))
-                    {
-                        _diagnostics.AddError($"Member '{scoped.Member}' not found in module '{scoped.Module}'", scoped.Line, scoped.Column);
                     }
                     break;
                 case MemberExpression mem:
@@ -566,6 +639,16 @@ namespace Contract.Compiler.Semantics
                     {
                         return funcReturnType;
                     }
+                    // f()(args): the result of invoking a delegate is the
+                    // function type's return.
+                    if (call.Callee is CallExpression innerCall)
+                    {
+                        var innerFn = GetCallResultFunctionType(innerCall);
+                        if (innerFn != null)
+                        {
+                            return innerFn.Return;
+                        }
+                    }
                     return new TypeDescriptor.Named("int");
                 case BinaryExpression bin:
                     if (bin.Operator is "+" or "+=")
@@ -685,6 +768,63 @@ namespace Contract.Compiler.Semantics
                     _diagnostics.AddError($"Undefined function: '{ident.Name}'", call.Line, call.Column);
                 }
             }
+            else if (call.Callee is CallExpression innerCall)
+            {
+                // f()(args) — calling the result of a call (a delegate/closure).
+                var fnType = GetCallResultFunctionType(innerCall);
+                if (fnType == null)
+                {
+                    _diagnostics.AddError($"Expression is not callable: it does not return a function", call.Line, call.Column);
+                    return;
+                }
+                if (call.Arguments.Count != fnType.Parameters.Count)
+                {
+                    _diagnostics.AddError($"Function expects {fnType.Parameters.Count} argument(s), got {call.Arguments.Count}", call.Line, call.Column);
+                    return;
+                }
+                call.Symbol = innerCall.Symbol;
+            }
+        }
+
+        /// <summary>
+        /// The function type of the delegate that a call produces — the call's
+        /// result type when that result is a function type. Used to resolve
+        /// <c>f()(args)</c>: the inner call must produce a delegate whose
+        /// signature drives the outer invocation.
+        /// </summary>
+        private TypeDescriptor.Function? GetCallResultFunctionType(CallExpression call)
+        {
+            // f() where f's declared return type is a function type.
+            if (call.Symbol is FunctionDeclaration fd && fd.ReturnType is TypeDescriptor.Function fn)
+                return fn;
+
+            // Bare function call by name: f() with f declared elsewhere.
+            if (call.Callee is IdentifierExpression id
+                && _functionReturnTypes.TryGetValue(id.Name, out var ret)
+                && ret is TypeDescriptor.Function fnById)
+            {
+                return fnById;
+            }
+
+            // Calling a function-typed value: the value's type is the function
+            // type of the call result (a delegate), so the delegate produced by
+            // calling it has the value's function type's return.
+            if (call.Callee is IdentifierExpression idVal)
+            {
+                var vType = FindVariableType(idVal.Name);
+                if (vType is TypeDescriptor.Function f1 && f1.Return is TypeDescriptor.Function nested)
+                    return nested;
+                if (vType is TypeDescriptor.GenericInstance g
+                    && g.Name.Equals("Delegate", StringComparison.OrdinalIgnoreCase)
+                    && g.Arguments.Count == 1
+                    && g.Arguments[0] is TypeDescriptor.Function gf
+                    && gf.Return is TypeDescriptor.Function nestedDelegate)
+                {
+                    return nestedDelegate;
+                }
+            }
+
+            return null;
         }
 
         /// <summary>

@@ -172,6 +172,8 @@ public class IRCodeGenerator
         {
             if (p.Type is TypeDescriptor.Function fnType)
                 _functionTypedParams[p.Name] = fnType;
+            else if (p.Type is TypeDescriptor.GenericInstance g && TryGetDelegateFunctionType(g, out var gf))
+                _functionTypedParams[p.Name] = gf;
         }
 
         // Lambda methods carry capture context; every function gets a fresh
@@ -275,6 +277,22 @@ public class IRCodeGenerator
         => _thisArgIndex != null
            && _currentContractName != null
            && _program?.Contracts.Any(c => c.Name == _currentContractName && c.Fields.Any(f => f.Name == name)) == true;
+
+    /// <summary>
+    /// Resolves the declaring type name for a member access object:
+    /// <c>this</c> → the current contract; a known variable → its declared type;
+    /// anything else (module/static names) → the name itself. The VM keys fields
+    /// as <c>Type.field</c>, so using the variable name instead of its type made
+    /// <c>p.count</c> fail with "Unresolved field 'p.count'".
+    /// </summary>
+    private string ResolveMemberObjectType(string name)
+    {
+        if (name == "this" && _currentContractName != null)
+            return _currentContractName;
+        if (_variableTypes.TryGetValue(name, out var t) && t is TypeDescriptor.Named n && !n.IsEmpty)
+            return n.Name;
+        return name;
+    }
 
     /// <summary>The field reference for 'name' on the current contract.</summary>
     private FieldReference InstanceFieldReference(string name)
@@ -599,6 +617,8 @@ public class IRCodeGenerator
                 _lambdaBodyLocals?.Add(v.Name);
                 if (v.Type is TypeDescriptor.Function fnLocalType)
                     _functionTypedLocals[v.Name] = fnLocalType;
+                else if (v.Type is TypeDescriptor.GenericInstance gLocal && TryGetDelegateFunctionType(gLocal, out var gfLocal))
+                    _functionTypedLocals[v.Name] = gfLocal;
                 if (v.Initializer != null)
                 {
                     if (v.Initializer is LambdaExpression lambda)
@@ -808,10 +828,15 @@ public class IRCodeGenerator
                     }
                     if (bin.Left is IndexExpression indexTarget)
                     {
+                        // arr[i] = rhs. stelem pops [value, index, array], so
+                        // dup the array (matching the member-assignment
+                        // convention: obj.f = v leaves the receiver) to keep
+                        // the expression stack-balanced — the leftover array is
+                        // consumed by the statement's trailing pop.
                         GenerateExpression(ib, indexTarget.Target, paramMap);
+                        ib.Dup();
                         GenerateExpression(ib, indexTarget.Index, paramMap);
                         GenerateExpression(ib, bin.Right, paramMap);
-                        ib.Dup();   // leave the assigned value on the stack (C#-style)
                         ib.Stelem();
                         return;
                     }
@@ -820,9 +845,9 @@ public class IRCodeGenerator
                         GenerateExpression(ib, memTarget.Object, paramMap);
                         ib.Dup();   // keep the object for the store (stfld pops value, object)
                         GenerateExpression(ib, bin.Right, paramMap);
-                        var targetName = memTarget.Object is IdentifierExpression targetId ? targetId.Name : "TODO_DYNAMIC_TYPE";
-                        if (targetName == "this" && _currentContractName != null)
-                            targetName = _currentContractName;
+                        var targetName = memTarget.Object is IdentifierExpression targetId
+                            ? ResolveMemberObjectType(targetId.Name)
+                            : "TODO_DYNAMIC_TYPE";
                         ib.Stfld(new FieldReference(new TypeRef(targetName), memTarget.Property, FindFieldType(targetName, memTarget.Property)));
                         return;
                     }
@@ -881,9 +906,9 @@ public class IRCodeGenerator
                         GenerateExpression(ib, compoundMem.Object, paramMap);
                         ib.Dup(); // keep one copy for the store
                         ib.Dup(); // and one left over after stfld
-                        var compoundMemObjName = compoundMem.Object is IdentifierExpression compoundMemId ? compoundMemId.Name : "TODO_DYNAMIC_TYPE";
-                        if (compoundMemObjName == "this" && _currentContractName != null)
-                            compoundMemObjName = _currentContractName;
+                        var compoundMemObjName = compoundMem.Object is IdentifierExpression compoundMemId
+                            ? ResolveMemberObjectType(compoundMemId.Name)
+                            : "TODO_DYNAMIC_TYPE";
                         var fieldRef = new FieldReference(new TypeRef(compoundMemObjName), compoundMem.Property, FindFieldType(compoundMemObjName, compoundMem.Property));
                         ib.Ldfld(fieldRef);
                         GenerateExpression(ib, bin.Right, paramMap);
@@ -938,6 +963,28 @@ public class IRCodeGenerator
                 // Push arguments to stack
                 foreach (var arg in call.Arguments)
                     GenerateExpression(ib, arg, paramMap);
+
+                if (call.Callee is CallExpression innerCall)
+                {
+                    // f()(args): evaluate the function call — it produces a
+                    // delegate — then invoke that delegate with the already
+                    // pushed arguments. Stack: [args..., delegate] and
+                    // callvirt pops the receiver first, matching the VM.
+                    GenerateExpression(ib, innerCall, paramMap);
+                    var fnType = GetCallFunctionType(innerCall);
+                    if (fnType != null)
+                    {
+                        var pt = fnType.Parameters.Select(MapType).ToList();
+                        var ret = MapType(fnType.Return);
+                        ib.Callvirt(new MethodReference(new TypeRef(DelegateClassName), DelegateInvokeMethod, ret, pt));
+                    }
+                    else
+                    {
+                        var pt = call.Arguments.Select(_ => TypeRef.Int32).ToList();
+                        ib.Callvirt(new MethodReference(new TypeRef(DelegateClassName), DelegateInvokeMethod, TypeRef.Int32, pt));
+                    }
+                    break;
+                }
 
                 if (call.Symbol is ExternalMethod em)
                 {
@@ -1030,7 +1077,24 @@ public class IRCodeGenerator
                 }
                 else
                 {
+                    // new Type() — allocate, then run the constructor so field
+                    // initializers execute. The VM's newobj only allocates; the
+                    // ctor (this + params, named ".ctor") is invoked explicitly.
+                    // Stack: [obj] → [obj,obj] → call pops this → ret pushes nil
+                    // → [obj,nil] → pop → [obj].
                     ib.Newobj(new TypeRef(newExpr.TypeName));
+                    bool hasCtor = _program?.Contracts
+                        .Any(c => c.Name == newExpr.TypeName && c.Constructors.Count > 0) == true;
+                    if (hasCtor)
+                    {
+                        ib.Dup();
+                        ib.Call(new MethodReference(
+                            new TypeRef(newExpr.TypeName),
+                            ".ctor",
+                            TypeRef.Void,
+                            new List<TypeRef> { TypeRef.Object }));
+                        ib.Pop();
+                    }
                 }
                 break;
 
@@ -1055,11 +1119,9 @@ public class IRCodeGenerator
                 }
                 else
                 {
-                    var memObjName = mem.Object is IdentifierExpression memObjId ? memObjId.Name : "TODO_DYNAMIC_TYPE";
-                    // `this.field` resolves against the declaring contract so the
-                    // runtime's Type.field field map matches.
-                    if (memObjName == "this" && _currentContractName != null)
-                        memObjName = _currentContractName;
+                    var memObjName = mem.Object is IdentifierExpression memObjId
+                        ? ResolveMemberObjectType(memObjId.Name)
+                        : "TODO_DYNAMIC_TYPE";
                     var ftype = FindFieldType(memObjName, mem.Property);
                     ib.Ldfld(new FieldReference(new TypeRef(memObjName), mem.Property, ftype));
                 }
@@ -1133,11 +1195,65 @@ public class IRCodeGenerator
         // Function types are represented as object handles in the wire model
         // (a delegate IS an object).
         TypeDescriptor.Function => TypeRef.Object,
+        // Delegate<T> is the typed delegate wrapper — it materialises as the
+        // runtime's Delegate class.
+        TypeDescriptor.GenericInstance g when TryGetDelegateFunctionType(g, out _) => new TypeRef(DelegateClassName),
         // Generic instances are type-erased: the runtime sees the object-backed
         // collection class (List/Dict), so the wire type is object.
         TypeDescriptor.GenericInstance => TypeRef.Object,
         _ => TypeRef.Int32
     };
+
+    /// <summary>
+    /// True when <paramref name="g"/> is <c>Delegate&lt;F&gt;</c>; exposes the
+    /// wrapped function type F.
+    /// </summary>
+    private static bool TryGetDelegateFunctionType(TypeDescriptor.GenericInstance g, out TypeDescriptor.Function functionType)
+    {
+        functionType = null!;
+        if (string.Equals(g.Name, "Delegate", StringComparison.OrdinalIgnoreCase)
+            && g.Arguments.Count == 1
+            && g.Arguments[0] is TypeDescriptor.Function f)
+        {
+            functionType = f;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// The function type of the delegate a call produces, when that result is a
+    /// function type. Drives <c>f()(args)</c>: the inner call must produce a
+    /// delegate whose signature the outer invocation uses.
+    /// </summary>
+    private TypeDescriptor.Function? GetCallFunctionType(CallExpression call)
+    {
+        // f() where the resolved declaration's return type is a function type.
+        if (call.Symbol is FunctionDeclaration fd && fd.ReturnType is TypeDescriptor.Function fn)
+            return fn;
+
+        // Calling a function-typed local/param: the value's function type is the
+        // type of the call RESULT (a delegate), so the delegate produced by the
+        // call has the value type's return.
+        if (call.Callee is IdentifierExpression id)
+        {
+            if (_functionTypedLocals.TryGetValue(id.Name, out var fl) && fl.Return is TypeDescriptor.Function nestedL)
+                return nestedL;
+            if (_functionTypedParams.TryGetValue(id.Name, out var fp) && fp.Return is TypeDescriptor.Function nestedP)
+                return nestedP;
+            if (_variableTypes.TryGetValue(id.Name, out var vt) && vt is TypeDescriptor.Function f1 && f1.Return is TypeDescriptor.Function nestedV)
+                return nestedV;
+            if (_variableTypes.TryGetValue(id.Name, out var vt2)
+                && vt2 is TypeDescriptor.GenericInstance g
+                && TryGetDelegateFunctionType(g, out var gf)
+                && gf.Return is TypeDescriptor.Function nestedG)
+            {
+                return nestedG;
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>True when 'name' is a captured variable of the active lambda body.</summary>
     private bool IsCaptured(string name)

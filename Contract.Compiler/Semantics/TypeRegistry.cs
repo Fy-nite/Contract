@@ -17,7 +17,9 @@ namespace Contract.Compiler.Semantics
         // Generic type names (type-erased: the runtime sees the unbound name).
         private readonly HashSet<string> _genericTypes = new(StringComparer.OrdinalIgnoreCase)
         {
-            "List", "Dict"
+            "List", "Dict",
+            // Delegate<T> — a typed delegate wrapper; T is the function type.
+            "Delegate"
         };
 
         private readonly Dictionary<string, string> _aliases = new();

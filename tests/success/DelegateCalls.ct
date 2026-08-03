@@ -1,0 +1,48 @@
+// Delegate<T> type + calling a function's returned delegate (f()(args)).
+Contract Program {
+    static fn makeAdd() -> (int, int) -> int {
+        return fun (x: int, y: int) -> {
+            return x + y;
+        };
+    }
+
+    // Delegate<T>-typed parameter, invoked inside.
+    fn apply(f: Delegate<(int) -> int>, x: int) -> int {
+        return f(x);
+    }
+
+    // Function returning a capturing closure, called via double-call.
+    static fn makeScale(k: int) -> (int) -> int {
+        return fun (v: int) -> {
+            return v * k;
+        };
+    }
+
+    static fn Main() {
+        // Double-call: invoke the delegate returned by makeAdd.
+        IO::Println(makeAdd()(5, 5));
+
+        // Delegate<T>-typed local, then call it.
+        var add: Delegate<(int, int) -> int> = makeAdd();
+        IO::Println(add(3, 4));
+
+        // Delegate<T> param + lambda argument.
+        IO::Println(apply(fun q -> q * 10, 7));
+
+        // Capturing closure via double-call.
+        IO::Println(makeScale(100)(5));
+
+        // Inference: result of a double-call.
+        var r = makeAdd()(2, 3);
+        IO::Println(r);
+    }
+}
+
+// A contract holding a Delegate<T> field, assigned in its constructor.
+Contract Box {
+    public add: Delegate<(int, int) -> int>;
+
+    constructor() {
+        this.add = Program.makeAdd();
+    }
+}

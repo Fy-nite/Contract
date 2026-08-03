@@ -1,0 +1,14 @@
+// Unknown field type on a struct (top-level and nested).
+struct BadStruct {
+    y: NoSuchType;
+}
+
+Contract Program {
+    struct Inner {
+        z: Missing;
+    }
+
+    static fn Main() {
+        IO.Println("x");
+    }
+}

@@ -1,0 +1,26 @@
+// Valid field types: built-ins, arrays, generics, struct types, Delegate<T>.
+struct Point {
+    x: int;
+    y: int;
+}
+
+Contract Program {
+    count: int;
+    name: string;
+    ratio: double;
+    flags: bool;
+    points: Point[];
+    list: List<int>;
+    dict: Dict<string, int>;
+    origin: Point;
+    callback: Delegate<(int) -> int>;
+
+    constructor() {
+        this.count = 0;
+    }
+
+    static fn Main() {
+        // Validation-only test: all field types above must be accepted.
+        IO.Println("ok");
+    }
+}

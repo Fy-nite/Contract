@@ -182,14 +182,58 @@ public abstract class TypeDescriptor
             return new ArrayOf(Parse(s[..^2]));
         }
 
-        // Generic instance: "Name<T1, T2>" (no nested >, no function types inside).
+        // Generic instance: "Name<T1, T2>" — argument splitting respects
+        // nested parens (function types "(int, int) -> int"), brackets, and
+        // angle brackets (e.g. "Dict<int, List<string>>").
         int lt = s.IndexOf('<');
         if (lt > 0 && s.EndsWith(">", StringComparison.Ordinal))
         {
             var name = s[..lt].Trim();
-            var argsPart = s[(lt + 1)..^1];
+            var inner = s[(lt + 1)..];
+
+            // Find the matching close '>' at angle depth 0, skipping balanced
+            // parens (function types contain commas but no angle brackets) and
+            // the '->' arrow (whose '>' is not an angle bracket).
+            int depth = 1; // we are inside the outer '<'
+            int closeIdx = -1;
+            for (int i = 0; i < inner.Length; i++)
+            {
+                char c = inner[i];
+                if (c == '<')
+                {
+                    depth++;
+                }
+                else if (c == '>')
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        closeIdx = i;
+                        break;
+                    }
+                }
+                else if (c == '-' && i + 1 < inner.Length && inner[i + 1] == '>')
+                {
+                    i++; // the arrow's '>' is not a closing angle bracket
+                }
+                else if (c == '(')
+                {
+                    int pdepth = 1;
+                    i++;
+                    while (i < inner.Length && pdepth > 0)
+                    {
+                        if (inner[i] == '(') pdepth++;
+                        else if (inner[i] == ')') pdepth--;
+                        i++;
+                    }
+                    i--;
+                }
+            }
+            if (closeIdx < 0) return new Named(s);
+
+            var argsPart = inner[..closeIdx];
             var args = new List<TypeDescriptor>();
-            foreach (var a in argsPart.Split(','))
+            foreach (var a in SplitTopLevel(argsPart))
             {
                 var t = a.Trim();
                 if (t.Length > 0) args.Add(Parse(t));
@@ -198,5 +242,35 @@ public abstract class TypeDescriptor
         }
 
         return new Named(s);
+    }
+
+    /// <summary>Splits a string on top-level commas, ignoring commas inside
+    /// parentheses, brackets, or angle brackets.</summary>
+    private static IEnumerable<string> SplitTopLevel(string input)
+    {
+        var parts = new List<string>();
+        var sb = new System.Text.StringBuilder();
+        int paren = 0, bracket = 0, angle = 0;
+
+        foreach (var ch in input)
+        {
+            switch (ch)
+            {
+                case '(': paren++; break;
+                case ')': paren = Math.Max(0, paren - 1); break;
+                case '[': bracket++; break;
+                case ']': bracket = Math.Max(0, bracket - 1); break;
+                case '<': angle++; break;
+                case '>': angle = Math.Max(0, angle - 1); break;
+                case ',' when paren == 0 && bracket == 0 && angle == 0:
+                    parts.Add(sb.ToString());
+                    sb.Clear();
+                    continue;
+            }
+            sb.Append(ch);
+        }
+
+        parts.Add(sb.ToString());
+        return parts;
     }
 }

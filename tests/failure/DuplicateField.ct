@@ -1,0 +1,9 @@
+// Duplicate field name in the same contract.
+Contract Program {
+    x: int;
+    x: string;
+
+    static fn Main() {
+        IO.Println("x");
+    }
+}

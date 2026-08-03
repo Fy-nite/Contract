@@ -1,0 +1,8 @@
+// Unknown field type: 'NonExistent' is not a known type.
+Contract Program {
+    x: NonExistent;
+
+    static fn Main() {
+        IO.Println("x");
+    }
+}

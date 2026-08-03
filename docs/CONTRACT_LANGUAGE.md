@@ -197,6 +197,24 @@ Contract Program {
 }
 ```
 
+Static members of a contract can be called with either `.` or `::` — both
+resolve to the same static function:
+
+```ct
+Contract Utils {
+    static fn triple(x: int) -> int {
+        return x * 3;
+    }
+}
+
+static fn Main() {
+    IO.Println(Utils::triple(5));   // 15 — :: on a user contract
+    IO.Println(Utils.triple(5));    // 15 — dot form
+}
+```
+
+`::` is the same scoped-access operator used for stdlib modules (`IO::Println`).
+
 ### Functions with No Parameters
 
 ```ct
@@ -648,6 +666,63 @@ static fn Main() {
     IO.Println(cl(5));   // 15
 }
 ```
+
+### `Delegate<T>`
+
+A function type can also be wrapped in `Delegate<T>`, which is the runtime's
+delegate class. `Delegate<F>` and the bare function type `F` are interchangeable
+for calling purposes — a `Delegate<T>` value is invoked the same way:
+
+```ct
+fn makeAdd() -> (int, int) -> int {
+    return fun (x: int, y: int) -> {
+        return x + y;
+    };
+}
+
+fn apply(f: Delegate<(int) -> int>, x: int) -> int {
+    return f(x);
+}
+
+static fn Main() {
+    var add: Delegate<(int, int) -> int> = makeAdd();
+    IO.Println(add(3, 4));          // 7
+
+    IO.Println(apply(fun q -> q * 10, 7));  // 70
+}
+```
+
+`Delegate<T>` can be used as a field type:
+
+```ct
+Contract Box {
+    public add: Delegate<(int, int) -> int>;
+
+    constructor() {
+        this.add = Program.makeAdd();
+    }
+}
+```
+
+### Calling a function's returned delegate
+
+A function that returns a lambda/closure can be called, and its returned
+delegate invoked, in one expression — `f()(args)`:
+
+```ct
+fn makeAdd() -> (int, int) -> int {
+    return fun (x: int, y: int) -> {
+        return x + y;
+    };
+}
+
+static fn Main() {
+    IO.Println(makeAdd()(5, 5));   // 10
+}
+```
+
+This also works with capturing closures and with inferred result types
+(`var r = makeAdd()(2, 3);` infers `int`).
 
 ### Pipe Operator (`|>`)
 
