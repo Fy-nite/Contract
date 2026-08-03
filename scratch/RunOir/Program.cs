@@ -1,12 +1,31 @@
 using ObjectRT.Runtime;
 using Contract.Compiler.StandardLibrary.Builtins;
+using ObjectRT.Reader;
+using ObjectRT.VM;
 
 // Minimal end-to-end harness: register the Contract compiler's real stdlib
 // modules as host bindings, load a compiled .oir module, and run its entry.
+// With --dump, print the compiled bytecode of *Program.Main instead of running.
 if (args.Length < 1)
 {
-    Console.Error.WriteLine("Usage: RunOir <file.oir>");
+    Console.Error.WriteLine("Usage: RunOir <file.oir> [--dump]");
     return 1;
+}
+
+if (args.Contains("--dump"))
+{
+    var mod = OilFileReader.ParseFile(args[0]);
+    var compiled = VmCompiler.Compile(mod);
+    if (compiled.IsError) { Console.Error.WriteLine(compiled.Error); return 1; }
+    foreach (var fn in compiled.Value.Functions)
+    {
+        if (!fn.DebugName.EndsWith("Program.Main")) continue;
+        Console.WriteLine($"== {fn.DebugName} (len {fn.Code.Length}) ==");
+        for (int i = 0; i < fn.Code.Length; i++)
+            Console.Write($"{fn.Code[i]:X2} ");
+        Console.WriteLine();
+    }
+    return 0;
 }
 
 var rt = new Runtime();

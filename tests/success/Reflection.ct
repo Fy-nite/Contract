@@ -1,0 +1,51 @@
+// In-language reflection: introspect the loaded module at runtime via the
+// Reflect module, and read/write/call statics by name.
+
+namespace com.demo;
+
+enum Color {
+    Red, Green, Blue
+}
+
+Contract Counter {
+    static count: int;
+    static label: string;
+
+    static fn Bump() {
+        count = count + 1;
+    }
+
+    static fn Get() -> int {
+        return count;
+    }
+
+    static fn Twice(x: int) -> int {
+        return x * 2;
+    }
+}
+
+Contract Program {
+    static fn Main() {
+        // Type enumeration + existence.
+        IO.Println(Reflect.HasType("com.demo.Counter"));   // true
+        IO.Println(Reflect.HasType("Counter"));            // true (short)
+        IO.Println(Reflect.HasType("Nope"));               // false
+
+        // Base type of Color (a class with no base → "").
+        IO.Println(Reflect.Base("Counter"));               // (empty)
+
+        // Method + field listing include inherited members.
+        var methods = Reflect.Methods("Counter");
+        var fields = Reflect.Fields("Counter");
+        IO.Println(Array.Length(methods) >= 3);            // true
+        IO.Println(Array.Length(fields) >= 2);             // true
+
+        // Static field read/write by name.
+        Reflect.SetStatic("Counter", "count", 7);
+        IO.Println(Reflect.GetStatic("Counter", "count")); // 7
+
+        // Invoke a static method by name. (Call takes type, method, args.)
+        IO.Println(Reflect.Call("Counter", "Get", []));        // 7
+        IO.Println(Reflect.Call("Counter", "Twice", [21]));    // 42
+    }
+}

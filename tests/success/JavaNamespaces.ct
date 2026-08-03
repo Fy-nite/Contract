@@ -1,0 +1,48 @@
+// Java-style namespaces: `namespace com.example;` at the top of the file.
+// All declarations below it live in that package (not tied to file path).
+
+namespace com.example;
+
+enum Status {
+    Idle, Busy, Done
+}
+
+Contract Util {
+    static total: int;
+
+    static fn Bump() {
+        total = total + 1;
+    }
+
+    static fn Total() -> int {
+        return total;
+    }
+}
+
+Contract Widget {
+    name: string;
+
+    constructor(n: string) {
+        this.name = n;
+    }
+
+    fn Describe() -> string {
+        return name;
+    }
+}
+
+Contract Program {
+    static fn Main() {
+        // Short names resolve to the current file's namespace.
+        Util.Bump();
+        Util.Bump();
+        IO.Println(Util.Total());       // 2
+
+        IO.Println(Status.Idle);        // 0
+        IO.Println(Status::Done);       // 2
+
+        // new Type(args) across the same namespace.
+        var w = new Widget("wobble");
+        IO.Println(w.Describe());       // wobble
+    }
+}

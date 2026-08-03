@@ -1,0 +1,27 @@
+// new Type(args) — constructor arguments.
+
+Contract Point {
+    x: int;
+    y: int;
+
+    constructor(x: int, y: int) {
+        this.x = x;
+        this.y = y;
+    }
+
+    fn Sum() -> int {
+        return x + y;
+    }
+
+    fn GetX() -> int {
+        return x;
+    }
+}
+
+Contract Program {
+    static fn Main() {
+        var p = new Point(3, 4);
+        IO.Println(p.GetX());   // 3
+        IO.Println(p.Sum());    // 7
+    }
+}

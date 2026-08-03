@@ -71,10 +71,16 @@ public class CompilationService
         {
             merged.Contracts.AddRange(file.Program.Contracts);
             merged.Structs.AddRange(file.Program.Structs);
+            merged.Enums.AddRange(file.Program.Enums);
             merged.Functions.AddRange(file.Program.Functions);
             merged.Imports.AddRange(file.Program.Imports);
             merged.NamespaceImports.AddRange(file.Program.NamespaceImports);
         }
+
+        // Compiled references (.orbt/.oil/.oir) synthesize declarations + retain
+        // their module bodies for linking; dedup happens in Synthesize by name.
+        foreach (var extModule in files.Values.SelectMany(f => f.Program.ExternalModules))
+            Contract.Compiler.CompiledReferenceLoader.Synthesize(extModule, merged);
 
         var analyzer = new SemanticAnalyzer(symbolTable, diagnostics);
         analyzer.Analyze(merged);
@@ -132,6 +138,29 @@ public class ProgramLoader
     {
         string key = TextUtility.NormalizePath(absolutePath);
         if (_files.ContainsKey(key)) return;
+
+        // Compiled module reference (.orbt/.oil/.oir) — parse the module and
+        // record it for static linking + synthetic declarations. Not source text.
+        if (inMemorySource == null && Contract.Compiler.CompiledReferenceLoader.IsCompiledReference(absolutePath))
+        {
+            if (!File.Exists(absolutePath))
+            {
+                _diagnostics.AddError($"Imported module not found: {absolutePath}", 0, 0);
+                return;
+            }
+            try
+            {
+                var module = Contract.Compiler.CompiledReferenceLoader.ParseModule(absolutePath);
+                var prog = new Program(1, 1);
+                prog.ExternalModules.Add(module);
+                _files[key] = new ParsedFile { Path = absolutePath, Source = "", Tokens = new List<Token>(), Program = prog };
+            }
+            catch (Exception ex)
+            {
+                _diagnostics.AddError($"Error loading module {absolutePath}: {ex.Message}", 0, 0);
+            }
+            return;
+        }
 
         string? source = inMemorySource
             ?? _store.GetSourceByPath(absolutePath)

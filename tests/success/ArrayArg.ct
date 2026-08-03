@@ -1,0 +1,10 @@
+// Isolate array-literal call args.
+
+Contract Program {
+    static fn Main() {
+        IO.Println(Array.Length([1, 2, 3]));   // 3
+        var x = [5];
+        IO.Println(Array.Length(x));           // 1
+        IO.Println(x[0]);                      // 5
+    }
+}

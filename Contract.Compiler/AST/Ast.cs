@@ -37,7 +37,16 @@ namespace Contract.Compiler.AST
         public List<string> NamespaceImports { get; } = new();    // namespace imports: ObjektRT.Stdlib.System
         public List<ContractDeclaration> Contracts { get; } = new();
         public List<StructDeclaration> Structs { get; } = new();
+        public List<EnumDeclaration> Enums { get; } = new();
         public List<FunctionDeclaration> Functions { get; } = new();
+
+        /// <summary>
+        /// Compiled modules pulled in via <c>import "lib.orbt";</c> (DLL-style
+        /// references). Their types are synthesized into the declaration lists
+        /// for analysis; the codegen statically links these module bodies into
+        /// the output.
+        /// </summary>
+        public List<ObjektRT.Core.AST.ModuleNode> ExternalModules { get; } = new();
 
         public Program(int line, int column) : base(line, column) { }
     }
@@ -46,6 +55,12 @@ namespace Contract.Compiler.AST
     {
         public string Name { get; }
         public bool IsExported { get; set; }
+        /// <summary>Java-style package, from `namespace com.example;`. Null when undeclared.</summary>
+        public string? Namespace { get; set; }
+        /// <summary>True when this type came from an imported compiled module (statically linked, not re-emitted).</summary>
+        public bool IsExternal { get; set; }
+        /// <summary>Namespace-qualified wire name — <c>com.example.Foo</c> or just <c>Foo</c> when unnamed.</summary>
+        public string FullName => Namespace == null ? Name : $"{Namespace}.{Name}";
         public List<ConstructorDeclaration> Constructors { get; } = new();
         public List<StructField> Fields { get; } = new();
         public List<Node> Members { get; } = new();
@@ -67,6 +82,12 @@ namespace Contract.Compiler.AST
     {
         public string Name { get; }
         public bool IsExported { get; set; }
+        /// <summary>Java-style package, from `namespace com.example;`. Null when undeclared.</summary>
+        public string? Namespace { get; set; }
+        /// <summary>True when this type came from an imported compiled module.</summary>
+        public bool IsExternal { get; set; }
+        /// <summary>Namespace-qualified wire name.</summary>
+        public string FullName => Namespace == null ? Name : $"{Namespace}.{Name}";
         public List<StructField> Fields { get; } = new();
         public List<FunctionDeclaration> Methods { get; } = new();
         public List<AttributeUsage> Attributes { get; } = new();
@@ -77,10 +98,38 @@ namespace Contract.Compiler.AST
         }
     }
 
+    /// <summary>
+    /// An enum declaration: <c>enum Color { Red, Green, Blue }</c>. Members are
+    /// named constants that fold to their zero-based index at compile time
+    /// (<c>Color.Red</c> emits <c>ldc.i4 0</c>); the type itself is emitted to
+    /// the IR for type checking and reflection.
+    /// </summary>
+    public class EnumDeclaration : Node
+    {
+        public string Name { get; }
+        public List<string> Members { get; } = new();
+        public bool IsExported { get; set; }
+        /// <summary>Java-style package, from `namespace com.example;`. Null when undeclared.</summary>
+        public string? Namespace { get; set; }
+        /// <summary>True when this type came from an imported compiled module.</summary>
+        public bool IsExternal { get; set; }
+        /// <summary>Namespace-qualified wire name.</summary>
+        public string FullName => Namespace == null ? Name : $"{Namespace}.{Name}";
+        public List<AttributeUsage> Attributes { get; } = new();
+
+        public EnumDeclaration(string name, int line, int column) : base(line, column)
+        {
+            Name = name;
+        }
+    }
+
     public class StructField : Node
     {
         public string Name { get; }
         public TypeDescriptor Type { get; }
+
+        /// <summary>True for <c>static name: type;</c> declarations — shared state on the contract.</summary>
+        public bool IsStatic { get; set; }
 
         public StructField(string name, TypeDescriptor type, int line, int column) : base(line, column)
         {
@@ -387,7 +436,9 @@ namespace Contract.Compiler.AST
     public class NewExpression : Expression
     {
         public string TypeName { get; }
-        public Expression? Size { get; }
+        public Expression? Size { get; set; }
+        /// <summary>Constructor arguments — non-null for `new Type(args)`.</summary>
+        public List<Expression> Arguments { get; } = new();
 
         public NewExpression(string typeName, int line, int column, Expression? size = null) : base(line, column)
         {
