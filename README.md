@@ -52,11 +52,14 @@ ContractIR/
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/ContractIR.git
-cd ContractIR
+git clone https://github.com/fy-nite/contract
+cd contract
 
 # Build the solution
 dotnet build
+
+# optionally installing this, just run
+./install.ps1
 ```
 
 ### Running
