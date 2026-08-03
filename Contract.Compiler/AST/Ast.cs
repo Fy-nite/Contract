@@ -15,6 +15,22 @@ namespace Contract.Compiler.AST
         }
     }
 
+    /// <summary>
+    /// An attribute application: <code>&lt;Name(arg1, arg2)&gt;</code>.
+    /// Arguments are kept as raw source text (strings retain their quotes),
+    /// matching how the IR stores attribute arguments in its string pool.
+    /// </summary>
+    public class AttributeUsage : Node
+    {
+        public string Name { get; }
+        public List<string> Arguments { get; } = new();
+
+        public AttributeUsage(string name, int line, int column) : base(line, column)
+        {
+            Name = name;
+        }
+    }
+
     public class Program : Node
     {
         public List<string> Imports { get; } = new();             // file imports: "path/to/file.ct"
@@ -33,6 +49,13 @@ namespace Contract.Compiler.AST
         public List<ConstructorDeclaration> Constructors { get; } = new();
         public List<StructField> Fields { get; } = new();
         public List<Node> Members { get; } = new();
+        public List<AttributeUsage> Attributes { get; } = new();
+
+        /// <summary>Single-inheritance base type name (C#-style), or null.</summary>
+        public string? BaseTypeName { get; set; }
+
+        /// <summary>True when this contract (transitively) inherits from the built-in Attribute type. Set by the analyzer.</summary>
+        public bool IsAttributeType { get; set; }
 
         public ContractDeclaration(string name, int line, int column) : base(line, column)
         {
@@ -46,6 +69,7 @@ namespace Contract.Compiler.AST
         public bool IsExported { get; set; }
         public List<StructField> Fields { get; } = new();
         public List<FunctionDeclaration> Methods { get; } = new();
+        public List<AttributeUsage> Attributes { get; } = new();
 
         public StructDeclaration(string name, int line, int column) : base(line, column)
         {
@@ -78,6 +102,7 @@ namespace Contract.Compiler.AST
     {
         public List<Parameter> Parameters { get; } = new();
         public BlockStatement? Body { get; set; }
+        public List<AttributeUsage> Attributes { get; } = new();
 
         public ConstructorDeclaration(int line, int column) : base(line, column) { }
     }
@@ -93,6 +118,7 @@ namespace Contract.Compiler.AST
         public bool IsInstance { get; set; }
         public AccessModifier Access { get; set; } = AccessModifier.Default;
         public TypeDescriptor? ReturnType { get; set; }
+        public List<AttributeUsage> Attributes { get; } = new();
 
         public FunctionDeclaration(string name, int line, int column) : base(line, column)
         {

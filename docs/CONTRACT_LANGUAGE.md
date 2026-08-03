@@ -70,6 +70,93 @@ Contract Math {
 }
 ```
 
+### Inheritance
+
+A contract can declare a single base type (C#-style). The base type must be a
+contract declared in the same program, or the built-in `Attribute` type.
+
+```ct
+Contract Animal {
+    name: string;
+}
+
+Contract Dog : Animal {
+    breed: string;
+}
+```
+
+The base type is recorded in the IR as declarative metadata
+(`class Dog : Animal`), and the runtime stores it as the type's base index when
+the base is declared in the same module. Virtual dispatch through base types is
+not implemented yet.
+
+## Attributes
+
+Contract supports C#-style custom attributes. Attribute *types* are contracts
+that inherit from the built-in `Attribute` base; attribute *applications* use
+angle-bracket syntax before a declaration.
+
+### Declaring an attribute type
+
+```ct
+Contract Author : Attribute {
+    constructor(name: string) {
+    }
+}
+
+Contract Deprecated : Attribute {
+    constructor(msg: string) {
+    }
+}
+```
+
+- An attribute type is any contract whose base chain reaches `Attribute`
+  (directly or transitively, so `Contract X : Author` is also an attribute type).
+- Constructor parameters define the positional arguments the attribute accepts.
+  Applications are validated against the declared arity: an attribute with a
+  constructor taking one argument must be applied with exactly one argument.
+  An attribute type with no constructor accepts any number of arguments.
+
+### Applying attributes
+
+Attributes are written as `<Name(arg1, arg2)>` on the line(s) directly before a
+contract, struct, function, or constructor:
+
+```ct
+<Author("bob")>
+Contract Greeter {
+    greeting: string;
+
+    <Author("alice")>
+    constructor() {
+        this.greeting = "hello";
+    }
+
+    <Deprecated("use the new API")>
+    fn hello() -> string {
+        return "hello";
+    }
+}
+
+<Serializable>
+struct Point {
+    x: int;
+    y: int;
+}
+```
+
+Arguments are string, integer, float, or boolean literals (strings keep their
+quotes). Attribute applications on fields are not supported yet.
+
+### How attributes compile
+
+Attributes are emitted as annotations on the IR type/method declarations
+(`@Author("bob")` before `class Greeter`, `@Deprecated("use the new API")`
+before the method) and round-trip through the ORBT binary format. Attribute
+types are marked with the built-in `@Attribute` annotation. This mirrors the
+runtime's existing `@DllImport` / `@NativeBinding` metadata mechanism, so
+host-side reflection and bindings can consume custom attributes the same way.
+
 ## Functions
 
 ### Basic Function
@@ -520,6 +607,46 @@ var value: int = add(5, 3);
 let inc: Int = fun x -> x + 1;
 let double: Int = fun x -> x * 2;
 let add: Int = fun x y -> x + y;   // multiple parameters
+```
+
+### Function Types
+
+A function type is written `(T1, T2) -> R`. Parameter names may be included
+(`(a: int, b: int) -> R`) — they are documentation only and describe the same
+type as the unnamed form. Function types are structural: a lambda whose
+parameter count/types and return type match is assignable.
+
+Functions can return lambdas/closures, and lambdas can be passed as arguments:
+
+```ct
+fn makeAdder() -> (x:int) -> int {
+    return fun a -> a + 1;
+}
+
+fn apply(f: (v:int) -> int, n: int) -> int {
+    return f(n);
+}
+
+static fn Main() {
+    var add: (x:int) -> int = makeAdder();
+    IO.Println(add(5));          // 6
+
+    IO.Println(apply(fun q -> q * 10, 7));  // 70
+}
+```
+
+Capturing closures work the same way — the returned delegate carries its
+closure, so calling the value invokes the captured state:
+
+```ct
+fn makeClosure(base: int) -> (n:int) -> int {
+    return fun v -> v + base;
+}
+
+static fn Main() {
+    var cl: (n:int) -> int = makeClosure(10);
+    IO.Println(cl(5));   // 15
+}
 ```
 
 ### Pipe Operator (`|>`)

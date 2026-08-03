@@ -1,0 +1,83 @@
+module Author version 1.0.0
+
+@Attribute
+class Author : Attribute {
+    constructor(this: object, name: string) {
+        // #line 8:5 "}"
+        ret
+    }
+}
+
+@Attribute
+class Deprecated : Attribute {
+    constructor(this: object, msg: string) {
+        // #line 13:5 "}"
+        ret
+    }
+}
+
+@Attribute
+class Serializable : Attribute {
+}
+
+@Author("bob")
+class Greeter {
+    public field greeting: string
+
+    constructor(this: object) {
+        // #line 25:9 "this.greeting = "hello";"
+        ldarg 0
+        // #line 25:9 "this.greeting = "hello";"
+        dup
+        // #line 25:25 "this.greeting = "hello";"
+        ldstr "hello"
+        // #line 25:25 "this.greeting = "hello";"
+        stfld Greeter::greeting
+        // #line 25:25 "this.greeting = "hello";"
+        pop
+        // #line 25:25 "this.greeting = "hello";"
+        ret
+    }
+
+    @Deprecated("use the new API")
+    method hello(this: object) -> string {
+        // #line 30:16 "return "hello";"
+        ldstr "hello"
+        // #line 30:16 "return "hello";"
+        ret
+    }
+
+    static method Main() -> void {
+        local g: Greeter
+
+        // #line 34:26 "var g: Greeter = new Greeter();"
+        newobj Greeter.constructor()
+        // #line 34:26 "var g: Greeter = new Greeter();"
+        stloc g
+        // #line 35:20 "IO.Println(g.hello());"
+        ldloc g
+        // #line 35:20 "IO.Println(g.hello());"
+        call Greeter.hello() -> string
+        // #line 35:20 "IO.Println(g.hello());"
+        call IO.Println(object) -> void
+        // #line 35:20 "IO.Println(g.hello());"
+        pop
+        // #line 35:20 "IO.Println(g.hello());"
+        ret
+    }
+}
+
+@Attribute
+class Author2 : Author {
+    constructor(this: object, name: string) {
+        // #line 48:5 "}"
+        ret
+    }
+}
+
+@Serializable
+struct Point {
+    field x: int32
+    field y: int32
+}
+

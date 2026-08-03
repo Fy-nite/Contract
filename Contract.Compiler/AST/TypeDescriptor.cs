@@ -150,7 +150,7 @@ public abstract class TypeDescriptor
         s = s.Trim();
         if (s.Length == 0) return Empty;
 
-        // Function type: "(T, U) -> R"
+        // Function type: "(T, U) -> R" (or with named params "(a: T, b: U) -> R").
         if (s[0] == '(')
         {
             int close = s.IndexOf(')');
@@ -162,8 +162,15 @@ public abstract class TypeDescriptor
                 var parameters = new List<TypeDescriptor>();
                 if (!string.IsNullOrWhiteSpace(paramPart))
                 {
-                    foreach (var p in paramPart.Split(','))
+                    foreach (var raw in paramPart.Split(','))
+                    {
+                        var p = raw.Trim();
+                        // Named parameter: "name: Type" — keep only the type.
+                        int colon = p.IndexOf(':');
+                        if (colon > 0)
+                            p = p[(colon + 1)..].Trim();
                         parameters.Add(Parse(p));
+                    }
                 }
                 return new Function(parameters, Parse(returnPart));
             }

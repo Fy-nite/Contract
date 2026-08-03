@@ -1,0 +1,58 @@
+// Custom attributes, C#-style: attribute types inherit from the built-in
+// Attribute base, and applications use <Name(args)> before declarations.
+//
+// <Author("bob")>                 ← type-level attribute
+Contract Author : Attribute {
+    constructor(name: string) {
+    }
+}
+
+// Multi-arg attribute, inherited transitively from Attribute.
+Contract Version : Author {
+    constructor(major: int, minor: int) {
+    }
+}
+
+// Parameterless attribute type (no constructor => any arity allowed).
+Contract Serializable : Attribute {
+}
+
+// String-arg attribute used on methods and functions.
+Contract Deprecated : Attribute {
+    constructor(msg: string) {
+    }
+}
+
+// Attribute applications on contracts, structs, functions, constructors.
+<Version(1, 0)>
+Contract Greeter {
+    greeting: string;
+
+    <Author("alice")>
+    constructor() {
+        this.greeting = "hello";
+    }
+
+    <Deprecated("use hello2")>
+    fn hello() -> string {
+        return this.greeting;
+    }
+
+    static fn Main() {
+        var g: Greeter = new Greeter();
+        IO.Println(g.hello());
+    }
+}
+
+// Attributes on a struct.
+<Serializable>
+struct Point {
+    x: int;
+    y: int;
+}
+
+// Attributes on top-level functions.
+<Deprecated("legacy")>
+fn oldHelper() -> int {
+    return 0;
+}

@@ -88,6 +88,10 @@ public class IRCodeGenerator
         foreach (var structDecl in program.Structs)
         {
             var structBuilder = _builder.Struct(structDecl.Name);
+            foreach (var attr in structDecl.Attributes)
+            {
+                structBuilder.Attribute(attr.Name, attr.Arguments.ToArray());
+            }
             foreach (var field in structDecl.Fields)
             {
                 structBuilder.Field(field.Name, MapType(field.Type));
@@ -98,6 +102,22 @@ public class IRCodeGenerator
         foreach (var cls in program.Contracts)
         {
             var classBuilder = _builder.Class(cls.Name);
+
+            // Type-level attributes; attribute types are additionally marked
+            // with the built-in @Attribute annotation so the runtime/host can
+            // recognise them without resolving the external base.
+            foreach (var attr in cls.Attributes)
+            {
+                classBuilder.Attribute(attr.Name, attr.Arguments.ToArray());
+            }
+            if (cls.IsAttributeType)
+            {
+                classBuilder.Attribute("Attribute");
+            }
+            if (cls.BaseTypeName != null)
+            {
+                classBuilder.Extends(cls.BaseTypeName);
+            }
 
             // Instance fields: emitted as class fields.
             foreach (var field in cls.Fields)
@@ -117,6 +137,10 @@ public class IRCodeGenerator
                 else if (member is StructDeclaration structDecl)
                 {
                     var structBuilder = _builder.Struct(structDecl.Name);
+                    foreach (var attr in structDecl.Attributes)
+                    {
+                        structBuilder.Attribute(attr.Name, attr.Arguments.ToArray());
+                    }
                     foreach (var field in structDecl.Fields)
                     {
                         structBuilder.Field(field.Name, MapType(field.Type));
@@ -181,7 +205,12 @@ public class IRCodeGenerator
             ? MapType(func.ReturnType)
             : func.Name == "Main" ? TypeRef.Void : TypeRef.Int32;
         var mb = cb.Method(func.Name, returnType);
-        
+
+        foreach (var attr in func.Attributes)
+        {
+            mb.Attribute(attr.Name, attr.Arguments.ToArray());
+        }
+
         if (func.IsStatic) mb.Static();
         
         mb.Access(func.Access switch {
@@ -289,6 +318,12 @@ public class IRCodeGenerator
         _currentContractName = contractName;
 
         var mb = cb.Constructor();
+
+        foreach (var attr in ctor.Attributes)
+        {
+            mb.Attribute(attr.Name, attr.Arguments.ToArray());
+        }
+
         mb.Parameter("this", new TypeRef("object"));
         _variableTypes["this"] = new TypeDescriptor.Named("object");
 

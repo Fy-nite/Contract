@@ -1,0 +1,12 @@
+// Inheritance cycle: A : B and B : A cannot both hold.
+Contract A : B {
+}
+
+Contract B : A {
+}
+
+Contract Program {
+    static fn Main() {
+        IO.Println("x");
+    }
+}

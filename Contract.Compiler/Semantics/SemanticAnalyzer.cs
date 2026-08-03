@@ -82,6 +82,10 @@ namespace Contract.Compiler.Semantics
                     _functionReturnTypes[func.Name] = func.ReturnType;
             }
 
+            // Validate inheritance (base types, cycles) and mark attribute types,
+            // then validate every attribute application against those types.
+            ValidateInheritanceAndAttributes(program);
+
             // Second pass: detailed analysis
             foreach (var contract in program.Contracts)
             {
@@ -106,6 +110,111 @@ namespace Contract.Compiler.Semantics
                 if (member is FunctionDeclaration func)
                 {
                     AnalyzeFunction(func);
+                }
+            }
+        }
+
+        // ── Attributes & inheritance ───────────────────────────────────
+
+        /// <summary>
+        /// Validates base types and inheritance cycles across all contracts,
+        /// marks contracts that (transitively) inherit from the built-in
+        /// <c>Attribute</c> type, then validates every attribute application.
+        /// </summary>
+        private void ValidateInheritanceAndAttributes(Program program)
+        {
+            var byName = program.Contracts.ToDictionary(c => c.Name, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var contract in program.Contracts)
+            {
+                var chain = new List<ContractDeclaration>();
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var current = contract;
+                bool reachesAttribute = false;
+
+                while (current.BaseTypeName != null)
+                {
+                    if (!seen.Add(current.Name))
+                    {
+                        _diagnostics.AddError($"Inheritance cycle involving contract '{current.Name}'", current.Line, current.Column);
+                        break;
+                    }
+
+                    chain.Add(current);
+                    var baseName = current.BaseTypeName;
+
+                    if (baseName.Equals("Attribute", StringComparison.OrdinalIgnoreCase))
+                    {
+                        reachesAttribute = true;
+                        break;
+                    }
+
+                    if (!byName.TryGetValue(baseName, out var baseContract))
+                    {
+                        if (!_typeRegistry.IsValidType(baseName))
+                        {
+                            _diagnostics.AddError($"Unknown base type '{baseName}' for contract '{current.Name}'", current.Line, current.Column);
+                        }
+                        break;
+                    }
+
+                    current = baseContract;
+                }
+
+                if (reachesAttribute)
+                {
+                    contract.IsAttributeType = true;
+                    foreach (var c in chain)
+                        c.IsAttributeType = true;
+                }
+            }
+
+            foreach (var contract in program.Contracts)
+            {
+                ValidateAttributes(contract.Attributes, "contract", byName);
+                foreach (var ctor in contract.Constructors)
+                    ValidateAttributes(ctor.Attributes, "constructor", byName);
+                foreach (var member in contract.Members)
+                {
+                    if (member is FunctionDeclaration func)
+                        ValidateAttributes(func.Attributes, "function", byName);
+                    else if (member is StructDeclaration structDecl)
+                        ValidateAttributes(structDecl.Attributes, "struct", byName);
+                }
+            }
+
+            foreach (var structDecl in program.Structs)
+                ValidateAttributes(structDecl.Attributes, "struct", byName);
+
+            foreach (var func in program.Functions)
+                ValidateAttributes(func.Attributes, "function", byName);
+        }
+
+        private void ValidateAttributes(List<AttributeUsage> attributes, string targetKind, Dictionary<string, ContractDeclaration> contractsByName)
+        {
+            foreach (var attr in attributes)
+            {
+                if (!contractsByName.TryGetValue(attr.Name, out var attrContract))
+                {
+                    _diagnostics.AddError($"Unknown attribute '{attr.Name}'", attr.Line, attr.Column);
+                    continue;
+                }
+
+                if (!attrContract.IsAttributeType)
+                {
+                    _diagnostics.AddError($"'{attr.Name}' is not an attribute type — it must inherit from Attribute", attr.Line, attr.Column);
+                    continue;
+                }
+
+                // Argument count must match one of the attribute type's constructors.
+                if (attrContract.Constructors.Count > 0)
+                {
+                    bool matches = attrContract.Constructors.Any(c => c.Parameters.Count == attr.Arguments.Count);
+                    if (!matches)
+                    {
+                        var expected = string.Join(" or ", attrContract.Constructors.Select(c => c.Parameters.Count.ToString()));
+                        _diagnostics.AddError($"Attribute '{attr.Name}' expects {expected} argument(s), got {attr.Arguments.Count}", attr.Line, attr.Column);
+                    }
                 }
             }
         }

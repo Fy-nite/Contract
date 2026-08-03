@@ -1,0 +1,36 @@
+// Function types with named and unnamed parameters, lambdas returned from
+// functions, and closures passed as arguments.
+Contract Program {
+    fn makeAdder() -> (x:int) -> int {
+        return fun a -> a + 1;
+    }
+
+    fn addPair() -> (a:int, b:int) -> int {
+        return fun x y -> x + y;
+    }
+
+    fn apply(f: (v:int) -> int, n: int) -> int {
+        return f(n);
+    }
+
+    fn makeClosure(base: int) -> (n:int) -> int {
+        return fun v -> v + base;
+    }
+
+    static fn Main() {
+        var add: (x:int) -> int = makeAdder();
+        IO.Println(add(5));
+
+        var pair: (a:int, b:int) -> int = addPair();
+        IO.Println(pair(3, 4));
+
+        IO.Println(apply(fun q -> q * 10, 7));
+
+        var cl: (n:int) -> int = makeClosure(10);
+        IO.Println(cl(5));
+
+        // Unnamed form still works and is structurally the same type.
+        var add2: (int) -> int = makeAdder();
+        IO.Println(add2(6));
+    }
+}

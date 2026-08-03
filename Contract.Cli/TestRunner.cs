@@ -3,6 +3,9 @@ using System.IO;
 using System.Linq;
 using Contract.Compiler.Parsing;
 using Contract.Compiler.Diagnostics;
+using Contract.Compiler.Semantics;
+using Contract.Compiler.StandardLibrary;
+using Contract.Compiler.StandardLibrary.Builtins;
 
 namespace Contract.Cli
 {
@@ -48,7 +51,19 @@ namespace Contract.Cli
 
             try
             {
-                parser.Parse();
+                var program = parser.Parse();
+
+                // Semantic analysis, mirroring the full compile pipeline, so
+                // failure tests can cover analyzer errors (unknown attribute,
+                // inheritance cycles, ...).
+                if (!diagnostics.HasErrors)
+                {
+                    var symbolTable = new SymbolTable();
+                    symbolTable.RegisterAssembly(typeof(IO).Assembly);
+                    StdlibCatalog.RegisterInto(symbolTable);
+                    var analyzer = new SemanticAnalyzer(symbolTable, diagnostics);
+                    analyzer.Analyze(program);
+                }
             }
             catch (Exception ex)
             {

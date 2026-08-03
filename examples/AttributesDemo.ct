@@ -1,0 +1,49 @@
+// Custom attributes + inheritance demo.
+//
+// Compile:  dotnet run --project Contract.Cli -- examples/AttributesDemo.ct -c -f oil -o examples/AttributesDemo.oil
+// Run:      dotnet run --project Contract.Cli -- run examples/AttributesDemo.oil
+
+Contract Author : Attribute {
+    constructor(name: string) {
+    }
+}
+
+Contract Deprecated : Attribute {
+    constructor(msg: string) {
+    }
+}
+
+// Parameterless attribute (no constructor => any arity allowed).
+Contract Serializable : Attribute {
+}
+
+<Author("bob")>
+Contract Greeter {
+    greeting: string;
+
+    constructor() {
+        this.greeting = "hello";
+    }
+
+    <Deprecated("use the new API")>
+    fn hello() -> string {
+        return "hello";
+    }
+
+    static fn Main() {
+        var g: Greeter = new Greeter();
+        IO.Println(g.hello());
+    }
+}
+
+<Serializable>
+struct Point {
+    x: int;
+    y: int;
+}
+
+// Inherited attribute type (transitively an attribute).
+Contract Author2 : Author {
+    constructor(name: string) {
+    }
+}

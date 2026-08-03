@@ -1,0 +1,35 @@
+// Single-inheritance base types on contracts (C#-style).
+// The base type is recorded in the IR as declarative metadata; the runtime
+// stores BaseTypeIndex when the base is declared in the same module.
+
+Contract Animal {
+    name: string;
+
+    constructor(n: string) {
+        this.name = n;
+    }
+
+    fn speak() -> string {
+        return "..." ;
+    }
+}
+
+Contract Dog : Animal {
+    breed: string;
+
+    constructor() {
+        this.breed = "lab";
+    }
+
+    fn speak() -> string {
+        return "woof";
+    }
+}
+
+Contract Program {
+    static fn Main() {
+        var d: Dog = new Dog();
+        IO.Println(d.breed);
+        IO.Println(d.speak());
+    }
+}

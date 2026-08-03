@@ -9,7 +9,9 @@ namespace Contract.Compiler.Semantics
     {
         private readonly HashSet<string> _types = new(StringComparer.OrdinalIgnoreCase)
         {
-            "int", "string", "bool", "double", "float", "object", "int64", "long", "null", "void"
+            "int", "string", "bool", "double", "float", "object", "int64", "long", "null", "void",
+            // Built-in base type for attribute declarations (C#-style custom attributes).
+            "Attribute"
         };
 
         // Generic type names (type-erased: the runtime sees the unbound name).

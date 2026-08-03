@@ -35,6 +35,8 @@ namespace Contract.Compiler.Parsing
                 {
                     int startPos = _current;
 
+                    var attributes = ParseAttributes();
+
                     bool isExported = Match(TokenType.Export);
                     AccessModifier access = AccessModifier.Default;
                     if (Match(TokenType.Public)) access = AccessModifier.Public;
@@ -70,12 +72,14 @@ namespace Contract.Compiler.Parsing
                     {
                         var contract = ParseContract();
                         contract.IsExported = isExported;
+                        contract.Attributes.AddRange(attributes);
                         program.Contracts.Add(contract);
                     }
                     else if (Match(TokenType.Struct))
                     {
                         var structDecl = ParseStruct();
                         structDecl.IsExported = isExported;
+                        structDecl.Attributes.AddRange(attributes);
                         program.Structs.Add(structDecl);
                     }
                     else if (Match(TokenType.Fn))
@@ -84,7 +88,13 @@ namespace Contract.Compiler.Parsing
                         func.IsExported = isExported;
                         func.IsStatic = isStatic;
                         func.Access = access;
+                        func.Attributes.AddRange(attributes);
                         program.Functions.Add(func);
+                    }
+                    else if (attributes.Count > 0)
+                    {
+                        AddError("Attributes must be applied to a contract, struct, or function", attributes[0].Line, attributes[0].Column);
+                        Synchronize();
                     }
                     else
                     {
@@ -105,6 +115,63 @@ namespace Contract.Compiler.Parsing
             }
 
             return program;
+        }
+
+        /// <summary>
+        /// Parses zero or more attribute applications: <c>&lt;Name(arg1, arg2)&gt;</c>.
+        /// Arguments are string / numeric / bool literals or bare identifiers; each is
+        /// kept as raw source text (strings retain their quotes, matching the IR's
+        /// string-pool convention for annotation arguments).
+        /// </summary>
+        private List<AttributeUsage> ParseAttributes()
+        {
+            var attributes = new List<AttributeUsage>();
+            while (Match(TokenType.Less))
+            {
+                int line = Previous.Line;
+                int column = Previous.Column;
+
+                Consume(TokenType.Identifier, "Expected attribute name after '<'");
+                var usage = new AttributeUsage(Previous.Text, line, column);
+
+                if (Match(TokenType.LParen))
+                {
+                    if (!Check(TokenType.RParen))
+                    {
+                        do
+                        {
+                            if (Match(TokenType.StringLiteral))
+                            {
+                                // Keep quotes: the IR stores annotation args with quotes.
+                                usage.Arguments.Add(Previous.Text);
+                            }
+                            else if (Match(TokenType.IntLiteral) || Match(TokenType.FloatLiteral) ||
+                                     Match(TokenType.True) || Match(TokenType.False) ||
+                                     Match(TokenType.Identifier))
+                            {
+                                usage.Arguments.Add(Previous.Text);
+                            }
+                            else if (Match(TokenType.Minus))
+                            {
+                                if (Match(TokenType.IntLiteral) || Match(TokenType.FloatLiteral))
+                                    usage.Arguments.Add("-" + Previous.Text);
+                                else
+                                    AddError("Expected number after '-' in attribute argument", Current.Line, Current.Column);
+                            }
+                            else
+                            {
+                                AddError($"Unexpected token in attribute arguments: {Current.Type}", Current.Line, Current.Column);
+                                break;
+                            }
+                        } while (Match(TokenType.Comma));
+                    }
+                    Consume(TokenType.RParen, "Expected ')' after attribute arguments");
+                }
+
+                Consume(TokenType.Greater, "Expected '>' to close attribute");
+                attributes.Add(usage);
+            }
+            return attributes;
         }
 
         private StructDeclaration ParseStruct()
@@ -156,14 +223,25 @@ namespace Contract.Compiler.Parsing
             Consume(TokenType.Identifier, "Expected contract name");
             string name = Previous.Text;
 
+            // Optional single-inheritance base: contract Foo : Base { ... }
+            string? contractBaseType = null;
+            if (Match(TokenType.Colon))
+            {
+                Consume(TokenType.Identifier, "Expected base type name after ':'");
+                contractBaseType = Previous.Text;
+            }
+
             Consume(TokenType.LBrace, "Expected '{' after contract name");
 
             var contract = new ContractDeclaration(name, line, column);
+            contract.BaseTypeName = contractBaseType;
 
             while (!Check(TokenType.RBrace) && !IsAtEnd())
             {
                 int startPos = _current;
-                
+
+                var memberAttributes = ParseAttributes();
+
                 AccessModifier access = AccessModifier.Default;
                 if (Match(TokenType.Public)) access = AccessModifier.Public;
                 else if (Match(TokenType.Private)) access = AccessModifier.Private;
@@ -174,16 +252,20 @@ namespace Contract.Compiler.Parsing
 
                 if (Match(TokenType.Constructor))
                 {
-                    contract.Constructors.Add(ParseConstructor());
+                    var ctor = ParseConstructor();
+                    ctor.Attributes.AddRange(memberAttributes);
+                    contract.Constructors.Add(ctor);
                 }
                 else if (Match(TokenType.Struct))
                 {
                     var structDecl = ParseStruct();
+                    structDecl.Attributes.AddRange(memberAttributes);
                     contract.Members.Add(structDecl);
                 }
                 else if (Match(TokenType.Fn))
                 {
                     var function = ParseFunction();
+                    function.Attributes.AddRange(memberAttributes);
                     function.ContractName = name;
                     function.IsStatic = isStatic;
                     function.Access = access;
@@ -191,6 +273,10 @@ namespace Contract.Compiler.Parsing
                 }
                 else if (Match(TokenType.Identifier))
                 {
+                    if (memberAttributes.Count > 0)
+                    {
+                        AddError("Attributes on fields are not supported yet", memberAttributes[0].Line, memberAttributes[0].Column);
+                    }
                     // A field declaration: name: type;
                     string fieldName = Previous.Text;
                     Consume(TokenType.Colon, "Expected ':' after field name");
@@ -200,7 +286,14 @@ namespace Contract.Compiler.Parsing
                 }
                 else
                 {
-                    AddError($"Unexpected token in contract: {Current.Type}", Current.Line, Current.Column);
+                    if (memberAttributes.Count > 0)
+                    {
+                        AddError("Attributes must be applied to a constructor, struct, or function", memberAttributes[0].Line, memberAttributes[0].Column);
+                    }
+                    else
+                    {
+                        AddError($"Unexpected token in contract: {Current.Type}", Current.Line, Current.Column);
+                    }
                     Advance();
                 }
 
@@ -314,7 +407,7 @@ namespace Contract.Compiler.Parsing
 
         private string ParseType()
         {
-            // Function type: (T1, T2) -> R
+            // Function type: (T1, T2) -> R, or with named params: (a: T1, b: T2) -> R
             if (Match(TokenType.LParen))
             {
                 var paramTypes = new List<string>();
@@ -322,6 +415,13 @@ namespace Contract.Compiler.Parsing
                 {
                     do
                     {
+                        // Named parameter: "name: Type" — keep only the type.
+                        // (Bare "T" and "name: T" both describe the same wire type.)
+                        if (Check(TokenType.Identifier) && CheckNext(TokenType.Colon))
+                        {
+                            Advance(); // parameter name
+                            Advance(); // ':'
+                        }
                         paramTypes.Add(ParseType());
                     } while (Match(TokenType.Comma));
                 }
@@ -1069,6 +1169,13 @@ namespace Contract.Compiler.Parsing
         {
             if (IsAtEnd()) return false;
             return Current.Type == type;
+        }
+
+        /// <summary>True when the token AFTER the current one has the given type.</summary>
+        private bool CheckNext(TokenType type)
+        {
+            if (IsAtEnd() || _current + 1 >= _tokens.Count) return false;
+            return _tokens[_current + 1].Type == type;
         }
 
         private Token Advance()

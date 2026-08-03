@@ -1,0 +1,7 @@
+// Unknown attribute: <Nope(1)> references a type that does not exist.
+<Nope(1)>
+Contract Program {
+    static fn Main() {
+        IO.Println("x");
+    }
+}
