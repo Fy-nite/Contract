@@ -26,6 +26,10 @@ public class IRCodeGenerator
     private Dictionary<string, LambdaInfo> _lambdaVariableMap = new();
     private readonly Dictionary<string, LambdaInfo> _lambdaInfos = new();
     private Program? _program;
+    // Type-name resolution: fully-qualified wire names plus a short-name → full-name
+    // index for namespace-qualified lookups.
+    private readonly HashSet<string> _qualifiedTypeNames = new();
+    private readonly Dictionary<string, List<string>> _shortToFull = new();
     // Enclosing loop continue-emitters: when a 'continue' runs, it must leave the
     // next condition on the stack (for-loops also run their update first).
     private readonly Stack<Action<InstructionBuilder>> _loopContinueEmitters = new();
@@ -57,11 +61,9 @@ public class IRCodeGenerator
     // (used for field access like `x = ...` or `this.x`).
     private int? _thisArgIndex;
     private string? _currentContractName;
-
-    // Namespace resolution: every type's fully-qualified wire name, plus a
-    // short-name → candidates map. Built once per Generate().
-    private readonly HashSet<string> _qualifiedTypeNames = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, List<string>> _shortToFull = new(StringComparer.Ordinal);
+    // Contract name → host module name for <NativeBinding("Module")> contracts.
+    // Call sites and 'new' rewrite to the host module.
+    private readonly Dictionary<string, string> _nativeBindings = new(StringComparer.OrdinalIgnoreCase);
 
     private const string DelegateClassName = "Delegate";
     private const string DelegateTargetField = "target";
@@ -174,8 +176,10 @@ public class IRCodeGenerator
 
         foreach (var cls in program.Contracts)
         {
-            if (cls.IsExternal) continue;   // statically linked below
-            var classBuilder = _builder.Class(cls.FullName);
+            if (cls.NativeBindingName != null)
+                _nativeBindings[cls.Name] = cls.NativeBindingName;
+
+            var classBuilder = _builder.Class(cls.Name);
 
             // Type-level attributes; attribute types are additionally marked
             // with the built-in @Attribute annotation so the runtime/host can
@@ -209,7 +213,12 @@ public class IRCodeGenerator
             foreach (var member in cls.Members)
             {
                 if (member is FunctionDeclaration func)
-                    GenerateFunction(classBuilder, func);
+                {
+                    // Native-bound methods are declarations only: their call
+                    // sites dispatch to the host module, nothing is emitted here.
+                    if (cls.NativeBindingName == null)
+                        GenerateFunction(classBuilder, func);
+                }
                 else if (member is StructDeclaration structDecl)
                 {
                     var structBuilder = _builder.Struct(structDecl.FullName);
@@ -1592,7 +1601,19 @@ public class IRCodeGenerator
                         ? MapType(instanceFunc.ReturnType)
                         : TypeRef.Int32;
                     var paramTypes = instanceFunc.Parameters.Select(p => MapType(p.Type)).ToList();
-                    ib.Call(new MethodReference(new TypeRef(ResolveTypeName(instanceFunc.ContractName ?? "TODO")), instanceFunc.Name, returnType, paramTypes));
+                    // Native-bound contracts dispatch to the host module with the
+                    // receiver (an external object handle) as argument 0.
+                    string instanceTarget = _nativeBindings.TryGetValue(instanceFunc.ContractName ?? "", out var instBinding)
+                        ? instBinding
+                        : instanceFunc.ContractName ?? "TODO";
+                    if (instanceTarget != instanceFunc.ContractName)
+                    {
+                        // The VM pops args in reverse, so the receiver (pushed
+                        // last) lands at the END of the native call's argument
+                        // list. Append its type so the call's argc includes it.
+                        paramTypes.Add(TypeRef.Object);
+                    }
+                    ib.Call(new MethodReference(new TypeRef(instanceTarget), instanceFunc.Name, returnType, paramTypes));
                 }
                 else if (call.Symbol is FunctionDeclaration staticFunc && staticFunc.IsStatic)
                 {
@@ -1602,7 +1623,10 @@ public class IRCodeGenerator
                         ? MapType(staticFunc.ReturnType)
                         : TypeRef.Int32;
                     var paramTypes = staticFunc.Parameters.Select(p => MapType(p.Type)).ToList();
-                    ib.Call(new MethodReference(new TypeRef(ResolveTypeName(staticFunc.ContractName ?? "Global")), staticFunc.Name, returnType, paramTypes));
+                    string staticTarget = _nativeBindings.TryGetValue(staticFunc.ContractName ?? "", out var statBinding)
+                        ? statBinding
+                        : staticFunc.ContractName ?? "Global";
+                    ib.Call(new MethodReference(new TypeRef(staticTarget), staticFunc.Name, returnType, paramTypes));
                 }
                 else if (call.Callee is IdentifierExpression calleeIdent)
                 {
@@ -1654,6 +1678,13 @@ public class IRCodeGenerator
                 {
                     GenerateExpression(ib, newExpr.Size, paramMap);
                     ib.Newarr(MapType(newExpr.TypeName));
+                }
+                else if (NativeBindingFor(newExpr.TypeName) is string nativeBinding)
+                {
+                    // Native-bound contract: new Window() constructs the host
+                    // object through the module's Create method. The call's
+                    // result is an external object handle, pushed on the stack.
+                    ib.Call(new MethodReference(new TypeRef(nativeBinding), "Create", TypeRef.Object, new List<TypeRef>()));
                 }
                 else
                 {
@@ -1977,6 +2008,20 @@ public class IRCodeGenerator
     }
 
     private TypeDescriptor? _arrayElementTypeHint;
+
+    /// <summary>The host module name for a native-bound contract type, or null.</summary>
+    private string? NativeBindingFor(string typeName)
+    {
+        if (_program != null)
+        {
+            foreach (var c in _program.Contracts)
+            {
+                if (string.Equals(c.Name, typeName, StringComparison.OrdinalIgnoreCase) && c.NativeBindingName != null)
+                    return c.NativeBindingName;
+            }
+        }
+        return null;
+    }
 
     private TypeRef MapTypeFromSystemType(System.Type t)
     {

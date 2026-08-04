@@ -54,7 +54,7 @@ namespace Contract.Compiler.StandardLibrary
 
         public void RegisterAssembly(Assembly assembly)
         {
-            foreach (var type in assembly.GetTypes())
+            foreach (var type in TypeLoader.GetLoadableTypes(assembly))
             {
                 var classAttr = type.GetCustomAttribute<ClassBindingAttribute>();
                 if (classAttr == null) continue;

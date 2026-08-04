@@ -20,7 +20,7 @@ namespace Contract.Runtime;
 /// engines, scripting APIs, whatever) register through
 /// <see cref="RegisterBinding"/> and stay out of the stdlib too.
 /// </summary>
-public class ContractRuntime : IReflectHost
+public class ContractRuntime : IReflectHost, IHostedRuntime
 {
     private readonly ObjectRT.Runtime.Runtime _runtime;
 
@@ -103,11 +103,12 @@ public class ContractRuntime : IReflectHost
     /// Registers every class in an assembly annotated with
     /// <see cref="Contract.Compiler.StandardLibrary.ClassBindingAttribute"/>,
     /// keyed by the attribute's binding name. Useful for custom binding
-    /// assemblies.
+    /// assemblies. Types whose dependencies are missing in this process are
+    /// skipped (see <see cref="TypeLoader.GetLoadableTypes"/>).
     /// </summary>
     public void RegisterBindingAssembly(Assembly assembly)
     {
-        foreach (var type in assembly.GetTypes())
+        foreach (var type in TypeLoader.GetLoadableTypes(assembly))
         {
             var attr = type.GetCustomAttribute<Contract.Compiler.StandardLibrary.ClassBindingAttribute>();
             if (attr != null)

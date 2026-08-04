@@ -65,18 +65,18 @@ public static class ContractCompiler
     /// <summary>
     /// Compiles a .ct file to ORBT binary bytes (.orbt).
     /// </summary>
-    public static byte[]? CompileFileToBinary(string path, out DiagnosticBag diagnostics)
+    public static byte[]? CompileFileToBinary(string path, out DiagnosticBag diagnostics, IEnumerable<Assembly>? bindingAssemblies = null)
     {
-        var text = CompileFile(path, out diagnostics);
+        var text = CompileFile(path, out diagnostics, bindingAssemblies);
         if (text == null) return null;
         var module = OilFileReader.ParseString(text);
         return new ORBTWriter().WriteModule(module);
     }
 
     /// <summary>Compiles a .ct file to an ORBT module object.</summary>
-    public static ObjectRT.Abstractions.ORBTModule? CompileFileToModule(string path, out DiagnosticBag diagnostics)
+    public static ObjectRT.Abstractions.ORBTModule? CompileFileToModule(string path, out DiagnosticBag diagnostics, IEnumerable<Assembly>? bindingAssemblies = null)
     {
-        var text = CompileFile(path, out diagnostics);
+        var text = CompileFile(path, out diagnostics, bindingAssemblies);
         if (text == null) return null;
         return OilFileReader.ParseString(text);
     }

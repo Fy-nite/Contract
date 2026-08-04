@@ -72,6 +72,15 @@ namespace Contract.Compiler.AST
         /// <summary>True when this contract (transitively) inherits from the built-in Attribute type. Set by the analyzer.</summary>
         public bool IsAttributeType { get; set; }
 
+        /// <summary>
+        /// When the contract is marked <c>&lt;NativeBinding("Module")&gt;</c>, the
+        /// name of the host module its members dispatch to. Calls to this
+        /// contract's methods become native calls to <c>Module.Method</c>
+        /// (instance calls pass the receiver as argument 0), and
+        /// <c>new Contract()</c> becomes <c>Module.Create</c>.
+        /// </summary>
+        public string? NativeBindingName { get; set; }
+
         public ContractDeclaration(string name, int line, int column) : base(line, column)
         {
             Name = name;
