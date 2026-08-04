@@ -17,6 +17,7 @@ namespace Contract.Compiler.Semantics
         private readonly List<ContractDeclaration> _contractsWithFields = new();
         private readonly Dictionary<string, ContractDeclaration> _contractsByName =
             new(StringComparer.OrdinalIgnoreCase);
+        private Program? _program;
 
         public SemanticAnalyzer(SymbolTable symbolTable, DiagnosticBag diagnostics)
         {

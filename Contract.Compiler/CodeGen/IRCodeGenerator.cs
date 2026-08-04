@@ -25,6 +25,10 @@ public class IRCodeGenerator
     private Dictionary<string, LambdaInfo> _lambdaVariableMap = new();
     private readonly Dictionary<string, LambdaInfo> _lambdaInfos = new();
     private Program? _program;
+    // Type-name resolution: fully-qualified wire names plus a short-name → full-name
+    // index for namespace-qualified lookups.
+    private readonly HashSet<string> _qualifiedTypeNames = new();
+    private readonly Dictionary<string, List<string>> _shortToFull = new();
     // Enclosing loop continue-emitters: when a 'continue' runs, it must leave the
     // next condition on the stack (for-loops also run their update first).
     private readonly Stack<Action<InstructionBuilder>> _loopContinueEmitters = new();
