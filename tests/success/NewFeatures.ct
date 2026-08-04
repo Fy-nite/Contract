@@ -1,9 +1,9 @@
 Contract Program {
-    fn twice(x: int) -> int {
+    static fn twice(x: int) -> int {
         return x * 2;
     }
 
-    fn describe(v: bool) -> string {
+    static fn describe(v: bool) -> string {
         if (v == true) {
             return "yes";
         } else {
@@ -11,7 +11,7 @@ Contract Program {
         }
     }
 
-    fn sumTo(n: int) -> int {
+    static fn sumTo(n: int) -> int {
         var total: int = 0;
         for (var i: int = 0; i < n; i = i + 1) {
             if (i == 3) {

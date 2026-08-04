@@ -1,11 +1,11 @@
 Contract Program {
-    fn smain() {
+    static fn smain() {
         let inc: int = fun x -> x + 1;
         let val: int = 10 |> inc;
         IO.Println(val);  // 11
     }
     
-    fn square(x: int) {
+    static fn square(x: int) {
         return x * x;
     }
     

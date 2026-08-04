@@ -7,7 +7,7 @@ Contract Program {
     }
 
     // Delegate<T>-typed parameter, invoked inside.
-    fn apply(f: Delegate<(int) -> int>, x: int) -> int {
+    static fn apply(f: Delegate<(int) -> int>, x: int) -> int {
         return f(x);
     }
 

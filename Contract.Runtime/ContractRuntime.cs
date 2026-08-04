@@ -1,7 +1,6 @@
 using System.Linq;
 using System.Reflection;
 using Contract.Compiler.StandardLibrary;
-using Contract.Compiler.StandardLibrary.Builtins;
 using ObjectRT.Abstractions;
 using ObjectRT.Reader;
 using ObjectRT.Runtime;
@@ -13,15 +12,13 @@ namespace Contract.Runtime;
 /// The Contract language runtime host.
 ///
 /// This is the *Contract-specific* runtime: it wraps the generic
-/// <see cref="ObjectRT.Runtime.Runtime"/> and pre-registers the Contract
-/// standard library bindings, so the stdlib lives here — not mixed into the
-/// generic ObjectRT runtime library. Custom host bindings (game engines,
-/// scripting APIs, whatever) register through <see cref="RegisterBinding"/>
-/// and stay out of the main runtime too.
-///
-/// The standard library is planned to become a standalone spec alongside this
-/// C# project; this class is where the binding registration lives so that
-/// split is mechanical.
+/// <see cref="ObjectRT.Runtime.Runtime"/> and pre-registers the standard
+/// library bindings. The stdlib implementations themselves live in the
+/// generic <c>ObjektRT.Stdlib</c> project (registered under both their
+/// qualified and short names); Contract-specific bindings (like the
+/// in-language <c>Reflect</c> bridge) live here. Custom host bindings (game
+/// engines, scripting APIs, whatever) register through
+/// <see cref="RegisterBinding"/> and stay out of the stdlib too.
 /// </summary>
 public class ContractRuntime : IReflectHost, IHostedRuntime
 {
@@ -30,12 +27,12 @@ public class ContractRuntime : IReflectHost, IHostedRuntime
     /// <summary>The underlying ObjectRT runtime (for advanced use: JIT mode, resolvers, etc.).</summary>
     public ObjectRT.Runtime.Runtime Inner => _runtime;
 
-    /// <summary>Creates a runtime with the Contract standard library pre-registered.</summary>
+    /// <summary>Creates a runtime with the standard library pre-registered.</summary>
     public ContractRuntime()
     {
         _runtime = new ObjectRT.Runtime.Runtime();
         RegisterDefaultBindings();
-        Contract.Compiler.StandardLibrary.Builtins.ReflectModule.Host = this;
+        Contract.Compiler.StandardLibrary.ReflectModule.Host = this;
     }
 
     /// <summary>Creates a runtime wrapping an existing ObjectRT runtime.</summary>
@@ -43,41 +40,55 @@ public class ContractRuntime : IReflectHost, IHostedRuntime
     {
         _runtime = inner;
         RegisterDefaultBindings();
-        Contract.Compiler.StandardLibrary.Builtins.ReflectModule.Host = this;
+        Contract.Compiler.StandardLibrary.ReflectModule.Host = this;
     }
 
     // ── Standard library bindings ──────────────────────────────────
 
     /// <summary>
-    /// Registers every binding in the Contract standard library. The binding
-    /// classes live in Contract.Compiler.StandardLibrary.Builtins and are
-    /// callable from Contract as <c>Module.Method(...)</c>.
+    /// Registers every binding in the standard library. The implementations
+    /// live in the generic ObjektRT.Stdlib project and are callable from
+    /// Contract as <c>Module.Method(...)</c> under their short names
+    /// (<c>IO.Println</c>) or fully-qualified names
+    /// (<c>ObjektRT.Stdlib.System.IO.Println</c>).
     /// </summary>
     public void RegisterDefaultBindings()
     {
-        RegisterBinding("IO", typeof(IO));
-        RegisterBinding("String", typeof(StringModule));
-        RegisterBinding("Math", typeof(MathModule));
-        RegisterBinding("Convert", typeof(ConvertModule));
-        RegisterBinding("Random", typeof(RandomModule));
-        RegisterBinding("List", typeof(ListModule));
-        RegisterBinding("Dict", typeof(DictModule));
-        RegisterBinding("Array", typeof(ArrayModule));
-        RegisterBinding("File", typeof(FileModule));
-        RegisterBinding("Environment", typeof(EnvironmentModule));
-        RegisterBinding("GC", typeof(GCModule));
-        RegisterBinding("Debug", typeof(DebugModule));
-        RegisterBinding("Time", typeof(TimeModule));
-        RegisterBinding("Thread", typeof(ThreadModule));
+        // Short names — the everyday surface: IO.Println, String.Length, ...
+        RegisterBinding("IO", typeof(ObjektRT.Stdlib.System.IO));
+        RegisterBinding("String", typeof(ObjektRT.Stdlib.System.String));
+        RegisterBinding("Convert", typeof(ObjektRT.Stdlib.System.Convert));
+        RegisterBinding("Random", typeof(ObjektRT.Stdlib.System.Random));
+        RegisterBinding("File", typeof(ObjektRT.Stdlib.System.File));
+        RegisterBinding("Environment", typeof(ObjektRT.Stdlib.System.Environment));
+        RegisterBinding("GC", typeof(ObjektRT.Stdlib.System.GC));
+        RegisterBinding("Debug", typeof(ObjektRT.Stdlib.System.Debug));
+        RegisterBinding("Time", typeof(ObjektRT.Stdlib.System.Time));
+        RegisterBinding("Math", typeof(ObjektRT.Stdlib.Math.Numbers));
+        RegisterBinding("Thread", typeof(ObjektRT.Stdlib.Threading.Thread));
+        RegisterBinding("Array", typeof(ObjektRT.Stdlib.Generics.Array));
+        RegisterBinding("List", typeof(ObjektRT.Stdlib.Generics.List));
+        RegisterBinding("Dict", typeof(ObjektRT.Stdlib.Generics.Dict));
 
-        // Generic ObjektRT stdlib, registered under its fully-qualified names.
+        // Fully-qualified names — the official stdlib surface:
+        // ObjektRT.Stdlib.System.IO.Println, ...
         RegisterBinding("ObjektRT.Stdlib.System.IO", typeof(ObjektRT.Stdlib.System.IO));
+        RegisterBinding("ObjektRT.Stdlib.System.String", typeof(ObjektRT.Stdlib.System.String));
+        RegisterBinding("ObjektRT.Stdlib.System.Convert", typeof(ObjektRT.Stdlib.System.Convert));
+        RegisterBinding("ObjektRT.Stdlib.System.Random", typeof(ObjektRT.Stdlib.System.Random));
+        RegisterBinding("ObjektRT.Stdlib.System.File", typeof(ObjektRT.Stdlib.System.File));
+        RegisterBinding("ObjektRT.Stdlib.System.Environment", typeof(ObjektRT.Stdlib.System.Environment));
+        RegisterBinding("ObjektRT.Stdlib.System.GC", typeof(ObjektRT.Stdlib.System.GC));
+        RegisterBinding("ObjektRT.Stdlib.System.Debug", typeof(ObjektRT.Stdlib.System.Debug));
+        RegisterBinding("ObjektRT.Stdlib.System.Time", typeof(ObjektRT.Stdlib.System.Time));
         RegisterBinding("ObjektRT.Stdlib.Math.Numbers", typeof(ObjektRT.Stdlib.Math.Numbers));
         RegisterBinding("ObjektRT.Stdlib.Threading.Thread", typeof(ObjektRT.Stdlib.Threading.Thread));
         RegisterBinding("ObjektRT.Stdlib.Generics.Array", typeof(ObjektRT.Stdlib.Generics.Array));
+        RegisterBinding("ObjektRT.Stdlib.Generics.List", typeof(ObjektRT.Stdlib.Generics.List));
+        RegisterBinding("ObjektRT.Stdlib.Generics.Dict", typeof(ObjektRT.Stdlib.Generics.Dict));
 
-        // In-language reflection bridge.
-        RegisterBinding("Reflect", typeof(Contract.Compiler.StandardLibrary.Builtins.ReflectModule));
+        // In-language reflection bridge (Contract-specific host).
+        RegisterBinding("Reflect", typeof(Contract.Compiler.StandardLibrary.ReflectModule));
     }
 
     /// <summary>

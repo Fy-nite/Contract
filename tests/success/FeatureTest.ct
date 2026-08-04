@@ -36,11 +36,11 @@ Contract Program {
         // we really do not have much here lol as i haven't gotten around to making our reflection binding generator properly handle the stdlib.
 
     }
-    fn mul(a:int)
+    static fn mul(a:int)
     {
         return a * a;
     }
-    fn sub(a:int)
+    static fn sub(a:int)
     {
         return a - a;
     }

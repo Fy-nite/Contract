@@ -1,0 +1,10 @@
+Contract Foo {
+    count: int;
+
+    fn greet() { IO.Println("hello"); }
+
+    static fn Main() {
+        var f: Foo = new Foo();
+        f.greet();
+    }
+}

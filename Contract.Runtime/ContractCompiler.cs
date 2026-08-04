@@ -5,7 +5,6 @@ using Contract.Compiler.Diagnostics;
 using Contract.Compiler.Parsing;
 using Contract.Compiler.Semantics;
 using Contract.Compiler.StandardLibrary;
-using Contract.Compiler.StandardLibrary.Builtins;
 using ObjectRT.Reader;
 
 namespace Contract.Runtime;
@@ -29,7 +28,9 @@ public static class ContractCompiler
     {
         diagnostics = new DiagnosticBag { SourceCode = source };
         var symbolTable = new SymbolTable();
-        symbolTable.RegisterAssembly(typeof(IO).Assembly);
+        // The stdlib is the generic ObjektRT.Stdlib; Reflect is the one
+        // Contract-specific [ClassBinding] module (registered via attribute).
+        symbolTable.RegisterAssembly(typeof(ReflectModule).Assembly);
         StdlibCatalog.RegisterInto(symbolTable);
         if (bindingAssemblies != null)
         {

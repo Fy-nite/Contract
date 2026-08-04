@@ -84,13 +84,12 @@ public static class CompiledReferenceLoader
                     c.Parameters.Add(new Parameter(p.Name, TypeDescriptor.Parse(WireToLanguageType(p.ParameterType.Name)), 1, 1));
                 contract.Constructors.Add(c);
             }
-            bool hasFields = contract.Fields.Count > 0;
             foreach (var m in cls.Methods)
             {
                 var fd = new FunctionDeclaration(m.Name, 1, 1)
                 {
                     IsStatic = m.IsStatic,
-                    IsInstance = !m.IsStatic && hasFields,
+                    IsInstance = !m.IsStatic,
                     ContractName = contract.FullName,
                     ReturnType = TypeDescriptor.Parse(WireToLanguageType(m.ReturnType.Name)),
                     Access = Contract.Compiler.AST.AccessModifier.Public,

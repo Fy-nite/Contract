@@ -21,7 +21,7 @@ Contract Program {
         IO.Println(total);  // 60
     }
 
-    fn sum(xs: List<int>) -> int {
+    static fn sum(xs: List<int>) -> int {
         var total: int = 0;
         for (var i: int = 0; i < List.Count(xs); i = i + 1) {
             total += List.Get(xs, i);

@@ -1,12 +1,12 @@
 Contract Program {
-    fn abs(n: int) -> int {
+    static fn abs(n: int) -> int {
         if (n < 0) {
             return -n;
         }
         return n;
     }
 
-    fn canDrive(age: int, hasLicense: bool) -> bool {
+    static fn canDrive(age: int, hasLicense: bool) -> bool {
         return age >= 18 && hasLicense;
     }
 
