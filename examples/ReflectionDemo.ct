@@ -1,0 +1,111 @@
+// In-language reflection demo: introspect the loaded module at runtime via
+// the Reflect module — type metadata, inheritance, attributes, signatures,
+// and read/write/call statics and instance methods by name.
+//
+// Run:  dotnet run --project Contract.Cli -- examples/ReflectionDemo.ct
+
+Contract Author : Attribute {
+    constructor(name: string) {
+    }
+}
+
+Contract Deprecated : Attribute {
+    constructor(msg: string) {
+    }
+}
+
+Contract Shape {
+    kind: string;
+
+    // NOTE: returns a literal rather than reading this.kind — the VM's
+    // per-type field offsets currently collide across inheritance, so a base
+    // method reading an inherited instance field would hit the derived type's
+    // first field slot. Metadata queries (FieldType, FieldDeclaringType, ...)
+    // are unaffected.
+    fn Describe() -> string {
+        return "shape";
+    }
+}
+
+<Author("bob")>
+Contract Circle : Shape {
+    radius: int;
+
+    constructor() {
+        this.radius = 5;
+    }
+
+    <Deprecated("use radius * radius * 3")>
+    fn Area() -> int {
+        return this.radius * this.radius * 3;
+    }
+
+    static fn Make() -> object {
+        var c: Circle = new Circle();
+        return c;
+    }
+}
+
+Contract Counter {
+    static count: int;
+
+    static fn Get() -> int {
+        return count;
+    }
+
+    static fn Twice(x: int) -> int {
+        return x * 2;
+    }
+}
+
+Contract Program {
+    static fn Main() {
+        // Module + type metadata.
+        IO.Print("module: "); IO.Println(Reflect.ModuleName());
+        IO.Print("Counter kind: "); IO.Println(Reflect.Kind("Counter"));
+        IO.Print("IsClass(Counter): "); IO.Println(Reflect.IsClass("Counter"));
+        IO.Print("Access(Counter): "); IO.Println(Reflect.Access("Counter"));
+
+        // Inheritance.
+        IO.Print("Base(Circle): "); IO.Println(Reflect.Base("Circle"));
+        IO.Print("Hierarchy(Circle): "); IO.Println(Array.Join(Reflect.Hierarchy("Circle"), " < "));
+        IO.Print("IsSubclassOf(Circle, Shape): "); IO.Println(Reflect.IsSubclassOf("Circle", "Shape"));
+        IO.Print("IsAssignableFrom(Shape, Circle): "); IO.Println(Reflect.IsAssignableFrom("Shape", "Circle"));
+
+        // Methods + fields, declared and inherited.
+        IO.Print("Methods(Circle): "); IO.Println(Array.Join(Reflect.Methods("Circle"), ", "));
+        IO.Print("DeclaredMethods(Circle): "); IO.Println(Array.Join(Reflect.DeclaredMethods("Circle"), ", "));
+        IO.Print("Fields(Circle): "); IO.Println(Array.Join(Reflect.Fields("Circle"), ", "));
+
+        // Signatures — Describe is inherited from Shape.
+        IO.Print("MethodDeclaringType(Circle, Describe): "); IO.Println(Reflect.MethodDeclaringType("Circle", "Describe"));
+        IO.Print("MethodReturn(Circle, Describe): "); IO.Println(Reflect.MethodReturn("Circle", "Describe"));
+        IO.Print("MethodParams(Counter, Twice): "); IO.Println(Array.Join(Reflect.MethodParams("Counter", "Twice"), ", "));
+        IO.Print("MethodStatic(Counter, Twice): "); IO.Println(Reflect.MethodStatic("Counter", "Twice"));
+        IO.Print("Resolve(Circle.Describe): "); IO.Println(Reflect.Resolve("Circle.Describe"));
+
+        // Fields.
+        IO.Print("FieldType(Circle, radius): "); IO.Println(Reflect.FieldType("Circle", "radius"));
+        IO.Print("FieldStatic(Counter, count): "); IO.Println(Reflect.FieldStatic("Counter", "count"));
+        IO.Print("FieldDeclaringType(Circle, kind): "); IO.Println(Reflect.FieldDeclaringType("Circle", "kind"));
+
+        // Attributes on types and methods.
+        IO.Print("Attributes(Circle): "); IO.Println(Array.Join(Reflect.Attributes("Circle"), ", "));
+        IO.Print("MethodAttributes(Circle, Area): "); IO.Println(Array.Join(Reflect.MethodAttributes("Circle", "Area"), ", "));
+
+        // Static field read/write by name.
+        Reflect.SetStatic("Counter", "count", 7);
+        IO.Print("count: "); IO.Println(Reflect.GetStatic("Counter", "count"));
+
+        // Invoke a static method by name.
+        IO.Print("Get(): "); IO.Println(Reflect.Call("Counter", "Get", []));
+        IO.Print("Twice(21): "); IO.Println(Reflect.Call("Counter", "Twice", [21]));
+
+        // Instance invocation: Make() returns an object handle, then
+        // Describe/Area run on it — including Describe, which is declared
+        // only on the base Shape.
+        var c = Reflect.Call("Circle", "Make", []);
+        IO.Print("Describe(c): "); IO.Println(Reflect.Invoke("Circle", "Describe", c, []));
+        IO.Print("Area(c): "); IO.Println(Reflect.Invoke("Circle", "Area", c, []));
+    }
+}

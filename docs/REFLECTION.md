@@ -238,6 +238,29 @@ Console.WriteLine(string.Join(" <- ", player.GetHierarchy().Select(t => t.Name))
   name + most-derived-first ordering is the current granularity. Two overloads
   with the same name are disambiguated by declaration order.
 
+## 8. In-language mirror (`Reflect` module)
+
+The same metadata is exposed *inside* Contract code through the `Reflect`
+module — `Reflect.Kind("Foo")`, `Reflect.Hierarchy("Foo")`,
+`Reflect.MethodDeclaringType(...)`, `Reflect.Attributes(...)`, static field
+read/write, and `Reflect.Call` / `Reflect.Invoke` for invoking methods by name
+(instance methods take the object handle returned by a previous call as their
+receiver). See the *In-language reflection* section of
+`docs/CONTRACT_LANGUAGE.md` for the full API table.
+
+The two surfaces map 1:1 onto the same `ModuleReflector` metadata; the
+in-language one additionally reaches the live VM (statics + invocation) via the
+host's `IReflectHost` implementation. Notable differences:
+
+- The in-language API is string-based (the language has no `TypeInfo` value
+  type), so queries like `Kind`/`IsClass`/`MethodReturn` return names and
+  flags rather than objects.
+- `Reflect.Resolve("Type.Method")` is the in-language spelling of
+  `ModuleReflector.FindMethod` — it resolves through the base chain and
+  returns the canonical `DeclaringType.Method` (most-derived wins).
+- Attribute arguments are returned unquoted, exactly like
+  `AttributeInfo.Arguments`.
+
 ## Format note
 
 ORBT binary format v0x02 adds one flag byte per field (after name + type).

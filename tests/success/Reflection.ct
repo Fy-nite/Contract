@@ -1,10 +1,51 @@
 // In-language reflection: introspect the loaded module at runtime via the
-// Reflect module, and read/write/call statics by name.
+// Reflect module — type metadata, inheritance, attributes, signatures, and
+// read/write/call statics and instance methods by name.
+//
+// This file is compile-checked by the test suite; the runnable counterpart
+// (examples/ReflectionDemo.ct) exercises the same API end-to-end.
 
 namespace com.demo;
 
 enum Color {
     Red, Green, Blue
+}
+
+Contract Author : Attribute {
+    constructor(name: string) {
+    }
+}
+
+Contract Deprecated : Attribute {
+    constructor(msg: string) {
+    }
+}
+
+Contract Shape {
+    kind: string;
+
+    fn Describe() -> string {
+        return this.kind;
+    }
+}
+
+<Author("bob")>
+Contract Circle : Shape {
+    radius: int;
+
+    constructor() {
+        this.radius = 5;
+    }
+
+    <Deprecated("use radius * radius * 3")>
+    fn Area() -> int {
+        return this.radius * this.radius * 3;
+    }
+
+    static fn Make() -> object {
+        var c: Circle = new Circle();
+        return c;
+    }
 }
 
 Contract Counter {
@@ -31,14 +72,59 @@ Contract Program {
         IO.Println(Reflect.HasType("Counter"));            // true (short)
         IO.Println(Reflect.HasType("Nope"));               // false
 
-        // Base type of Color (a class with no base → "").
+        // Module + type metadata.
+        IO.Println(Reflect.ModuleName());                  // non-empty
+        IO.Println(Reflect.Kind("Counter"));               // Class
+        IO.Println(Reflect.Kind("Color"));                 // Enum
+        IO.Println(Reflect.IsClass("Counter"));            // true
+        IO.Println(Reflect.IsEnum("Color"));               // true
+        IO.Println(Reflect.IsStruct("Counter"));           // false
+        IO.Println(Reflect.IsAbstract("Counter"));         // false
+        IO.Println(Reflect.IsSealed("Counter"));           // false
+        IO.Println(Reflect.Access("Counter"));             // Public
+
+        // Inheritance.
+        IO.Println(Reflect.Base("Circle"));                // com.demo.Shape
         IO.Println(Reflect.Base("Counter"));               // (empty)
+        IO.Println(Reflect.Hierarchy("Circle")[0]);        // com.demo.Circle
+        IO.Println(Reflect.Hierarchy("Circle")[1]);        // com.demo.Shape
+        IO.Println(Reflect.IsSubclassOf("Circle", "Shape"));     // true
+        IO.Println(Reflect.IsSubclassOf("Shape", "Circle"));     // false
+        IO.Println(Reflect.IsAssignableFrom("Shape", "Circle")); // true
+        IO.Println(Reflect.IsAssignableFrom("Circle", "Shape")); // false
+        IO.Println(Array.Length(Reflect.Interfaces("Circle")));      // 0 (none declared)
+        IO.Println(Array.Length(Reflect.AllInterfaces("Circle")));   // 0
 
         // Method + field listing include inherited members.
-        var methods = Reflect.Methods("Counter");
-        var fields = Reflect.Fields("Counter");
-        IO.Println(Array.Length(methods) >= 3);            // true
-        IO.Println(Array.Length(fields) >= 2);             // true
+        IO.Println(Array.Length(Reflect.Methods("Circle")) >= 4);  // true
+        IO.Println(Array.Length(Reflect.Fields("Circle")) >= 2);   // true
+
+        // Declared-only (no inheritance).
+        IO.Println(Array.Length(Reflect.DeclaredMethods("Circle")) >= 2); // true (Area, Make, ctor)
+        IO.Println(Array.Length(Reflect.DeclaredFields("Circle")) == 1);  // true (radius)
+
+        // Method signature introspection. Inherited Describe reports Shape
+        // as its declaring type; the VM resolves it through the base chain.
+        IO.Println(Reflect.MethodDeclaringType("Circle", "Describe")); // com.demo.Shape
+        IO.Println(Reflect.MethodReturn("Circle", "Describe"));        // string
+        IO.Println(Reflect.MethodReturn("Counter", "Twice"));          // int32
+        IO.Println(Reflect.MethodStatic("Counter", "Twice"));          // true
+        IO.Println(Reflect.MethodStatic("Circle", "Describe"));        // false
+        IO.Println(Reflect.MethodParams("Counter", "Twice")[0]);       // int32 x
+        IO.Println(Reflect.MethodBase("Circle", "Describe"));          // com.demo.Shape.Describe
+        IO.Println(Reflect.Resolve("Circle.Describe"));                // com.demo.Shape.Describe
+
+        // Field introspection.
+        IO.Println(Reflect.FieldType("Circle", "radius"));      // int32
+        IO.Println(Reflect.FieldType("Counter", "count"));      // int32
+        IO.Println(Reflect.FieldStatic("Counter", "count"));    // true
+        IO.Println(Reflect.FieldStatic("Circle", "radius"));    // false
+        IO.Println(Reflect.FieldDeclaringType("Circle", "kind")); // com.demo.Shape (inherited)
+
+        // Attributes on types and methods.
+        IO.Println(Array.Length(Reflect.Attributes("Circle")) == 1); // true
+        IO.Println(Reflect.Attributes("Circle")[0]);                 // Author(bob)
+        IO.Println(Reflect.MethodAttributes("Circle", "Area")[0]);   // Deprecated(use radius * radius * 3)
 
         // Static field read/write by name.
         Reflect.SetStatic("Counter", "count", 7);
@@ -47,5 +133,14 @@ Contract Program {
         // Invoke a static method by name. (Call takes type, method, args.)
         IO.Println(Reflect.Call("Counter", "Get", []));        // 7
         IO.Println(Reflect.Call("Counter", "Twice", [21]));    // 42
+
+        // Instance invocation: Make() returns an object handle, then
+        // Describe runs on it. The inherited method is found via reflection
+        // even though direct calls can't name base-only methods.
+        var c = Reflect.Call("Circle", "Make", []);
+        IO.Println(Reflect.Invoke("Circle", "Describe", c, []));
+        IO.Println(Reflect.Invoke("Circle", "Area", c, []));        // 75
+        IO.Println(Reflect.Invoke("Circle", "Area", c, []) == 75);  // true
     }
 }
+

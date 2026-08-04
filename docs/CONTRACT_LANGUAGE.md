@@ -547,10 +547,23 @@ ccl run app.orbt
 ## In-language reflection
 
 The `Reflect` module exposes runtime introspection over the **loaded** module
-from inside Contract code. The host (`ContractRuntime`) provides the metadata
-and static access; without a host every call returns empty/false/null.
+from inside Contract code — type metadata, inheritance, attributes, method and
+field signatures, plus reading/writing statics and invoking methods (static and
+instance) by name. The host (`ContractRuntime`) provides the metadata and
+access; without a host every call returns empty/false/null.
 
 ```ct
+Contract Shape {
+    fn Describe() -> string { return "shape"; }
+}
+
+Contract Circle : Shape {
+    radius: int;
+    constructor() { this.radius = 5; }
+    fn Area() -> int { return this.radius * this.radius * 3; }
+    static fn Make() -> object { return new Circle(); }
+}
+
 Contract Counter {
     static count: int;
     static fn Get() -> int { return count; }
@@ -559,13 +572,28 @@ Contract Counter {
 
 Contract Program {
     static fn Main() {
-        // Type enumeration / existence.
+        // Type enumeration / existence / metadata.
         IO.Println(Reflect.HasType("Counter"));      // true
-        IO.Println(Reflect.HasType("Nope"));         // false
+        IO.Println(Reflect.Kind("Counter"));         // Class
+        IO.Println(Reflect.IsClass("Counter"));      // true
+        IO.Println(Reflect.ModuleName());            // module's declared name
+
+        // Inheritance.
+        IO.Println(Reflect.Base("Circle"));          // Shape
+        IO.Println(Reflect.Hierarchy("Circle")[0]);  // Circle (most-derived first)
+        IO.Println(Reflect.Hierarchy("Circle")[1]);  // Shape
+        IO.Println(Reflect.IsSubclassOf("Circle", "Shape"));     // true
+        IO.Println(Reflect.IsAssignableFrom("Shape", "Circle")); // true
 
         // Method + field listing (qualified names, incl. inherited).
-        var methods = Reflect.Methods("Counter");
-        var fields  = Reflect.Fields("Counter");
+        var methods = Reflect.Methods("Circle");     // Circle..ctor, ..., Shape.Describe
+        var fields  = Reflect.Fields("Circle");      // Circle.radius, Shape.kind
+
+        // Signatures — Describe is declared on Shape, found through Circle.
+        IO.Println(Reflect.MethodDeclaringType("Circle", "Describe")); // Shape
+        IO.Println(Reflect.MethodReturn("Circle", "Describe"));        // string
+        IO.Println(Reflect.MethodStatic("Counter", "Twice"));          // true
+        IO.Println(Reflect.FieldType("Circle", "radius"));             // int32
 
         // Static field read/write by name.
         Reflect.SetStatic("Counter", "count", 7);
@@ -575,29 +603,60 @@ Contract Program {
         IO.Println(Reflect.Call("Counter", "Get", []));     // 7
         IO.Println(Reflect.Call("Counter", "Twice", [21])); // 42
 
-        // Base type wire name, or "" when none.
-        IO.Println(Reflect.Base("Counter"));
+        // Instance invocation: Make() returns an object handle, then Describe
+        // runs on it — resolved through the base chain via reflection.
+        var c = Reflect.Call("Circle", "Make", []);
+        IO.Println(Reflect.Invoke("Circle", "Describe", c, [])); // "shape"
+        IO.Println(Reflect.Invoke("Circle", "Area", c, []));     // 75
     }
 }
 ```
 
-API summary:
+### API summary
 
 | Function | Returns |
 |---|---|
 | `Reflect.Types()` | `string[]` — every type's qualified wire name |
 | `Reflect.HasType(name)` | `bool` |
-| `Reflect.Methods(type)` | `string[]` — qualified `Type.Method` names (incl. inherited) |
-| `Reflect.Fields(type)` | `string[]` — qualified `Type.field` names (incl. inherited) |
+| `Reflect.ModuleName()` | `string` — the loaded module's declared name |
+| `Reflect.Kind(type)` | `string` — `"Class"` / `"Interface"` / `"Struct"` / `"Enum"`, or `""` |
+| `Reflect.IsClass(type)` / `IsInterface` / `IsStruct` / `IsEnum` | `bool` |
+| `Reflect.IsAbstract(type)` / `IsSealed(type)` | `bool` — IR type flags |
+| `Reflect.Access(type)` | `string` — `"Public"` / `"Private"` / `"Protected"` / `"Internal"` |
 | `Reflect.Base(type)` | `string` — direct base's wire name, or `""` |
+| `Reflect.Hierarchy(type)` | `string[]` — type + all bases, most-derived first |
+| `Reflect.Interfaces(type)` | `string[]` — direct interfaces by name |
+| `Reflect.AllInterfaces(type)` | `string[]` — all interfaces, incl. inherited |
+| `Reflect.IsSubclassOf(type, base)` | `bool` — transitive inheritance |
+| `Reflect.IsAssignableFrom(type, other)` | `bool` — `other` is `type`, a subclass, or (for interfaces) an implementor |
+| `Reflect.Methods(type)` | `string[]` — qualified `Type.Method` names (incl. inherited) |
+| `Reflect.DeclaredMethods(type)` | `string[]` — own methods only |
+| `Reflect.Fields(type)` | `string[]` — qualified `Type.field` names (incl. inherited) |
+| `Reflect.DeclaredFields(type)` | `string[]` — own fields only |
+| `Reflect.Resolve("Type.Method")` | `string` — canonical `DeclaringType.Method`, most-derived wins; `""` if unresolvable |
+| `Reflect.MethodDeclaringType(type, method)` | `string` — the type that declares it (base for inherited) |
+| `Reflect.MethodReturn(type, method)` | `string` — `"int32"`, `"string"`, `"void"`, ... |
+| `Reflect.MethodParams(type, method)` | `string[]` — `"int32 x"` per param; instance methods include `"object this"` first |
+| `Reflect.MethodStatic(type, method)` | `bool` |
+| `Reflect.MethodVirtual(type, method)` / `MethodOverride` / `MethodAbstract` | `bool` — IR method flags |
+| `Reflect.MethodBase(type, method)` | `string` — root of an override chain (`Type.Method`), or `""` |
+| `Reflect.MethodAttributes(type, method)` | `string[]` — `"Name(arg, ...)"` |
+| `Reflect.FieldType(type, field)` | `string` — `"int32"`, ... |
+| `Reflect.FieldStatic(type, field)` | `bool` |
+| `Reflect.FieldDeclaringType(type, field)` | `string` — the type that declares it |
+| `Reflect.Attributes(type)` | `string[]` — `"Name(arg, ...)"` |
 | `Reflect.GetStatic(type, field)` | `object` — static field value |
 | `Reflect.SetStatic(type, field, value)` | `void` |
 | `Reflect.Call(type, method, args)` | `object` — static method result |
+| `Reflect.Invoke(type, method, receiver, args)` | `object` — instance method result; `receiver` is a handle from a previous call |
 
 Type names accept either the short name (`Counter`) or the fully-qualified
-wire name (`com.lib.Geo`). `Reflect.Call` always takes the args array as its
-third argument — pass `[]` for no arguments. This pairs with the host-side
-`ObjectRT.Runtime.Reflection` API (see `docs/REFLECTION.md`) for tooling.
+wire name (`com.lib.Geo`). `Reflect.Call` and `Reflect.Invoke` always take the
+args array as their last argument — pass `[]` for no arguments. VM-internal
+objects returned by `Reflect.Call` / `Reflect.Invoke` round-trip as object
+handles: pass one straight back as the `receiver` argument to call an instance
+method on it. This pairs with the host-side `ObjectRT.Runtime.Reflection` API
+(see `docs/REFLECTION.md`) for tooling.
 
 ## Control Flow
 
