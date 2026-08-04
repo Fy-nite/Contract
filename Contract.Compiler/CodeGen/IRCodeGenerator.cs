@@ -74,12 +74,38 @@ public class IRCodeGenerator
     public void WriteToFile(string outputPath)
     {
         if (_builder == null) return;
-        File.WriteAllText(outputPath, _builder.Build().Serialize().DumpToIRCode());
+        File.WriteAllText(outputPath, BuildModule().Serialize().DumpToIRCode());
     }
 
     /// <summary>Returns the generated ObjektIR text, or null when nothing was generated.</summary>
     public string? GetIRText()
-        => _builder?.Build().Serialize().DumpToIRCode();
+        => _builder == null ? null : BuildModule().Serialize().DumpToIRCode();
+
+    /// <summary>
+    /// Builds the module and statically links any imported compiled modules
+    /// (DLL-style references) into it, deduplicating by fully-qualified name.
+    /// </summary>
+    private ObjektRT.Core.AST.ModuleNode BuildModule()
+    {
+        var module = _builder!.Build();
+        if (_program != null)
+        {
+            var existing = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var c in module.Classes) existing.Add(c.Name);
+            foreach (var s in module.Structs) existing.Add(s.Name);
+            foreach (var i in module.Interfaces) existing.Add(i.Name);
+            foreach (var ext in _program.ExternalModules)
+            {
+                foreach (var cls in ext.Classes)
+                    if (existing.Add(cls.Name)) module.Classes.Add(cls);
+                foreach (var str in ext.Structs)
+                    if (existing.Add(str.Name)) module.Structs.Add(str);
+                foreach (var iface in ext.Interfaces)
+                    if (existing.Add(iface.Name)) module.Interfaces.Add(iface);
+            }
+        }
+        return module;
+    }
 
     public void Generate(Program program)
     {
@@ -87,10 +113,19 @@ public class IRCodeGenerator
         _sourceLines = _diagnostics.SourceCode?.Split('\n') ?? Array.Empty<string>();
         _builder = new IRBuilder(program.Contracts.Count > 0 ? program.Contracts[0].Name : "Program");
 
+        // Index every declared type by its fully-qualified wire name for
+        // short-name → qualified resolution (namespaces).
+        _qualifiedTypeNames.Clear();
+        _shortToFull.Clear();
+        foreach (var c in program.Contracts) AddTypeIndex(c.Name, c.FullName);
+        foreach (var s in program.Structs) AddTypeIndex(s.Name, s.FullName);
+        foreach (var e in program.Enums) AddTypeIndex(e.Name, e.FullName);
+
         // Top-level structs.
         foreach (var structDecl in program.Structs)
         {
-            var structBuilder = _builder.Struct(structDecl.Name);
+            if (structDecl.IsExternal) continue;   // statically linked below
+            var structBuilder = _builder.Struct(structDecl.FullName);
             foreach (var attr in structDecl.Attributes)
             {
                 structBuilder.Attribute(attr.Name, attr.Arguments.ToArray());
@@ -100,6 +135,24 @@ public class IRCodeGenerator
                 structBuilder.Field(field.Name, MapType(field.Type));
             }
             structBuilder.EndStruct();
+        }
+
+        // Top-level enums: emitted as classes with static int fields so the
+        // member list survives in the IR metadata for reflection. Values are
+        // never read from those slots — enum member reads fold to their index.
+        foreach (var enumDecl in program.Enums)
+        {
+            if (enumDecl.IsExternal) continue;   // statically linked below
+            var enumBuilder = _builder.Class(enumDecl.FullName);
+            foreach (var attr in enumDecl.Attributes)
+            {
+                enumBuilder.Attribute(attr.Name, attr.Arguments.ToArray());
+            }
+            for (int i = 0; i < enumDecl.Members.Count; i++)
+            {
+                enumBuilder.Field(enumDecl.Members[i], TypeRef.Int32).Static();
+            }
+            enumBuilder.EndClass();
         }
 
         foreach (var cls in program.Contracts)
@@ -122,13 +175,15 @@ public class IRCodeGenerator
             }
             if (cls.BaseTypeName != null)
             {
-                classBuilder.Extends(cls.BaseTypeName);
+                classBuilder.Extends(ResolveTypeName(cls.BaseTypeName));
             }
 
-            // Instance fields: emitted as class fields.
+            // Instance fields: emitted as class fields (static ones carry the
+            // static flag in the wire metadata).
             foreach (var field in cls.Fields)
             {
-                classBuilder.Field(field.Name, MapType(field.Type));
+                var fieldBuilder = classBuilder.Field(field.Name, MapType(field.Type));
+                if (field.IsStatic) fieldBuilder.Static();
             }
 
             foreach (var ctor in cls.Constructors)
@@ -147,7 +202,7 @@ public class IRCodeGenerator
                 }
                 else if (member is StructDeclaration structDecl)
                 {
-                    var structBuilder = _builder.Struct(structDecl.Name);
+                    var structBuilder = _builder.Struct(structDecl.FullName);
                     foreach (var attr in structDecl.Attributes)
                     {
                         structBuilder.Attribute(attr.Name, attr.Arguments.ToArray());
@@ -157,6 +212,19 @@ public class IRCodeGenerator
                         structBuilder.Field(field.Name, MapType(field.Type));
                     }
                     structBuilder.EndStruct();
+                }
+                else if (member is EnumDeclaration nestedEnum)
+                {
+                    var enumBuilder = _builder.Class(nestedEnum.FullName);
+                    foreach (var attr in nestedEnum.Attributes)
+                    {
+                        enumBuilder.Attribute(attr.Name, attr.Arguments.ToArray());
+                    }
+                    for (int i = 0; i < nestedEnum.Members.Count; i++)
+                    {
+                        enumBuilder.Field(nestedEnum.Members[i], TypeRef.Int32).Static();
+                    }
+                    enumBuilder.EndClass();
                 }
             }
 
@@ -234,8 +302,10 @@ public class IRCodeGenerator
             _ => IRAccess.Public
         });
 
-        // Instance methods take 'this' as arg 0 (matching the runtime's
-        // positional-arg model); the IR stores it as a parameter named 'this'.
+        // The contract context drives bare static-field access, so it applies
+        // to static AND instance methods (instance ones additionally take
+        // 'this' as arg 0 — matching the runtime's positional-arg model).
+        _currentContractName = func.ContractName;
         var paramMap = new Dictionary<string, int>();
         int paramOffset = 0;
         if (func.IsInstance)
@@ -243,7 +313,6 @@ public class IRCodeGenerator
             mb.Parameter("this", new TypeRef("object"));
             paramMap["this"] = 0;
             _variableTypes["this"] = new TypeDescriptor.Named("object");
-            _currentContractName = func.ContractName;
             paramOffset = 1;
         }
         for (int i = 0; i < func.Parameters.Count; i++)
@@ -283,11 +352,60 @@ public class IRCodeGenerator
         _thisArgIndex = savedThisIndex;
     }
 
-    /// <summary>True when 'name' resolves to a field of the current instance.</summary>
+    /// <summary>True when 'name' resolves to a (non-static) field of the current instance.</summary>
     private bool IsInstanceField(string name)
         => _thisArgIndex != null
            && _currentContractName != null
-           && _program?.Contracts.Any(c => c.Name == _currentContractName && c.Fields.Any(f => f.Name == name)) == true;
+           && !_variableTypes.ContainsKey(name)   // params/locals shadow fields
+           && _program?.Contracts.Any(c => c.Name == _currentContractName && c.Fields.Any(f => f.Name == name && !f.IsStatic)) == true;
+
+    /// <summary>True when 'name' is a static field of the current contract (shared state).</summary>
+    private bool IsStaticField(string name)
+        => _currentContractName != null
+           && !_variableTypes.ContainsKey(name)   // params/locals shadow fields
+           && _program?.Contracts.Any(c => c.Name == _currentContractName && c.Fields.Any(f => f.Name == name && f.IsStatic)) == true;
+
+    /// <summary>True when 'contractName.fieldName' is a static field (short or qualified).</summary>
+    private bool IsStaticField(string contractName, string fieldName)
+        => _program?.Contracts.Any(c => (c.Name == contractName || c.FullName == contractName) && c.Fields.Any(f => f.Name == fieldName && f.IsStatic)) == true;
+
+    /// <summary>The static field reference for 'name' on the current contract.</summary>
+    private FieldReference StaticFieldReference(string name)
+    {
+        var fieldType = _program?.Contracts
+            .FirstOrDefault(c => c.Name == _currentContractName)?.Fields
+            .FirstOrDefault(f => f.Name == name)?.Type ?? new TypeDescriptor.Named("int");
+        return new FieldReference(new TypeRef(ResolveTypeName(_currentContractName ?? "TODO")), name, MapType(fieldType));
+    }
+
+    /// <summary>The zero-based index of an enum member, or -1 when not an enum member.</summary>
+    private int FindEnumMemberIndex(string enumName, string member)
+    {
+        var topLevel = _program?.Enums.FirstOrDefault(e => e.Name == enumName || e.FullName == enumName);
+        if (topLevel != null) return topLevel.Members.IndexOf(member);
+        var nested = _program?.Contracts
+            .SelectMany(c => c.Members.OfType<EnumDeclaration>())
+            .FirstOrDefault(e => e.Name == enumName || e.FullName == enumName);
+        return nested?.Members.IndexOf(member) ?? -1;
+    }
+
+    /// <summary>Collects a pure identifier-dot chain (com.lib.Geo) from a member expression, if any.</summary>
+    private static bool TryGetTypePath(Expression expr, out string path)
+    {
+        path = "";
+        if (expr is not MemberExpression mem) return false;
+        var segments = new Stack<string>();
+        var current = mem.Object;
+        while (current is MemberExpression inner)
+        {
+            segments.Push(inner.Property);
+            current = inner.Object;
+        }
+        if (current is not IdentifierExpression root) return false;
+        segments.Push(root.Name);
+        path = string.Join(".", segments);
+        return true;
+    }
 
     /// <summary>
     /// Resolves the declaring type name for a member access object:
@@ -299,10 +417,10 @@ public class IRCodeGenerator
     private string ResolveMemberObjectType(string name)
     {
         if (name == "this" && _currentContractName != null)
-            return _currentContractName;
+            return ResolveTypeName(_currentContractName);
         if (_variableTypes.TryGetValue(name, out var t) && t is TypeDescriptor.Named n && !n.IsEmpty)
-            return n.Name;
-        return name;
+            return ResolveTypeName(n.Name);
+        return ResolveTypeName(name);
     }
 
     /// <summary>The field reference for 'name' on the current contract.</summary>
@@ -311,21 +429,21 @@ public class IRCodeGenerator
         var fieldType = _program?.Contracts
             .FirstOrDefault(c => c.Name == _currentContractName)?.Fields
             .FirstOrDefault(f => f.Name == name)?.Type ?? new TypeDescriptor.Named("int");
-        return new FieldReference(new TypeRef(_currentContractName ?? "TODO"), name, MapType(fieldType));
+        return new FieldReference(new TypeRef(ResolveTypeName(_currentContractName ?? "TODO")), name, MapType(fieldType));
     }
 
-    /// <summary>Looks up a field's type on the given contract/struct type name.</summary>
+    /// <summary>Looks up a field's type on the given contract/struct type name (short or qualified).</summary>
     private TypeRef FindFieldType(string typeName, string fieldName)
     {
         if (_program != null)
         {
-            var contract = _program.Contracts.FirstOrDefault(c => c.Name == typeName);
+            var contract = _program.Contracts.FirstOrDefault(c => c.Name == typeName || c.FullName == typeName);
             if (contract != null)
             {
                 var f = contract.Fields.FirstOrDefault(f => f.Name == fieldName);
                 if (f != null) return MapType(f.Type);
             }
-            var structDecl = _program.Structs.FirstOrDefault(s => s.Name == typeName);
+            var structDecl = _program.Structs.FirstOrDefault(s => s.Name == typeName || s.FullName == typeName);
             if (structDecl != null)
             {
                 var f = structDecl.Fields.FirstOrDefault(f => f.Name == fieldName);
@@ -804,6 +922,12 @@ public class IRCodeGenerator
                     ib.Ldfld(InstanceFieldReference(id.Name));
                     break;
                 }
+                if (IsStaticField(id.Name))
+                {
+                    // Bare static field access — no receiver to push.
+                    ib.Ldsfld(StaticFieldReference(id.Name));
+                    break;
+                }
                 if (IsCaptured(id.Name))
                 {
                     // Captured var: read through the closure object's field.
@@ -837,6 +961,15 @@ public class IRCodeGenerator
                         ib.Stfld(InstanceFieldReference(fieldTarget.Name));
                         return;
                     }
+                    if (bin.Left is IdentifierExpression staticFieldTarget && IsStaticField(staticFieldTarget.Name))
+                    {
+                        // Bare static field write: stsfld pops just the value, so
+                        // dup to leave the assigned value for the statement's pop.
+                        GenerateExpression(ib, bin.Right, paramMap);
+                        ib.Dup();
+                        ib.Stsfld(StaticFieldReference(staticFieldTarget.Name));
+                        return;
+                    }
                     if (bin.Left is IndexExpression indexTarget)
                     {
                         // arr[i] = rhs. stelem pops [value, index, array], so
@@ -853,13 +986,32 @@ public class IRCodeGenerator
                     }
                     else if (bin.Left is MemberExpression memTarget)
                     {
-                        GenerateExpression(ib, memTarget.Object, paramMap);
-                        ib.Dup();   // keep the object for the store (stfld pops value, object)
-                        GenerateExpression(ib, bin.Right, paramMap);
                         var targetName = memTarget.Object is IdentifierExpression targetId
                             ? ResolveMemberObjectType(targetId.Name)
                             : "TODO_DYNAMIC_TYPE";
-                        ib.Stfld(new FieldReference(new TypeRef(targetName), memTarget.Property, FindFieldType(targetName, memTarget.Property)));
+                        if (IsStaticField(targetName, memTarget.Property))
+                        {
+                            // Static field write (Config.count = v) — no receiver.
+                            GenerateExpression(ib, bin.Right, paramMap);
+                            ib.Dup();
+                            ib.Stsfld(new FieldReference(new TypeRef(targetName), memTarget.Property, FindFieldType(targetName, memTarget.Property)));
+                        }
+                        else
+                        {
+                            GenerateExpression(ib, memTarget.Object, paramMap);
+                            ib.Dup();   // keep the object for the store (stfld pops value, object)
+                            GenerateExpression(ib, bin.Right, paramMap);
+                            ib.Stfld(new FieldReference(new TypeRef(targetName), memTarget.Property, FindFieldType(targetName, memTarget.Property)));
+                        }
+                        return;
+                    }
+                    else if (bin.Left is ScopedAccessExpression scopedWrite && IsStaticField(scopedWrite.Module, scopedWrite.Member))
+                    {
+                        // Static field write via Contract::field = v.
+                        var scopedTarget = ResolveTypeName(scopedWrite.Module);
+                        GenerateExpression(ib, bin.Right, paramMap);
+                        ib.Dup();
+                        ib.Stsfld(new FieldReference(new TypeRef(scopedTarget), scopedWrite.Member, FindFieldType(scopedTarget, scopedWrite.Member)));
                         return;
                     }
 
@@ -902,6 +1054,17 @@ public class IRCodeGenerator
                         ib.Stfld(fref);
                         return;
                     }
+                    if (bin.Left is IdentifierExpression staticCompound && IsStaticField(staticCompound.Name))
+                    {
+                        // Bare static field compound: ldsfld, rhs, op, store.
+                        var sref = StaticFieldReference(staticCompound.Name);
+                        ib.Ldsfld(sref);
+                        GenerateExpression(ib, bin.Right, paramMap);
+                        EmitArithmeticOrConcat(ib, op, bin);
+                        ib.Dup();   // leave the new value for the statement's pop
+                        ib.Stsfld(sref);
+                        return;
+                    }
                     if (bin.Left is IdentifierExpression compoundTarget)
                     {
                         if (paramMap.TryGetValue(compoundTarget.Name, out int compoundArgIdx)) ib.Ldarg(compoundArgIdx);
@@ -914,17 +1077,40 @@ public class IRCodeGenerator
                     }
                     else if (bin.Left is MemberExpression compoundMem)
                     {
-                        GenerateExpression(ib, compoundMem.Object, paramMap);
-                        ib.Dup(); // keep one copy for the store
-                        ib.Dup(); // and one left over after stfld
                         var compoundMemObjName = compoundMem.Object is IdentifierExpression compoundMemId
                             ? ResolveMemberObjectType(compoundMemId.Name)
                             : "TODO_DYNAMIC_TYPE";
                         var fieldRef = new FieldReference(new TypeRef(compoundMemObjName), compoundMem.Property, FindFieldType(compoundMemObjName, compoundMem.Property));
-                        ib.Ldfld(fieldRef);
+                        if (IsStaticField(compoundMemObjName, compoundMem.Property))
+                        {
+                            // Static member compound (Config.count += v) — no receiver.
+                            ib.Ldsfld(fieldRef);
+                            GenerateExpression(ib, bin.Right, paramMap);
+                            EmitArithmeticOrConcat(ib, op, bin);
+                            ib.Dup();
+                            ib.Stsfld(fieldRef);
+                        }
+                        else
+                        {
+                            GenerateExpression(ib, compoundMem.Object, paramMap);
+                            ib.Dup(); // keep one copy for the store
+                            ib.Dup(); // and one left over after stfld
+                            ib.Ldfld(fieldRef);
+                            GenerateExpression(ib, bin.Right, paramMap);
+                            EmitArithmeticOrConcat(ib, op, bin);
+                            ib.Stfld(fieldRef);
+                        }
+                    }
+                    else if (bin.Left is ScopedAccessExpression compoundScoped && IsStaticField(compoundScoped.Module, compoundScoped.Member))
+                    {
+                        // Static field compound via Contract::field += v.
+                        var scopedTarget2 = ResolveTypeName(compoundScoped.Module);
+                        var sref2 = new FieldReference(new TypeRef(scopedTarget2), compoundScoped.Member, FindFieldType(scopedTarget2, compoundScoped.Member));
+                        ib.Ldsfld(sref2);
                         GenerateExpression(ib, bin.Right, paramMap);
                         EmitArithmeticOrConcat(ib, op, bin);
-                        ib.Stfld(fieldRef);
+                        ib.Dup();
+                        ib.Stsfld(sref2);
                     }
                     else if (bin.Left is IndexExpression compoundIndex)
                     {
@@ -971,6 +1157,19 @@ public class IRCodeGenerator
                 break;
 
             case CallExpression call:
+                // Instance methods declare 'this' as param 0, and the runtime
+                // pops call args in reverse into the callee's locals — so the
+                // receiver must be pushed FIRST (before the arguments) to land
+                // in locals[0]. (Delegates keep the receiver-last convention.)
+                bool isInstanceCall = call.Symbol is FunctionDeclaration instCallFunc && instCallFunc.IsInstance;
+                if (isInstanceCall)
+                {
+                    if (call.Callee is MemberExpression recvMem)
+                        GenerateExpression(ib, recvMem.Object, paramMap);
+                    else if (call.Callee is IdentifierExpression recvSelf && recvSelf.Name == "this")
+                        ib.Ldarg(_thisArgIndex!.Value);
+                }
+
                 // Push arguments to stack
                 foreach (var arg in call.Arguments)
                     GenerateExpression(ib, arg, paramMap);
@@ -1009,16 +1208,8 @@ public class IRCodeGenerator
                 }
                 else if (call.Symbol is FunctionDeclaration instanceFunc && instanceFunc.IsInstance)
                 {
-                    // Instance method call: c.method(args). Push the receiver
-                    // (as arg 0 / this), then the args, then the call.
-                    if (call.Callee is MemberExpression imem)
-                    {
-                        GenerateExpression(ib, imem.Object, paramMap);
-                    }
-                    else if (call.Callee is IdentifierExpression selfIdent && selfIdent.Name == "this")
-                    {
-                        ib.Ldarg(_thisArgIndex!.Value);
-                    }
+                    // Instance method call: c.method(args). The receiver was
+                    // pushed before the arguments above (this is param 0).
                     var returnType = instanceFunc.ReturnType != null
                         ? MapType(instanceFunc.ReturnType)
                         : TypeRef.Int32;
@@ -1110,22 +1301,26 @@ public class IRCodeGenerator
                 }
                 else
                 {
-                    // new Type() — allocate, then run the constructor so field
-                    // initializers execute. The VM's newobj only allocates; the
-                    // ctor (this + params, named ".ctor") is invoked explicitly.
-                    // Stack: [obj] → [obj,obj] → call pops this → ret pushes nil
-                    // → [obj,nil] → pop → [obj].
-                    ib.Newobj(new TypeRef(newExpr.TypeName));
-                    bool hasCtor = _program?.Contracts
-                        .Any(c => c.Name == newExpr.TypeName && c.Constructors.Count > 0) == true;
-                    if (hasCtor)
+                    // new Type() / new Type(args) — allocate, then run the
+                    // constructor so field initializers execute. The VM's newobj
+                    // only allocates; the ctor (this + params, named ".ctor") is
+                    // invoked explicitly. Stack: [obj] → [obj,obj] → [obj,obj,args...]
+                    // → call pops in reverse into locals → ret pushes nil → pop.
+                    var qualifiedNewType = ResolveTypeName(newExpr.TypeName);
+                    ib.Newobj(new TypeRef(qualifiedNewType));
+                    var contract = _program?.Contracts.FirstOrDefault(c => c.Name == newExpr.TypeName || c.FullName == newExpr.TypeName);
+                    var ctor = contract?.Constructors.FirstOrDefault(c => c.Parameters.Count == newExpr.Arguments.Count);
+                    if (ctor != null)
                     {
-                        ib.Dup();
+                        ib.Dup();   // the receiver — pushed FIRST (it is param 0)
+                        foreach (var arg in newExpr.Arguments)
+                            GenerateExpression(ib, arg, paramMap);
+                        var argTypes = ctor.Parameters.Select(p => MapType(p.Type)).ToList();
                         ib.Call(new MethodReference(
-                            new TypeRef(newExpr.TypeName),
+                            new TypeRef(qualifiedNewType),
                             ".ctor",
                             TypeRef.Void,
-                            new List<TypeRef> { TypeRef.Object }));
+                            new List<TypeRef> { TypeRef.Object }.Concat(argTypes).ToList()));
                         ib.Pop();
                     }
                 }
@@ -1144,19 +1339,37 @@ public class IRCodeGenerator
                 break;
                 
             case MemberExpression mem:
-                GenerateExpression(ib, mem.Object, paramMap);
-                if (mem.Property == "Length")
-                {
-                    // Array length
-                    ib.Ldlen();
-                }
-                else
                 {
                     var memObjName = mem.Object is IdentifierExpression memObjId
                         ? ResolveMemberObjectType(memObjId.Name)
                         : "TODO_DYNAMIC_TYPE";
-                    var ftype = FindFieldType(memObjName, mem.Property);
-                    ib.Ldfld(new FieldReference(new TypeRef(memObjName), mem.Property, ftype));
+                    // Enum member read: Color.Red or com.lib.Direction.North folds
+                    // to its zero-based index (try the full dotted path first).
+                    var enumIndex = TryGetTypePath(mem, out var typePath)
+                        ? FindEnumMemberIndex(typePath, mem.Property)
+                        : FindEnumMemberIndex(memObjName, mem.Property);
+                    if (enumIndex >= 0)
+                    {
+                        ib.LdcI4(enumIndex);
+                        break;
+                    }
+                    if (IsStaticField(memObjName, mem.Property))
+                    {
+                        // Static field read (Config.count) — no receiver to push.
+                        ib.Ldsfld(new FieldReference(new TypeRef(memObjName), mem.Property, FindFieldType(memObjName, mem.Property)));
+                        break;
+                    }
+                    GenerateExpression(ib, mem.Object, paramMap);
+                    if (mem.Property == "Length")
+                    {
+                        // Array length
+                        ib.Ldlen();
+                    }
+                    else
+                    {
+                        var ftype = FindFieldType(memObjName, mem.Property);
+                        ib.Ldfld(new FieldReference(new TypeRef(memObjName), mem.Property, ftype));
+                    }
                 }
                 break;
 
@@ -1214,6 +1427,23 @@ public class IRCodeGenerator
                 else
                 {
                     throw new NotSupportedException("Piping to complex expressions is not yet supported.");
+                }
+                break;
+
+            case ScopedAccessExpression scopedExpr:
+                // Contract::field — a static field read (contract static methods
+                // are resolved through the call path, not here).
+                if (IsStaticField(scopedExpr.Module, scopedExpr.Member))
+                {
+                    var scopedTarget = ResolveTypeName(scopedExpr.Module);
+                    ib.Ldsfld(new FieldReference(new TypeRef(scopedTarget), scopedExpr.Member, FindFieldType(scopedTarget, scopedExpr.Member)));
+                }
+                else
+                {
+                    // Enum member: Color::Red folds to its index.
+                    var enumIdx = FindEnumMemberIndex(scopedExpr.Module, scopedExpr.Member);
+                    if (enumIdx >= 0)
+                        ib.LdcI4(enumIdx);
                 }
                 break;
         }
@@ -1311,8 +1541,53 @@ public class IRCodeGenerator
         "object" => TypeRef.Object,
         "double" => TypeRef.Float64,
         "float" => TypeRef.Float32,
-        _ => new TypeRef(type)
+        _ => new TypeRef(ResolveTypeName(type))
     };
+
+    // ── Namespace resolution ────────────────────────────────────────
+
+    private void AddTypeIndex(string shortName, string fullName)
+    {
+        _qualifiedTypeNames.Add(fullName);
+        if (!_shortToFull.TryGetValue(shortName, out var list))
+            _shortToFull[shortName] = list = new List<string>();
+        if (!list.Contains(fullName)) list.Add(fullName);
+    }
+
+    /// <summary>True when a declared type has this (possibly qualified) name.</summary>
+    private bool HasType(string name) => _qualifiedTypeNames.Contains(name);
+
+    /// <summary>
+    /// Resolves a possibly-short type name to its fully-qualified wire name:
+    /// already-dotted names pass through; the current contract's namespace is
+    /// preferred, then namespace imports, then a unique short-name match.
+    /// Falls back to the name unchanged.
+    /// </summary>
+    private string ResolveTypeName(string name)
+    {
+        if (string.IsNullOrEmpty(name) || name.Contains('.')) return name;
+
+        // 1. The current contract's own namespace (same-file types).
+        if (_currentContractName != null)
+        {
+            var cur = _program?.Contracts.FirstOrDefault(c => c.Name == _currentContractName);
+            if (cur?.Namespace != null && HasType($"{cur.Namespace}.{name}"))
+                return $"{cur.Namespace}.{name}";
+        }
+
+        // 2. Declared namespace imports (import com.example;).
+        foreach (var ns in _program?.NamespaceImports ?? Enumerable.Empty<string>())
+        {
+            if (HasType($"{ns}.{name}"))
+                return $"{ns}.{name}";
+        }
+
+        // 3. Unique short-name match anywhere.
+        if (_shortToFull.TryGetValue(name, out var list) && list.Count == 1)
+            return list[0];
+
+        return name;
+    }
 
     /// <summary>
     /// Resolves the element type for a newarr from an array literal. Prefers the

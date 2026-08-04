@@ -1,0 +1,18 @@
+// Cross-file namespaces: import the file, then `import com.lib;` makes its
+// types addressable by short name — exactly like a Java wildcard import.
+
+import "lib_ns.ct";
+import com.lib;
+
+Contract Program {
+    static fn Main() {
+        // Geo and Direction come from com.lib via the import.
+        IO.Println(Geo.Triple(4));       // 12
+        IO.Println(Geo.Triple(7));       // 21
+        IO.Println(Geo.Describe(Direction.North));  // north
+        IO.Println(Direction::East);     // 1
+
+        // Fully-qualified reference also works.
+        IO.Println(com.lib.Geo.Triple(2));   // 6
+    }
+}

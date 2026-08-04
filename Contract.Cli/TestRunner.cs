@@ -43,19 +43,16 @@ namespace Contract.Cli
 
         private static bool RunSingleTest(string path, bool shouldPass)
         {
-            string source = File.ReadAllText(path);
-            var diagnostics = new DiagnosticBag { SourceCode = source };
-            var lexer = new Lexer(source, diagnostics);
-            var tokens = lexer.Tokenize().ToList();
-            var parser = new Parser(tokens, diagnostics);
+            var diagnostics = new DiagnosticBag();
+            string? source = null;
 
             try
             {
-                var program = parser.Parse();
-
-                // Semantic analysis, mirroring the full compile pipeline, so
-                // failure tests can cover analyzer errors (unknown attribute,
-                // inheritance cycles, ...).
+                // Full pipeline: lex → parse → analyze → codegen, through the
+                // CompilerDriver so file imports (`import "other.ct";`) resolve
+                // relative to the test file — mirroring the real CLI.
+                var driver = new Contract.Compiler.CompilerDriver(diagnostics);
+                var program = driver.Compile(path);
                 if (!diagnostics.HasErrors)
                 {
                     var symbolTable = new SymbolTable();
@@ -64,11 +61,20 @@ namespace Contract.Cli
                     var analyzer = new SemanticAnalyzer(symbolTable, diagnostics);
                     analyzer.Analyze(program);
                 }
+                if (!diagnostics.HasErrors)
+                {
+                    var codeGenerator = new Contract.Compiler.CodeGen.IRCodeGenerator(diagnostics);
+                    codeGenerator.Generate(program);
+                }
+                source = File.ReadAllText(path);
             }
             catch (Exception ex)
             {
                 diagnostics.AddError($"Critical parser crash: {ex.Message}", 0, 0);
             }
+
+            if (source != null)
+                diagnostics.SourceCode = source;
 
             bool failed = diagnostics.HasErrors;
             bool success = (shouldPass && !failed) || (!shouldPass && failed);

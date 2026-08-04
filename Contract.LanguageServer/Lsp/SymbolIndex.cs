@@ -13,6 +13,7 @@ public enum SymbolCategory
 {
     Contract,
     Struct,
+    Enum,
     Function,
     Constructor,
     Field,
@@ -58,6 +59,7 @@ public class SymbolIndex
     private readonly List<SymbolInfo> _functions = new();
     private readonly List<SymbolInfo> _contracts = new();
     private readonly List<SymbolInfo> _structs = new();
+    private readonly List<SymbolInfo> _enums = new();
     private readonly Dictionary<string, List<SymbolInfo>> _byUri = new();
 
     /// <summary>XML docs for the stdlib (Contract.Compiler.xml), or null when unavailable.</summary>
@@ -74,6 +76,7 @@ public class SymbolIndex
         _functions.Clear();
         _contracts.Clear();
         _structs.Clear();
+        _enums.Clear();
         _byUri.Clear();
 
         string? mainPathNorm = result.MainFile != null ? TextUtility.NormalizePath(result.MainFile.Path) : null;
@@ -89,6 +92,8 @@ public class SymbolIndex
                 tops.Add(MakeContract(contract, uri, file.Tokens, file.Source));
             foreach (var st in file.Program.Structs)
                 tops.Add(MakeStruct(st, uri, file.Tokens, null, file.Source));
+            foreach (var en in file.Program.Enums)
+                tops.Add(MakeEnum(en, uri, file.Tokens, null, file.Source));
             foreach (var fn in file.Program.Functions)
                 tops.Add(MakeFunction(fn, uri, file.Tokens, null, file.Source));
             _byUri[uri] = tops;
@@ -130,7 +135,52 @@ public class SymbolIndex
                 case StructDeclaration s:
                     sym.Children.Add(MakeStruct(s, uri, tokens, sym, source));
                     break;
+                case EnumDeclaration e:
+                    sym.Children.Add(MakeEnum(e, uri, tokens, sym, source));
+                    break;
             }
+        }
+        return sym;
+    }
+
+    private SymbolInfo MakeEnum(EnumDeclaration e, string uri, List<Token> tokens, SymbolInfo? parent, string source)
+    {
+        var nameTok = FindNameToken(tokens, e.Line, e.Column, e.Name);
+        var sym = new SymbolInfo
+        {
+            Name = e.Name,
+            Category = SymbolCategory.Enum,
+            Uri = uri,
+            Line = nameTok.Line,
+            Column = nameTok.Column,
+            Length = nameTok.Length,
+            Parent = parent,
+            Detail = $"enum {e.Name} {{ {string.Join(", ", e.Members)} }}",
+            Doc = TextUtility.ExtractDocComment(source, e.Line),
+            SelectionRange = TextUtility.TokenRange(nameTok),
+            ContainerRange = ComputeContainerRange(tokens, nameTok),
+        };
+        _enums.Add(sym);
+        _all.Add(sym);
+
+        // Enum members as constant children (each folds to its index).
+        foreach (var member in e.Members)
+        {
+            var mTok = FindNameToken(tokens, e.Line, e.Column, member);
+            var idx = e.Members.IndexOf(member);
+            sym.Children.Add(new SymbolInfo
+            {
+                Name = member,
+                Category = SymbolCategory.Field,
+                Uri = uri,
+                Line = mTok.Line,
+                Column = mTok.Column,
+                Length = mTok.Length,
+                Parent = sym,
+                Detail = $"{e.Name}.{member} = {idx}",
+                SelectionRange = TextUtility.TokenRange(mTok),
+                ContainerRange = ComputeContainerRange(tokens, mTok),
+            });
         }
         return sym;
     }
@@ -366,7 +416,9 @@ public class SymbolIndex
         => _functions.FirstOrDefault(f => f.Name == name);
 
     private SymbolInfo? FindType(string name)
-        => _contracts.FirstOrDefault(c => c.Name == name) ?? _structs.FirstOrDefault(s => s.Name == name);
+        => _contracts.FirstOrDefault(c => c.Name == name)
+           ?? _structs.FirstOrDefault(s => s.Name == name)
+           ?? _enums.FirstOrDefault(e => e.Name == name);
 
     private SymbolInfo? FindContainingFunction(Position pos)
         => _functions.FirstOrDefault(f => f.ContainerRange.Contains(pos));
@@ -539,6 +591,7 @@ public class SymbolIndex
             {
                 SymbolCategory.Contract => SymbolKind.Class,
                 SymbolCategory.Struct => SymbolKind.Struct,
+                SymbolCategory.Enum => SymbolKind.Enum,
                 SymbolCategory.Function => s.Parent != null ? SymbolKind.Method : SymbolKind.Function,
                 SymbolCategory.Constructor => SymbolKind.Constructor,
                 SymbolCategory.Field => SymbolKind.Field,
@@ -558,6 +611,7 @@ public class SymbolIndex
         {
             SymbolCategory.Contract => "Contract",
             SymbolCategory.Struct => "struct",
+            SymbolCategory.Enum => "enum",
             SymbolCategory.Function => "function",
             SymbolCategory.Constructor => "constructor",
             SymbolCategory.Field => "field",
@@ -739,7 +793,9 @@ public class SymbolIndex
         AddTypes(result, items, sortPrefix: "1");
         foreach (var module in result.SymbolTable.GetBoundClasses())
         {
-            if (_contracts.Any(c => c.Name == module) || _structs.Any(s => s.Name == module)) continue;
+            if (_contracts.Any(c => c.Name == module)
+                || _structs.Any(s => s.Name == module)
+                || _enums.Any(e => e.Name == module)) continue;
             items.Add(new CompletionItem
             {
                 Label = module,
@@ -784,6 +840,26 @@ public class SymbolIndex
                 SortText = sortPrefix + s.Name,
             });
         }
+        foreach (var e in _enums)
+        {
+            items.Add(new CompletionItem
+            {
+                Label = e.Name,
+                Kind = CompletionItemKind.Enum,
+                Detail = e.Detail,
+                SortText = sortPrefix + e.Name,
+            });
+            foreach (var child in e.Children)
+            {
+                items.Add(new CompletionItem
+                {
+                    Label = child.Name,
+                    Kind = CompletionItemKind.EnumMember,
+                    Detail = child.Detail,
+                    SortText = sortPrefix + e.Name + "." + child.Name,
+                });
+            }
+        }
     }
 
     private void AddModuleMembers(CompilationResult result, string module, List<CompletionItem> items)
@@ -817,6 +893,15 @@ public class SymbolIndex
         {
             foreach (var m in result.SymbolTable.GetExternalMethods(baseName))
                 items.Add(ExternalCompletion(m));
+            return;
+        }
+
+        // User-defined type (contract/struct/enum): offer its members — e.g.
+        // `Util.` → [total, Bump, Total], `Status.` → [Idle, Busy, Done].
+        var typeMemberSym = FindType(baseName);
+        if (typeMemberSym != null)
+        {
+            foreach (var child in typeMemberSym.Children) items.Add(SymbolCompletion(child));
             return;
         }
 
@@ -887,6 +972,7 @@ public class SymbolIndex
             SymbolCategory.Field => CompletionItemKind.Field,
             SymbolCategory.Parameter or SymbolCategory.Local => CompletionItemKind.Variable,
             SymbolCategory.Struct => CompletionItemKind.Struct,
+            SymbolCategory.Enum => CompletionItemKind.Enum,
             _ => CompletionItemKind.Class,
         };
         return new CompletionItem
@@ -1096,11 +1182,12 @@ public class SymbolIndex
         foreach (var l in s.Locals) CollectDecls(l, map);
     }
 
-    /// <summary>User-defined type category by name (Contract/Struct), or null when not a user type.</summary>
+    /// <summary>User-defined type category by name (Contract/Struct/Enum), or null when not a user type.</summary>
     public SymbolCategory? TypeCategory(string name)
     {
         if (_contracts.Any(c => c.Name == name)) return SymbolCategory.Contract;
         if (_structs.Any(s => s.Name == name)) return SymbolCategory.Struct;
+        if (_enums.Any(e => e.Name == name)) return SymbolCategory.Enum;
         return null;
     }
 }

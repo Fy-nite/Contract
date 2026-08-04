@@ -1,0 +1,21 @@
+// A namespaced "library" file — the sort of thing you'd compile to .orbt
+// and include like a DLL.
+
+namespace com.lib;
+
+enum Direction {
+    North, East, South, West
+}
+
+Contract Geo {
+    static fn Triple(x: int) -> int {
+        return x * 3;
+    }
+
+    static fn Describe(d: int) -> string {
+        if (d == Direction.North) {
+            return "north";
+        }
+        return "other";
+    }
+}

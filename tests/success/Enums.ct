@@ -1,0 +1,31 @@
+// Enums — named int constants folding to their zero-based index.
+
+enum Color {
+    Red, Green, Blue
+}
+
+Contract Shirt {
+    static fn Name(c: int) -> string {
+        if (c == Color.Red) {
+            return "red";
+        }
+        if (c == Color.Green) {
+            return "green";
+        }
+        return "blue";
+    }
+
+    static fn IndexOf(c: int) -> int {
+        return c;
+    }
+}
+
+Contract Program {
+    static fn Main() {
+        IO.Println(Color.Red);      // 0
+        IO.Println(Color.Green);    // 1
+        IO.Println(Color::Blue);    // 2  (scoped form)
+        IO.Println(Shirt.Name(Color.Blue));   // blue
+        IO.Println(Shirt.IndexOf(Color.Green));  // 1
+    }
+}

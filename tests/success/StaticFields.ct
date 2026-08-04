@@ -1,0 +1,87 @@
+// Static fields on contracts: shared state across instances and calls.
+// Accessible bare (inside contract fns), via Contract.field, and via
+// Contract::field. Supports read, write, and compound assignment.
+
+Contract Counter {
+    static count: int;
+    static label: string;
+
+    static fn Reset() {
+        count = 0;
+    }
+
+    static fn Increment() {
+        count = count + 1;
+    }
+
+    static fn Add(n: int) {
+        count += n;
+    }
+
+    static fn Get() -> int {
+        return count;
+    }
+
+    static fn Describe() -> string {
+        return label;
+    }
+}
+
+// Static state is shared across instances: the constructor bumps a static
+// counter, and instance methods can read it too.
+Contract Widget {
+    static made: int;
+    name: string;
+
+    constructor() {
+        made = made + 1;
+    }
+
+    fn SetName(n: string) {
+        this.name = n;
+    }
+
+    fn GetName() -> string {
+        return name;
+    }
+
+    fn Serial() -> int {
+        return made;
+    }
+}
+
+Contract Program {
+    static fn Main() {
+        // Bare access inside the declaring contract's static fns.
+        Counter.Reset();
+        Counter.Increment();
+        Counter.Increment();
+        IO.Println(Counter.Get());      // 2
+
+        Counter.Add(3);
+        IO.Println(Counter.Get());      // 5
+
+        // Qualified write + compound.
+        Counter.count = 100;
+        Counter.count += 5;
+        IO.Println(Counter.Get());      // 105
+
+        // Scoped form: static method call and static field read.
+        Counter::Reset();
+        IO.Println(Counter::count);     // 0
+
+        // String static field.
+        Counter.label = "hello";
+        IO.Println(Counter.Describe()); // hello
+
+        // Shared static state across instances.
+        var a = new Widget();
+        a.SetName("a");
+        var b = new Widget();
+        b.SetName("b");
+        IO.Println(Widget.made);        // 2  (both ctors bumped it)
+        IO.Println(a.Serial());         // 2
+        IO.Println(b.Serial());         // 2
+        IO.Println(a.GetName());        // a
+    }
+}

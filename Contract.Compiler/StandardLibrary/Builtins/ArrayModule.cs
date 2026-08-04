@@ -20,5 +20,13 @@ namespace Contract.Compiler.StandardLibrary.Builtins
         /// <summary>Sets the element at <paramref name="index"/> to <paramref name="value"/>.</summary>
         [MethodBinding]
         public static void Set(object arr, int index, object value) => ((System.Array)arr).SetValue(value, index);
+
+        /// <summary>Joins the elements of a string array into one string with <paramref name="separator"/> between them.</summary>
+        [MethodBinding]
+        public static string Join(object arr, string separator)
+        {
+            var values = ((System.Array)arr).Cast<object?>().Select(v => v?.ToString() ?? "").ToArray();
+            return string.Join(separator, values);
+        }
     }
 }

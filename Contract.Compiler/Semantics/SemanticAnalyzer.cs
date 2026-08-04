@@ -26,22 +26,48 @@ namespace Contract.Compiler.Semantics
 
         public void Analyze(Program program)
         {
+            _program = program;
+
             // Register namespace imports so short module names resolve.
             foreach (var ns in program.NamespaceImports)
                 _symbolTable.ImportNamespace(ns);
 
-            // Register contracts as valid types
+            // Register contracts as valid types (short + namespace-qualified)
             foreach (var contract in program.Contracts)
             {
                 _typeRegistry.RegisterCustomType(contract.Name);
+                if (contract.FullName != contract.Name)
+                    _typeRegistry.RegisterCustomType(contract.FullName);
                 if (contract.Fields.Count > 0)
                     _contractsWithFields.Add(contract);
             }
 
-            // Register structs as valid types
+            // Register structs as valid types (short + namespace-qualified)
             foreach (var structDecl in program.Structs)
             {
                 _typeRegistry.RegisterCustomType(structDecl.Name);
+                if (structDecl.FullName != structDecl.Name)
+                    _typeRegistry.RegisterCustomType(structDecl.FullName);
+            }
+
+            // Register enums as valid types (short + namespace-qualified)
+            foreach (var enumDecl in program.Enums)
+            {
+                _typeRegistry.RegisterCustomType(enumDecl.Name);
+                if (enumDecl.FullName != enumDecl.Name)
+                    _typeRegistry.RegisterCustomType(enumDecl.FullName);
+            }
+            foreach (var contract in program.Contracts)
+            {
+                foreach (var member in contract.Members)
+                {
+                    if (member is EnumDeclaration enumDecl)
+                    {
+                        _typeRegistry.RegisterCustomType(enumDecl.Name);
+                        if (enumDecl.FullName != enumDecl.Name)
+                            _typeRegistry.RegisterCustomType(enumDecl.FullName);
+                    }
+                }
             }
             
             // Register structs defined inside contracts
@@ -519,8 +545,9 @@ namespace Contract.Compiler.Semantics
                     ResolveCall(call);
                     break;
                 case ScopedAccessExpression scoped:
-                    // Module::member — an stdlib module, or a static member on a
-                    // user contract (Contract::staticMethod works like the dot form).
+                    // Module::member — an stdlib module, a static member on a
+                    // user contract (Contract::staticMethod works like the dot form),
+                    // or an enum member (Color::Red).
                     if (_symbolTable.IsBoundModule(scoped.Module))
                     {
                         if (!_symbolTable.TryGetMethod(scoped.Module, scoped.Member, out _))
@@ -528,10 +555,20 @@ namespace Contract.Compiler.Semantics
                             _diagnostics.AddError($"Member '{scoped.Member}' not found in module '{scoped.Module}'", scoped.Line, scoped.Column);
                         }
                     }
+                    else if (IsEnumType(scoped.Module))
+                    {
+                        if (!IsEnumMember(scoped.Module, scoped.Member))
+                        {
+                            _diagnostics.AddError($"'{scoped.Member}' is not a member of enum '{scoped.Module}'", scoped.Line, scoped.Column);
+                        }
+                    }
                     else if (_symbolTable.IsUserContract(scoped.Module))
                     {
-                        if (!_symbolTable.TryGetMethod(scoped.Module, scoped.Member, out var cm)
-                            || (cm is FunctionDeclaration cf && !cf.IsStatic))
+                        // Static members: Contract::Method() or Contract::field.
+                        bool isStaticField = FindContractStaticField(scoped.Module, scoped.Member) != null;
+                        if (!isStaticField
+                            && (!_symbolTable.TryGetMethod(scoped.Module, scoped.Member, out var cm)
+                                || (cm is FunctionDeclaration cf && !cf.IsStatic)))
                         {
                             _diagnostics.AddError($"Member '{scoped.Member}' not found in contract '{scoped.Module}'", scoped.Line, scoped.Column);
                         }
@@ -545,6 +582,28 @@ namespace Contract.Compiler.Semantics
                     if (IsModuleAccessChain(mem))
                     {
                         // It's a standard library call, don't analyze the spine as variables
+                    }
+                    else if (IsTypeAccessChain(mem))
+                    {
+                        // Dotted qualified-type access: com.lib.Geo.staticMember or
+                        // com.lib.Direction.North — the spine is a type name, not a
+                        // variable. Validate enum members here; static method/field
+                        // validation happens in ResolveCall / the scoped branch.
+                        if (TryGetModuleAccessPath(mem, out var typePath) && IsEnumType(typePath))
+                        {
+                            if (!IsEnumMember(typePath, mem.Property))
+                            {
+                                _diagnostics.AddError($"'{mem.Property}' is not a member of enum '{typePath}'", mem.Line, mem.Column);
+                            }
+                        }
+                    }
+                    else if (IsEnumType(GetMemberObjectName(mem)))
+                    {
+                        // Enum member read: Color.Red — the spine isn't a variable.
+                        if (!IsEnumMember(GetMemberObjectName(mem), mem.Property))
+                        {
+                            _diagnostics.AddError($"'{mem.Property}' is not a member of enum '{GetMemberObjectName(mem)}'", mem.Line, mem.Column);
+                        }
                     }
                     else
                     {
@@ -561,7 +620,8 @@ namespace Contract.Compiler.Semantics
                         && !_definedFunctions.Contains(id.Name)
                         && !_symbolTable.GetBoundClasses().Contains(id.Name)
                         && !_symbolTable.IsBoundModule(id.Name)
-                        && !IsContractField(id.Name))
+                        && !IsContractField(id.Name)
+                        && !IsEnumType(id.Name))
                     {
                         _diagnostics.AddError($"Undefined variable: '{id.Name}'", id.Line, id.Column);
                     }
@@ -670,6 +730,80 @@ namespace Contract.Compiler.Semantics
             return false;
         }
 
+        // ── Enums ───────────────────────────────────────────────────
+
+        private EnumDeclaration? FindEnum(string name)
+        {
+            var topLevel = _program?.Enums.FirstOrDefault(e => e.Name == name || e.FullName == name);
+            if (topLevel != null) return topLevel;
+            foreach (var contract in _program?.Contracts ?? Enumerable.Empty<ContractDeclaration>())
+            {
+                var nested = contract.Members.OfType<EnumDeclaration>().FirstOrDefault(e => e.Name == name || e.FullName == name);
+                if (nested != null) return nested;
+            }
+            return null;
+        }
+
+        private bool IsEnumType(string name) => FindEnum(name) != null;
+
+        private bool IsEnumMember(string enumName, string member) =>
+            FindEnum(enumName)?.Members.Contains(member) == true;
+
+        private static string GetMemberObjectName(MemberExpression mem) =>
+            mem.Object is IdentifierExpression id ? id.Name : "";
+
+        /// <summary>Finds a contract by short or namespace-qualified name.</summary>
+        private ContractDeclaration? FindContract(string name)
+        {
+            if (_program == null) return null;
+            return _program.Contracts.FirstOrDefault(c => c.Name == name || c.FullName == name);
+        }
+
+        /// <summary>Type of a static field on a contract, or null when it isn't one.</summary>
+        private TypeDescriptor? FindContractStaticField(string contractName, string fieldName)
+        {
+            var contract = FindContract(contractName);
+            return contract?.Fields.FirstOrDefault(f => f.Name == fieldName && f.IsStatic)?.Type;
+        }
+
+        /// <summary>Type of a bare static field access, or null when no contract declares it.</summary>
+        private TypeDescriptor? FindStaticFieldTypeAnywhere(string fieldName)
+        {
+            if (_program == null) return null;
+            foreach (var contract in _program.Contracts)
+            {
+                var field = contract.Fields.FirstOrDefault(f => f.Name == fieldName && f.IsStatic);
+                if (field != null) return field.Type;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Type of a field read where <paramref name="ownerName"/> is either a
+        /// contract name (static field) or a variable of a contract type (instance
+        /// field). Returns null when it isn't a known field.
+        /// </summary>
+        private TypeDescriptor? FindFieldType(string ownerName, string fieldName)
+        {
+            if (_program == null) return null;
+
+            var contract = FindContract(ownerName);
+            if (contract != null)
+            {
+                var field = contract.Fields.FirstOrDefault(f => f.Name == fieldName);
+                if (field != null) return field.Type;
+            }
+
+            if (FindVariableType(ownerName) is TypeDescriptor.Named n)
+            {
+                var owner = FindContract(n.Name);
+                var field2 = owner?.Fields.FirstOrDefault(f => f.Name == fieldName);
+                if (field2 != null) return field2.Type;
+            }
+
+            return null;
+        }
+
         private TypeDescriptor? InferType(Expression expression)
         {
             switch (expression)
@@ -684,7 +818,12 @@ namespace Contract.Compiler.Semantics
                         _ => null
                     };
                 case IdentifierExpression id:
-                    return FindVariableType(id.Name);
+                {
+                    var found = FindVariableType(id.Name);
+                    if (found != null) return found;
+                    // Bare static field access (shared state on a contract).
+                    return FindStaticFieldTypeAnywhere(id.Name);
+                }
                 case UnaryExpression unary:
                     return InferType(unary.Operand);
                 case NewExpression newExpr:
@@ -737,6 +876,17 @@ namespace Contract.Compiler.Semantics
                         {
                             return innerFn.Return;
                         }
+                    }
+                    return new TypeDescriptor.Named("int");
+                case MemberExpression mem:
+                    // Field read: Config.count (static) or p.count (instance field
+                    // of a contract-typed variable). Falls back to int otherwise.
+                    if (mem.Object is IdentifierExpression memObj)
+                    {
+                        // Enum member: Color.Red → the enum type.
+                        if (IsEnumType(memObj.Name)) return new TypeDescriptor.Named(memObj.Name);
+                        var fieldType = FindFieldType(memObj.Name, mem.Property);
+                        if (fieldType != null) return fieldType;
                     }
                     return new TypeDescriptor.Named("int");
                 case BinaryExpression bin:
@@ -938,5 +1088,17 @@ namespace Contract.Compiler.Semantics
         /// <summary>True when the member chain's base is a bound stdlib module (possibly dotted).</summary>
         private bool IsModuleAccessChain(MemberExpression mem)
             => TryGetModuleAccessPath(mem, out var modulePath) && _symbolTable.IsBoundModule(modulePath);
+
+        /// <summary>True when a (possibly dotted) name is a user-declared contract, struct, or enum.</summary>
+        private bool IsUserType(string name)
+        {
+            if (FindContract(name) != null) return true;
+            if (_program?.Structs.Any(s => s.Name == name || s.FullName == name) == true) return true;
+            return FindEnum(name) != null;
+        }
+
+        /// <summary>True when a member chain's base is a qualified user type reference (com.lib.Geo.Member).</summary>
+        private bool IsTypeAccessChain(MemberExpression mem)
+            => TryGetModuleAccessPath(mem, out var path) && IsUserType(path);
     }
 }

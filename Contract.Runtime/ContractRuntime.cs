@@ -1,8 +1,11 @@
+using System.Linq;
 using System.Reflection;
+using Contract.Compiler.StandardLibrary;
 using Contract.Compiler.StandardLibrary.Builtins;
 using ObjectRT.Abstractions;
 using ObjectRT.Reader;
 using ObjectRT.Runtime;
+using ObjectRT.Runtime.Reflection;
 
 namespace Contract.Runtime;
 
@@ -20,7 +23,7 @@ namespace Contract.Runtime;
 /// C# project; this class is where the binding registration lives so that
 /// split is mechanical.
 /// </summary>
-public class ContractRuntime
+public class ContractRuntime : IReflectHost
 {
     private readonly ObjectRT.Runtime.Runtime _runtime;
 
@@ -32,6 +35,7 @@ public class ContractRuntime
     {
         _runtime = new ObjectRT.Runtime.Runtime();
         RegisterDefaultBindings();
+        Contract.Compiler.StandardLibrary.Builtins.ReflectModule.Host = this;
     }
 
     /// <summary>Creates a runtime wrapping an existing ObjectRT runtime.</summary>
@@ -39,6 +43,7 @@ public class ContractRuntime
     {
         _runtime = inner;
         RegisterDefaultBindings();
+        Contract.Compiler.StandardLibrary.Builtins.ReflectModule.Host = this;
     }
 
     // ── Standard library bindings ──────────────────────────────────
@@ -70,6 +75,9 @@ public class ContractRuntime
         RegisterBinding("ObjektRT.Stdlib.Math.Numbers", typeof(ObjektRT.Stdlib.Math.Numbers));
         RegisterBinding("ObjektRT.Stdlib.Threading.Thread", typeof(ObjektRT.Stdlib.Threading.Thread));
         RegisterBinding("ObjektRT.Stdlib.Generics.Array", typeof(ObjektRT.Stdlib.Generics.Array));
+
+        // In-language reflection bridge.
+        RegisterBinding("Reflect", typeof(Contract.Compiler.StandardLibrary.Builtins.ReflectModule));
     }
 
     /// <summary>
@@ -149,5 +157,208 @@ public class ContractRuntime
             }
         }
         return null;
+    }
+
+    // ── Reflection ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// C#-style reflection over the currently loaded module (types, methods,
+    /// fields, attributes, inheritance) — or null when nothing is loaded yet.
+    /// </summary>
+    public ModuleReflector? Reflector => Inner.GetReflector();
+
+    /// <summary>Builds a reflector over a module object without loading it.</summary>
+    public static ModuleReflector ReflectModule(ORBTModule module) => new(module);
+
+    // ── IReflectHost — backs the in-language Reflect module ─────────
+
+    private ModuleReflector? HostReflector => Inner.GetReflector();
+
+    string[] IReflectHost.Types()
+        => HostReflector?.GetTypes().Select(t => t.Name).ToArray() ?? Array.Empty<string>();
+
+    bool IReflectHost.HasType(string typeName)
+    {
+        var refl = HostReflector;
+        if (refl == null) return false;
+        if (refl.GetType(typeName) != null) return true;
+        var shortName = ResolveShort(typeName);
+        return shortName != null && refl.GetType(shortName) != null;
+    }
+
+    string[] IReflectHost.Methods(string typeName)
+    {
+        var t = FindHostType(typeName);
+        return t?.GetMethods().Select(m => m.QualifiedName).ToArray() ?? Array.Empty<string>();
+    }
+
+    string[] IReflectHost.Fields(string typeName)
+    {
+        var t = FindHostType(typeName);
+        return t?.GetFields().Select(f => f.QualifiedName).ToArray() ?? Array.Empty<string>();
+    }
+
+    string IReflectHost.BaseType(string typeName)
+        => FindHostType(typeName)?.BaseType?.Name ?? "";
+
+    string IReflectHost.ModuleName()
+        => HostReflector?.ModuleName ?? "";
+
+    string IReflectHost.Kind(string typeName)
+        => FindHostType(typeName)?.Kind.ToString() ?? "";
+
+    bool IReflectHost.IsClass(string typeName)
+        => FindHostType(typeName)?.IsClass ?? false;
+
+    bool IReflectHost.IsInterface(string typeName)
+        => FindHostType(typeName)?.IsInterface ?? false;
+
+    bool IReflectHost.IsStruct(string typeName)
+        => FindHostType(typeName)?.IsStruct ?? false;
+
+    bool IReflectHost.IsEnum(string typeName)
+        => FindHostType(typeName)?.IsEnum ?? false;
+
+    bool IReflectHost.IsAbstract(string typeName)
+        => FindHostType(typeName)?.IsAbstract ?? false;
+
+    bool IReflectHost.IsSealed(string typeName)
+        => FindHostType(typeName)?.IsSealed ?? false;
+
+    string IReflectHost.Access(string typeName)
+        => FindHostType(typeName)?.Access.ToString() ?? "";
+
+    string[] IReflectHost.Interfaces(string typeName)
+        => FindHostType(typeName)?.Interfaces.Select(i => i?.Name ?? "").ToArray() ?? Array.Empty<string>();
+
+    string[] IReflectHost.AllInterfaces(string typeName)
+        => FindHostType(typeName)?.GetInterfaces().Select(i => i.Name).ToArray() ?? Array.Empty<string>();
+
+    string[] IReflectHost.Hierarchy(string typeName)
+        => FindHostType(typeName)?.GetHierarchy().Select(t => t.Name).ToArray() ?? Array.Empty<string>();
+
+    bool IReflectHost.IsSubclassOf(string typeName, string baseTypeName)
+    {
+        var t = FindHostType(typeName);
+        var baseType = FindHostType(baseTypeName);
+        return t != null && baseType != null && t.IsSubclassOf(baseType);
+    }
+
+    bool IReflectHost.IsAssignableFrom(string typeName, string otherTypeName)
+    {
+        var t = FindHostType(typeName);
+        var other = FindHostType(otherTypeName);
+        return t != null && other != null && t.IsAssignableFrom(other);
+    }
+
+    string IReflectHost.Resolve(string qualifiedMethodName)
+    {
+        int dot = qualifiedMethodName.LastIndexOf('.');
+        if (dot <= 0 || dot >= qualifiedMethodName.Length - 1) return "";
+        var typeName = qualifiedMethodName[..dot];
+        var methodName = qualifiedMethodName[(dot + 1)..];
+        return FindHostType(typeName)?.FindMethod(methodName)?.QualifiedName ?? "";
+    }
+
+    string[] IReflectHost.DeclaredMethods(string typeName)
+        => FindHostType(typeName)?.GetDeclaredMethods().Select(m => m.QualifiedName).ToArray() ?? Array.Empty<string>();
+
+    string[] IReflectHost.DeclaredFields(string typeName)
+        => FindHostType(typeName)?.GetDeclaredFields().Select(f => f.QualifiedName).ToArray() ?? Array.Empty<string>();
+
+    string[] IReflectHost.Attributes(string typeName)
+        => FindHostType(typeName)?.GetAttributes().Select(a => a.ToString()).ToArray() ?? Array.Empty<string>();
+
+    string[] IReflectHost.MethodAttributes(string typeName, string methodName)
+        => FindHostMethod(typeName, methodName)?.GetAttributes().Select(a => a.ToString()).ToArray() ?? Array.Empty<string>();
+
+    string IReflectHost.MethodReturn(string typeName, string methodName)
+        => FindHostMethod(typeName, methodName)?.ReturnTypeName ?? "";
+
+    string[] IReflectHost.MethodParams(string typeName, string methodName)
+        => FindHostMethod(typeName, methodName)?.GetParameters().Select(p => p.ToString()).ToArray() ?? Array.Empty<string>();
+
+    bool IReflectHost.MethodStatic(string typeName, string methodName)
+        => FindHostMethod(typeName, methodName)?.IsStatic ?? false;
+
+    bool IReflectHost.MethodVirtual(string typeName, string methodName)
+        => FindHostMethod(typeName, methodName)?.IsVirtual ?? false;
+
+    bool IReflectHost.MethodOverride(string typeName, string methodName)
+        => FindHostMethod(typeName, methodName)?.IsOverride ?? false;
+
+    bool IReflectHost.MethodAbstract(string typeName, string methodName)
+        => FindHostMethod(typeName, methodName)?.IsAbstract ?? false;
+
+    string IReflectHost.MethodDeclaringType(string typeName, string methodName)
+        => FindHostMethod(typeName, methodName)?.DeclaringType.Name ?? "";
+
+    string IReflectHost.MethodBase(string typeName, string methodName)
+        => FindHostMethod(typeName, methodName)?.GetBaseDefinition()?.QualifiedName ?? "";
+
+    string IReflectHost.FieldType(string typeName, string fieldName)
+        => FindHostField(typeName, fieldName)?.TypeName ?? "";
+
+    bool IReflectHost.FieldStatic(string typeName, string fieldName)
+        => FindHostField(typeName, fieldName)?.IsStatic ?? false;
+
+    string IReflectHost.FieldDeclaringType(string typeName, string fieldName)
+        => FindHostField(typeName, fieldName)?.DeclaringType.Name ?? "";
+
+    object? IReflectHost.Invoke(string typeName, string methodName, object? receiver, object?[] args)
+    {
+        var method = FindHostMethod(typeName, methodName);
+        if (method == null) return null;
+        return method.Invoke(Inner, method.IsStatic ? null : receiver, args);
+    }
+
+    object? IReflectHost.GetStatic(string typeName, string fieldName)
+    {
+        var t = FindHostType(typeName);
+        var field = t?.GetField(fieldName);
+        if (field == null || !field.IsStatic) return null;
+        return Inner.GetStaticField(field.QualifiedName);
+    }
+
+    void IReflectHost.SetStatic(string typeName, string fieldName, object? value)
+    {
+        var t = FindHostType(typeName);
+        var field = t?.GetField(fieldName);
+        if (field == null || !field.IsStatic) return;
+        Inner.SetStaticField(field.QualifiedName, value);
+    }
+
+    object? IReflectHost.Call(string typeName, string methodName, object?[] args)
+    {
+        var t = FindHostType(typeName);
+        var method = t?.GetMethod(methodName);
+        if (method == null || !method.IsStatic) return null;
+        return Inner.CallMethod<object?>(method.QualifiedName, args);
+    }
+
+    private ObjectRT.Runtime.Reflection.TypeInfo? FindHostType(string typeName)
+    {
+        var refl = HostReflector;
+        if (refl == null) return null;
+        var direct = refl.GetType(typeName);
+        if (direct != null) return direct;
+        var shortName = ResolveShort(typeName);
+        return shortName != null ? refl.GetType(shortName) : null;
+    }
+
+    /// <summary>Finds a method by name on a type, walking the base chain (most-derived wins).</summary>
+    private ObjectRT.Runtime.Reflection.MethodInfo? FindHostMethod(string typeName, string methodName)
+        => FindHostType(typeName)?.FindMethod(methodName);
+
+    /// <summary>Finds a field by name on a type, walking the base chain.</summary>
+    private ObjectRT.Runtime.Reflection.FieldInfo? FindHostField(string typeName, string fieldName)
+        => FindHostType(typeName)?.GetField(fieldName);
+
+    /// <summary>Finds a short name's qualified form ("Geo" → "com.lib.Geo") in the loaded module.</summary>
+    private string? ResolveShort(string shortName)
+    {
+        if (shortName.Contains('.')) return null;
+        return Reflector?.GetTypes().FirstOrDefault(t =>
+            t.Name == shortName || t.Name.EndsWith("." + shortName, StringComparison.Ordinal))?.Name;
     }
 }

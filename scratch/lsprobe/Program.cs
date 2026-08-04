@@ -1,13 +1,21 @@
 using Contract.LanguageServer.Lsp;
 
 var source = File.ReadAllText(args[0]);
+string uri = "file:///" + args[0].Replace('\\', '/').TrimStart('/');
 var store = new DocumentStore();
-store.Open("file:///probe.ct", source, 1);
+store.Open(uri, source, 1);
 var compiler = new CompilationService(store);
-var doc = store.Get("file:///probe.ct")!;
+var doc = store.Get(uri)!;
 var result = compiler.Compile(doc);
 var index = new SymbolIndex(new XmlDocProvider());
 index.Build(result);
+
+// Report any diagnostics up front — the LSP publishes these as red squiggles.
+Console.WriteLine("--- DIAGNOSTICS ---");
+if (result.Diagnostics.HasErrors)
+    result.Diagnostics.ReportToConsole();
+else
+    Console.WriteLine("(none)");
 
 var toks = result.MainTokens;
 

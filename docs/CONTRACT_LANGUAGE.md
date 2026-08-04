@@ -48,6 +48,8 @@ Contract Program {
 | `null` | Null literal |
 | `true` / `false` | Boolean literals |
 | `constructor` | Class constructor |
+| `enum` | Declares an enum (named int constants) |
+| `namespace` | Declares a Java-style package for the file |
 
 `var` is an alias of `let` — both declare variables, and mutability is decided
 by usage (assignment through the binding).
@@ -312,6 +314,51 @@ before the instance is returned.
 > behavior (no implicit receiver), preserving the module-style use of
 > contracts as namespaces (e.g. `IO`, `Math`, `List`).
 
+### Static Fields
+
+A field declared with `static` is **shared state** on the contract itself,
+not per-instance. It is stored in the VM's static slots, so every instance
+(and every call) sees the same value — the classic class-level counter.
+
+```ct
+Contract Widget {
+    static made: int;              // static field — one slot for the whole type
+
+    constructor() {
+        made = made + 1;           // bare access works in ctors too
+    }
+
+    fn serial() -> int {
+        return made;               // instance methods can read static state
+    }
+}
+
+Contract Program {
+    static fn Main() {
+        var a = new Widget();
+        var b = new Widget();
+        IO.Println(Widget.made);   // 2 — qualified access from anywhere
+        IO.Println(a.serial());    // 2 — shared across instances
+        Widget.made = 0;           // qualified write
+        Widget.made += 1;          // qualified compound
+        IO.Println(Widget::made);  // 1 — the :: form works too
+    }
+}
+```
+
+Access rules:
+
+- **Bare** (`made`) — resolves to the static field inside the declaring
+  contract's functions, constructors, and instance methods. Instance fields
+  shadow statics of the same name.
+- **Qualified** (`Widget.made`) — from anywhere, via either `.` or `::`.
+- Reads, plain writes (`=`), and compound assignment (`+= -= *= /= %=`) all
+  work in every form.
+
+Static fields are carried in the ORBT metadata (`static field name: type` in
+IR text, a flag byte in the v0x02 binary format), so hosts can reflect over
+them with `FieldInfo.IsStatic`. Structs do not support static fields yet.
+
 ### Generic Collections
 
 `List<T>` and `Dict<K, V>` can be written with generic syntax. They are
@@ -367,6 +414,249 @@ Contract Data {
 var p: Point = new Point();
 var c: Counter = new Counter();  // runs the constructor
 ```
+
+Constructors take arguments with `new Type(args)`. Arguments are evaluated
+left-to-right and passed positionally to the matching constructor:
+
+```ct
+Contract Point {
+    x: int;
+    y: int;
+
+    constructor(x: int, y: int) {
+        this.x = x;
+        this.y = y;
+    }
+}
+
+var p = new Point(3, 4);   // x = 3, y = 4
+```
+
+The analyzer validates that a constructor with the matching arity exists.
+
+## Enums
+
+An `enum` declares named integer constants that fold to their zero-based
+index at compile time. Declare them at the top level or inside a contract:
+
+```ct
+enum Color {
+    Red, Green, Blue
+}
+
+Contract Program {
+    static fn Main() {
+        IO.Println(Color.Red);      // 0
+        IO.Println(Color.Green);    // 1
+        IO.Println(Color::Blue);    // 2 — scoped form works too
+    }
+}
+```
+
+- Members are accessed as `Color.Red` or `Color::Red`.
+- Every member read compiles to `ldc.i4 <index>` — the enum itself is emitted
+  to the IR metadata (as a class of static int fields) so hosts can reflect
+  over it.
+- Enums are valid types, so they can appear in field/signature positions, and
+  `switch` over them works like `switch` over `int`.
+- Top-level and nested (inside a contract) enums are both supported.
+
+## Namespaces
+
+Java-style packages, declared explicitly with `namespace` at the top of a file
+— **not** derived from the file name or path. Everything declared below a
+`namespace` statement lives in that package:
+
+```ct
+// file: src/geo.ct
+namespace com.lib;
+
+enum Direction { North, East, South, West }
+
+Contract Geo {
+    static fn Triple(x: int) -> int {
+        return x * 3;
+    }
+}
+```
+
+Types in a namespace are addressable three ways:
+
+1. **Fully qualified**: `com.lib.Geo.Triple(4)`, `com.lib.Direction.North`.
+2. **Same-namespace short names**: code in another file that also declares
+   `namespace com.lib;` uses `Geo.Triple(...)` directly.
+3. **Namespace import**: `import com.lib;` (no semicolon string) lets any file
+   use short names `Geo.Triple(...)` / `Direction::North`.
+
+```ct
+// file: src/main.ct
+import "geo.ct";      // pull in the file (source include)
+import com.lib;       // enable short names for the com.lib package
+
+Contract Program {
+    static fn Main() {
+        IO.Println(Geo.Triple(4));              // 12 — short via import
+        IO.Println(com.lib.Geo.Triple(2));      // 6 — fully qualified
+        IO.Println(Direction::North);           // 0
+    }
+}
+```
+
+- The wire format carries the fully-qualified name (`class com.lib.Geo`), so
+  cross-file and cross-module references resolve by name at runtime.
+- `import com.lib;` is the "wildcard import" for a package; a single contract
+  inside it can be referenced by its full name without any import.
+- The namespace applies to contracts, structs, and enums. It is independent of
+  file layout.
+
+## Compiled module references (DLL-style)
+
+`import "lib.orbt"` pulls in a **compiled** module instead of a `.ct` source
+file — the Contract equivalent of referencing a DLL. The referenced module's
+types become available with full type checking, and its method bodies are
+statically linked into the output module, so the result runs standalone.
+
+```text
+ccl -c -f orbt -o lib.orbt src/geo.ct     # build the "library"
+```
+
+```ct
+// app.ct
+import "lib.orbt";     // compiled reference (static link)
+import com.lib;        // short names for the linked package
+
+Contract Program {
+    static fn Main() {
+        IO.Println(Geo.Triple(5));   // 15 — calls into lib.orbt's code
+        IO.Println(Direction::West); // 3
+    }
+}
+```
+
+```text
+ccl -c -f orbt -o app.orbt app.ct      # links lib.orbt's types in
+ccl run app.orbt
+```
+
+- `.orbt`, `.oil`, and `.oir` are all accepted as compiled references.
+- The linked types are deduplicated by fully-qualified name, so re-referencing
+  the same library is safe.
+- This is the building block for a package/build system: compile each module
+  to `.orbt`, then link them into apps.
+
+## In-language reflection
+
+The `Reflect` module exposes runtime introspection over the **loaded** module
+from inside Contract code — type metadata, inheritance, attributes, method and
+field signatures, plus reading/writing statics and invoking methods (static and
+instance) by name. The host (`ContractRuntime`) provides the metadata and
+access; without a host every call returns empty/false/null.
+
+```ct
+Contract Shape {
+    fn Describe() -> string { return "shape"; }
+}
+
+Contract Circle : Shape {
+    radius: int;
+    constructor() { this.radius = 5; }
+    fn Area() -> int { return this.radius * this.radius * 3; }
+    static fn Make() -> object { return new Circle(); }
+}
+
+Contract Counter {
+    static count: int;
+    static fn Get() -> int { return count; }
+    static fn Twice(x: int) -> int { return x * 2; }
+}
+
+Contract Program {
+    static fn Main() {
+        // Type enumeration / existence / metadata.
+        IO.Println(Reflect.HasType("Counter"));      // true
+        IO.Println(Reflect.Kind("Counter"));         // Class
+        IO.Println(Reflect.IsClass("Counter"));      // true
+        IO.Println(Reflect.ModuleName());            // module's declared name
+
+        // Inheritance.
+        IO.Println(Reflect.Base("Circle"));          // Shape
+        IO.Println(Reflect.Hierarchy("Circle")[0]);  // Circle (most-derived first)
+        IO.Println(Reflect.Hierarchy("Circle")[1]);  // Shape
+        IO.Println(Reflect.IsSubclassOf("Circle", "Shape"));     // true
+        IO.Println(Reflect.IsAssignableFrom("Shape", "Circle")); // true
+
+        // Method + field listing (qualified names, incl. inherited).
+        var methods = Reflect.Methods("Circle");     // Circle..ctor, ..., Shape.Describe
+        var fields  = Reflect.Fields("Circle");      // Circle.radius, Shape.kind
+
+        // Signatures — Describe is declared on Shape, found through Circle.
+        IO.Println(Reflect.MethodDeclaringType("Circle", "Describe")); // Shape
+        IO.Println(Reflect.MethodReturn("Circle", "Describe"));        // string
+        IO.Println(Reflect.MethodStatic("Counter", "Twice"));          // true
+        IO.Println(Reflect.FieldType("Circle", "radius"));             // int32
+
+        // Static field read/write by name.
+        Reflect.SetStatic("Counter", "count", 7);
+        IO.Println(Reflect.GetStatic("Counter", "count"));  // 7
+
+        // Invoke a static method by name (type, method, args array).
+        IO.Println(Reflect.Call("Counter", "Get", []));     // 7
+        IO.Println(Reflect.Call("Counter", "Twice", [21])); // 42
+
+        // Instance invocation: Make() returns an object handle, then Describe
+        // runs on it — resolved through the base chain via reflection.
+        var c = Reflect.Call("Circle", "Make", []);
+        IO.Println(Reflect.Invoke("Circle", "Describe", c, [])); // "shape"
+        IO.Println(Reflect.Invoke("Circle", "Area", c, []));     // 75
+    }
+}
+```
+
+### API summary
+
+| Function | Returns |
+|---|---|
+| `Reflect.Types()` | `string[]` — every type's qualified wire name |
+| `Reflect.HasType(name)` | `bool` |
+| `Reflect.ModuleName()` | `string` — the loaded module's declared name |
+| `Reflect.Kind(type)` | `string` — `"Class"` / `"Interface"` / `"Struct"` / `"Enum"`, or `""` |
+| `Reflect.IsClass(type)` / `IsInterface` / `IsStruct` / `IsEnum` | `bool` |
+| `Reflect.IsAbstract(type)` / `IsSealed(type)` | `bool` — IR type flags |
+| `Reflect.Access(type)` | `string` — `"Public"` / `"Private"` / `"Protected"` / `"Internal"` |
+| `Reflect.Base(type)` | `string` — direct base's wire name, or `""` |
+| `Reflect.Hierarchy(type)` | `string[]` — type + all bases, most-derived first |
+| `Reflect.Interfaces(type)` | `string[]` — direct interfaces by name |
+| `Reflect.AllInterfaces(type)` | `string[]` — all interfaces, incl. inherited |
+| `Reflect.IsSubclassOf(type, base)` | `bool` — transitive inheritance |
+| `Reflect.IsAssignableFrom(type, other)` | `bool` — `other` is `type`, a subclass, or (for interfaces) an implementor |
+| `Reflect.Methods(type)` | `string[]` — qualified `Type.Method` names (incl. inherited) |
+| `Reflect.DeclaredMethods(type)` | `string[]` — own methods only |
+| `Reflect.Fields(type)` | `string[]` — qualified `Type.field` names (incl. inherited) |
+| `Reflect.DeclaredFields(type)` | `string[]` — own fields only |
+| `Reflect.Resolve("Type.Method")` | `string` — canonical `DeclaringType.Method`, most-derived wins; `""` if unresolvable |
+| `Reflect.MethodDeclaringType(type, method)` | `string` — the type that declares it (base for inherited) |
+| `Reflect.MethodReturn(type, method)` | `string` — `"int32"`, `"string"`, `"void"`, ... |
+| `Reflect.MethodParams(type, method)` | `string[]` — `"int32 x"` per param; instance methods include `"object this"` first |
+| `Reflect.MethodStatic(type, method)` | `bool` |
+| `Reflect.MethodVirtual(type, method)` / `MethodOverride` / `MethodAbstract` | `bool` — IR method flags |
+| `Reflect.MethodBase(type, method)` | `string` — root of an override chain (`Type.Method`), or `""` |
+| `Reflect.MethodAttributes(type, method)` | `string[]` — `"Name(arg, ...)"` |
+| `Reflect.FieldType(type, field)` | `string` — `"int32"`, ... |
+| `Reflect.FieldStatic(type, field)` | `bool` |
+| `Reflect.FieldDeclaringType(type, field)` | `string` — the type that declares it |
+| `Reflect.Attributes(type)` | `string[]` — `"Name(arg, ...)"` |
+| `Reflect.GetStatic(type, field)` | `object` — static field value |
+| `Reflect.SetStatic(type, field, value)` | `void` |
+| `Reflect.Call(type, method, args)` | `object` — static method result |
+| `Reflect.Invoke(type, method, receiver, args)` | `object` — instance method result; `receiver` is a handle from a previous call |
+
+Type names accept either the short name (`Counter`) or the fully-qualified
+wire name (`com.lib.Geo`). `Reflect.Call` and `Reflect.Invoke` always take the
+args array as their last argument — pass `[]` for no arguments. VM-internal
+objects returned by `Reflect.Call` / `Reflect.Invoke` round-trip as object
+handles: pass one straight back as the `receiver` argument to call an instance
+method on it. This pairs with the host-side `ObjectRT.Runtime.Reflection` API
+(see `docs/REFLECTION.md`) for tooling.
 
 ## Control Flow
 
@@ -1017,16 +1307,21 @@ runtime error: DivisionByZero: division by zero
 ```ebnf
 Start ::= TopLevel*
 
-TopLevel ::= ContractDecl | FunctionDecl
+TopLevel ::= NamespaceDecl? ImportDecl* (ContractDecl | StructDecl | EnumDecl | FunctionDecl)*
 
-ContractDecl ::= 'Contract' IDENTIFIER '{' Member* '}'
+NamespaceDecl ::= 'namespace' IDENTIFIER ('.' IDENTIFIER)* ';'
+ImportDecl ::= 'import' (STRING | IDENTIFIER ('.' IDENTIFIER)*) ';'
+
+ContractDecl ::= 'Contract' IDENTIFIER (':' IDENTIFIER)? '{' Member* '}'
 Member ::= FieldDecl
          | AccessModifier? 'static'? 'fn' IDENTIFIER '(' ParamList? ')' (ReturnType)? Block
          | 'constructor' '(' ParamList? ')' Block
          | StructDecl
+         | EnumDecl
 
-FieldDecl ::= IDENTIFIER ':' Type ';'
+FieldDecl ::= AccessModifier? 'static'? IDENTIFIER ':' Type ';'
 StructDecl ::= 'struct' IDENTIFIER '{' FieldDecl* '}'
+EnumDecl ::= 'enum' IDENTIFIER '{' IDENTIFIER (',' IDENTIFIER)* '}'
 
 FunctionDecl ::= AccessModifier? 'static'? 'fn' IDENTIFIER '(' ParamList? ')' (ReturnType)? Block
 ReturnType ::= '->' Type
@@ -1034,7 +1329,7 @@ ReturnType ::= '->' Type
 ParamList ::= Param (',' Param)*
 Param ::= IDENTIFIER (':' Type)?
 
-Type ::= IDENTIFIER ('[' ']')*
+Type ::= IDENTIFIER ('.' IDENTIFIER)* ('[' ']')*
        | IDENTIFIER '<' Type (',' Type)* '>'
        | '(' (Type (',' Type)*)? ')' '->' Type
 

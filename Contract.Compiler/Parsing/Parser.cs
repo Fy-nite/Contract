@@ -13,6 +13,8 @@ namespace Contract.Compiler.Parsing
         private int _current = 0;
         private readonly DiagnosticBag _diagnostics;
         private readonly string? _sourceFile;
+        /// <summary>Current `namespace com.example;` for the file — applied to subsequent declarations.</summary>
+        private string? _currentNamespace;
 
         public Parser(IEnumerable<Token> tokens, DiagnosticBag diagnostics, string? sourceFile = null)
         {
@@ -46,7 +48,20 @@ namespace Contract.Compiler.Parsing
 
                     bool isStatic = Match(TokenType.Static);
 
-                    if (Match(TokenType.Import))
+                    if (Match(TokenType.Namespace))
+                    {
+                        // namespace com.example;
+                        Consume(TokenType.Identifier, "Expected namespace name after 'namespace'");
+                        var ns = new System.Text.StringBuilder(Previous.Text);
+                        while (Match(TokenType.Dot))
+                        {
+                            Consume(TokenType.Identifier, "Expected identifier after '.' in namespace");
+                            ns.Append('.').Append(Previous.Text);
+                        }
+                        Consume(TokenType.Semicolon, "Expected ';' after namespace declaration");
+                        _currentNamespace = ns.ToString();
+                    }
+                    else if (Match(TokenType.Import))
                     {
                         if (Match(TokenType.StringLiteral))
                         {
@@ -72,6 +87,7 @@ namespace Contract.Compiler.Parsing
                     {
                         var contract = ParseContract();
                         contract.IsExported = isExported;
+                        contract.Namespace = _currentNamespace;
                         contract.Attributes.AddRange(attributes);
                         program.Contracts.Add(contract);
                     }
@@ -79,8 +95,17 @@ namespace Contract.Compiler.Parsing
                     {
                         var structDecl = ParseStruct();
                         structDecl.IsExported = isExported;
+                        structDecl.Namespace = _currentNamespace;
                         structDecl.Attributes.AddRange(attributes);
                         program.Structs.Add(structDecl);
+                    }
+                    else if (Match(TokenType.Enum))
+                    {
+                        var enumDecl = ParseEnum();
+                        enumDecl.IsExported = isExported;
+                        enumDecl.Namespace = _currentNamespace;
+                        enumDecl.Attributes.AddRange(attributes);
+                        program.Enums.Add(enumDecl);
                     }
                     else if (Match(TokenType.Fn))
                     {
@@ -174,6 +199,41 @@ namespace Contract.Compiler.Parsing
             return attributes;
         }
 
+        private EnumDeclaration ParseEnum()
+        {
+            int line = Previous.Line;
+            int column = Previous.Column;
+
+            Consume(TokenType.Identifier, "Expected enum name");
+            string name = Previous.Text;
+
+            Consume(TokenType.LBrace, "Expected '{' after enum name");
+
+            var enumDecl = new EnumDeclaration(name, line, column);
+
+            if (Check(TokenType.RBrace))
+            {
+                AddError("Enum must declare at least one member", line, column);
+            }
+
+            while (!Check(TokenType.RBrace) && !IsAtEnd())
+            {
+                int startPos = _current;
+                Consume(TokenType.Identifier, "Expected enum member name");
+                enumDecl.Members.Add(Previous.Text);
+                Match(TokenType.Comma);   // optional trailing comma between members
+                if (_current == startPos)
+                {
+                    AddError("Parser failed to advance in ParseEnum", Current.Line, Current.Column);
+                    break;
+                }
+            }
+
+            Consume(TokenType.RBrace, "Expected '}' after enum body");
+
+            return enumDecl;
+        }
+
         private StructDeclaration ParseStruct()
         {
             int line = Previous.Line;
@@ -260,7 +320,15 @@ namespace Contract.Compiler.Parsing
                 {
                     var structDecl = ParseStruct();
                     structDecl.Attributes.AddRange(memberAttributes);
+                    structDecl.Namespace = _currentNamespace;
                     contract.Members.Add(structDecl);
+                }
+                else if (Match(TokenType.Enum))
+                {
+                    var enumDecl = ParseEnum();
+                    enumDecl.Attributes.AddRange(memberAttributes);
+                    enumDecl.Namespace = _currentNamespace;
+                    contract.Members.Add(enumDecl);
                 }
                 else if (Match(TokenType.Fn))
                 {
@@ -277,12 +345,15 @@ namespace Contract.Compiler.Parsing
                     {
                         AddError("Attributes on fields are not supported yet", memberAttributes[0].Line, memberAttributes[0].Column);
                     }
-                    // A field declaration: name: type;
+                    // A field declaration: [static] name: type;
                     string fieldName = Previous.Text;
                     Consume(TokenType.Colon, "Expected ':' after field name");
                     string fieldType = ParseType();
                     Consume(TokenType.Semicolon, "Expected ';' after field declaration");
-                    contract.Fields.Add(new StructField(fieldName, TypeDescriptor.Parse(fieldType), Previous.Line, Previous.Column));
+                    contract.Fields.Add(new StructField(fieldName, TypeDescriptor.Parse(fieldType), Previous.Line, Previous.Column)
+                    {
+                        IsStatic = isStatic,
+                    });
                 }
                 else
                 {
@@ -433,6 +504,13 @@ namespace Contract.Compiler.Parsing
 
             Consume(TokenType.Identifier, "Expected type name");
             string type = Previous.Text;
+
+            // Dotted type path: com.example.Foo
+            while (Match(TokenType.Dot))
+            {
+                Consume(TokenType.Identifier, "Expected identifier after '.' in type name");
+                type += "." + Previous.Text;
+            }
 
             // Generic instance: Name<T1, T2>
             if (Match(TokenType.Less))
@@ -1066,21 +1144,35 @@ namespace Contract.Compiler.Parsing
 
                 Consume(TokenType.Identifier, "Expected type name after 'new'");
                 string typeName = Previous.Text;
+                // Dotted type path: new com.example.Foo(...)
+                while (Match(TokenType.Dot))
+                {
+                    Consume(TokenType.Identifier, "Expected identifier after '.' in type name");
+                    typeName += "." + Previous.Text;
+                }
 
-                Expression? size = null;
+                var newExpr = new NewExpression(typeName, line, column);
                 if (Match(TokenType.LBracket))
                 {
                     // Array allocation: new Type[expr]
-                    size = ParseExpression();
+                    newExpr.Size = ParseExpression();
                     Consume(TokenType.RBracket, "Expected ']' after array size");
                 }
                 else
                 {
+                    // new Type() or new Type(args)
                     Consume(TokenType.LParen, "Expected '(' after type name");
+                    if (!Check(TokenType.RParen))
+                    {
+                        do
+                        {
+                            newExpr.Arguments.Add(ParseExpression());
+                        } while (Match(TokenType.Comma));
+                    }
                     Consume(TokenType.RParen, "Expected ')' after '('");
                 }
 
-                return new NewExpression(typeName, line, column, size);
+                return newExpr;
             }
             else if (Match(TokenType.Identifier))
             {

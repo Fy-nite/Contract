@@ -104,12 +104,18 @@ namespace Contract.Compiler.StandardLibrary
 
         public void RegisterUserContract(ContractDeclaration contract)
         {
+            // Registered under both the short name and the namespace-qualified
+            // name so `Foo.Bar()` and `com.example.Foo.Bar()` both resolve.
             _userContracts[contract.Name] = contract;
+            if (contract.FullName != contract.Name)
+                _userContracts[contract.FullName] = contract;
         }
 
         public void RegisterUserStruct(StructDeclaration structDecl)
         {
             _userStructs[structDecl.Name] = structDecl;
+            if (structDecl.FullName != structDecl.Name)
+                _userStructs[structDecl.FullName] = structDecl;
         }
 
         public bool TryGetMethod(string className, string methodName, out object? method)

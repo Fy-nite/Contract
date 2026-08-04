@@ -9,6 +9,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\libs\Objekt-RT\src\ObjectRT.Runtime\ObjectRT.Runtime.csproj" />
+    <ProjectReference Include="..\..\libs\Objekt-RT\src\ObjectRT.VM\ObjectRT.VM.csproj" />
+    <ProjectReference Include="..\..\libs\Objekt-RT\src\ObjectRT.Reader\ObjectRT.Reader.csproj" />
     <ProjectReference Include="..\..\Contract.Compiler\Contract.Compiler.csproj" />
   </ItemGroup>
 

@@ -65,20 +65,55 @@ namespace Contract.Compiler
                     fullProgram.Functions.Add(func);
                 foreach (var structDecl in program.Structs)
                     fullProgram.Structs.Add(structDecl);
+                foreach (var enumDecl in program.Enums)
+                    fullProgram.Enums.Add(enumDecl);
                 foreach (var ns in program.NamespaceImports)
                     fullProgram.NamespaceImports.Add(ns);
 
-                // Recursively load imports
+                // Recursively load imports. A compiled reference (.orbt/.oil/.oir)
+                // is loaded as a DLL-style include; anything else is a .ct source
+                // file import.
                 string directory = Path.GetDirectoryName(absolutePath) ?? "";
                 foreach (var import in program.Imports)
                 {
                     string importedFilePath = Path.Combine(directory, import);
-                    LoadFile(importedFilePath, fullProgram);
+                    if (CompiledReferenceLoader.IsCompiledReference(importedFilePath))
+                        LoadCompiledReference(importedFilePath, fullProgram);
+                    else
+                        LoadFile(importedFilePath, fullProgram);
                 }
             }
             catch (Exception ex)
             {
                 _diagnostics.AddError($"Error loading file {filePath}: {ex.Message}", 0, 0);
+            }
+        }
+
+        /// <summary>
+        /// Loads a compiled module (.orbt / .oil / .oir) as a static reference:
+        /// its types are synthesized into the program for analysis, and the raw
+        /// module body is retained for the codegen to link into the output.
+        /// </summary>
+        private void LoadCompiledReference(string filePath, Program fullProgram)
+        {
+            string absolutePath = Path.GetFullPath(filePath);
+            if (_loadedFiles.Contains(absolutePath)) return;
+            _loadedFiles.Add(absolutePath);
+
+            if (!File.Exists(absolutePath))
+            {
+                _diagnostics.AddError($"Imported module not found: {filePath}", 0, 0);
+                return;
+            }
+
+            try
+            {
+                var module = CompiledReferenceLoader.ParseModule(absolutePath);
+                CompiledReferenceLoader.Synthesize(module, fullProgram);
+            }
+            catch (Exception ex)
+            {
+                _diagnostics.AddError($"Error loading module {filePath}: {ex.Message}", 0, 0);
             }
         }
     }
