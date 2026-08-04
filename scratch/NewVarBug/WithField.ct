@@ -1,0 +1,17 @@
+Contract Foo {
+    count: int;
+
+    constructor() {
+        this.count = 0;
+    }
+
+    fn increment() {
+        this.count += 1;
+    }
+
+    static fn Main() {
+        var f: Foo = new Foo();
+        f.increment();
+        IO.Println(f.count);
+    }
+}

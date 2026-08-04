@@ -1,0 +1,10 @@
+Contract Foo {
+    constructor() { }
+
+    fn greet() { this.count2 += 1; }
+
+    static fn Main() {
+        var f: Foo = new Foo();
+        f.greet();
+    }
+}

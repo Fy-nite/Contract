@@ -7,7 +7,6 @@ using Contract.Compiler.Diagnostics;
 using Contract.Compiler.Parsing;
 using Contract.Compiler.Semantics;
 using Contract.Compiler.StandardLibrary;
-using Contract.Compiler.StandardLibrary.Builtins;
 
 namespace Contract.LanguageServer.Lsp;
 
@@ -60,7 +59,9 @@ public class CompilationService
     {
         var diagnostics = new DiagnosticBag { SourceCode = doc.Text };
         var symbolTable = new SymbolTable();
-        symbolTable.RegisterAssembly(typeof(IO).Assembly);
+        // The stdlib is the generic ObjektRT.Stdlib; Reflect is the one
+        // Contract-specific [ClassBinding] module (registered via attribute).
+        symbolTable.RegisterAssembly(typeof(ReflectModule).Assembly);
         StdlibCatalog.RegisterInto(symbolTable);
 
         var loader = new ProgramLoader(_store, diagnostics);

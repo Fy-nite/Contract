@@ -1,5 +1,5 @@
 Contract Program {
-    fn describe(command: string) -> string {
+    static fn describe(command: string) -> string {
         switch (command) {
             case "start": return "starting";
             case "stop": return "stopping";

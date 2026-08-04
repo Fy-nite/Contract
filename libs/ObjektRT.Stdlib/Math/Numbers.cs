@@ -18,6 +18,12 @@ public static class Numbers
     /// <summary>The larger of two integers.</summary>
     public static int Max(int a, int b) => global::System.Math.Max(a, b);
 
+    /// <summary>The smaller of two floats.</summary>
+    public static float MinF(float a, float b) => global::System.MathF.Min(a, b);
+
+    /// <summary>The larger of two floats.</summary>
+    public static float MaxF(float a, float b) => global::System.MathF.Max(a, b);
+
     /// <summary>Raises x to the power y.</summary>
     public static float Pow(float x, float y) => global::System.MathF.Pow(x, y);
 
@@ -35,4 +41,16 @@ public static class Numbers
 
     /// <summary>Cosine of an angle in radians.</summary>
     public static float Cos(float value) => global::System.MathF.Cos(value);
+
+    /// <summary>Tangent of an angle in radians.</summary>
+    public static float Tan(float value) => global::System.MathF.Tan(value);
+
+    /// <summary>Natural logarithm of value.</summary>
+    public static float Log(float value) => global::System.MathF.Log(value);
+
+    /// <summary>Base-10 logarithm of value.</summary>
+    public static float Log10(float value) => global::System.MathF.Log10(value);
+
+    /// <summary>e raised to the power value.</summary>
+    public static float Exp(float value) => global::System.MathF.Exp(value);
 }

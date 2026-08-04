@@ -1,0 +1,8 @@
+Contract Foo {
+    fn greet() { IO.Println("hello from foo"); }
+
+    static fn Main() {
+        var f: Foo = new Foo();
+        f.greet();
+    }
+}

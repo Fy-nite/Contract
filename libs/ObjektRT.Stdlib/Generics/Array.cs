@@ -11,4 +11,11 @@ public static class Array
 
     /// <summary>Sets the element at the given index.</summary>
     public static void Set(object arr, int index, object value) => ((global::System.Array)arr).SetValue(value, index);
+
+    /// <summary>Joins the elements of a string array into one string with <paramref name="separator"/> between them.</summary>
+    public static string Join(object arr, string separator)
+    {
+        var values = ((global::System.Array)arr).Cast<object?>().Select(v => v?.ToString() ?? "").ToArray();
+        return string.Join(separator, values);
+    }
 }

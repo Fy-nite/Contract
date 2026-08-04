@@ -1,5 +1,5 @@
 Contract Program {
-    fn sum(arr: int[]) -> int {
+    static fn sum(arr: int[]) -> int {
         var total: int = 0;
         for (var i: int = 0; i < arr.Length; i = i + 1) {
             total += arr[i];
@@ -7,7 +7,7 @@ Contract Program {
         return total;
     }
 
-    fn makeRange(n: int) -> int[] {
+    static fn makeRange(n: int) -> int[] {
         var result: int[] = new int[n];
         for (var i: int = 0; i < n; i = i + 1) {
             result[i] = i * i;
@@ -15,7 +15,7 @@ Contract Program {
         return result;
     }
 
-    fn firstWord(s: string) -> string {
+    static fn firstWord(s: string) -> string {
         var parts: string[] = String.Split(s, " ");
         if (parts.Length > 0) {
             return parts[0];

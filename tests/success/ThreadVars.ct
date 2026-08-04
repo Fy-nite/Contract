@@ -1,0 +1,41 @@
+// C#-style thread values: Thread.Create gives a handle you can store in a
+// variable, start explicitly, join, and poll.
+
+Contract Program {
+    static fn Main() {
+        IO.Println("main start");
+
+        // Create a thread and hold it in a variable — nothing runs yet.
+        var t = Thread.Create(fun -> { IO.Println("hello from thread"); });
+        IO.Println(Thread.IsAlive(t));   // 0 — not started
+
+        // Start it explicitly, then wait for it to finish.
+        Thread.Start(t);
+        Thread.Join(t);
+        IO.Println(Thread.IsAlive(t));   // 0 — finished
+        IO.Println("joined");
+
+        // Threads are values: closures capture BY REFERENCE (C#-style), so the
+        // captured variable is shared between the enclosing scope and the
+        // thread — mutations on the thread are visible to the caller.
+        var n: int = 0;
+        let bump = fun -> { n += 1; };
+        var t2 = Thread.Create(bump);
+        Thread.Start(t2);
+        Thread.Join(t2);
+        IO.Println(n);                    // 1 — shared storage
+
+        // Same variable captured by two lambdas: both see the same storage.
+        var m: int = 0;
+        let inc = fun -> { m += 1; };
+        let peek = fun -> { IO.Println(m); };
+        inc();
+        peek();                           // 1
+
+        // Fire-and-forget still works.
+        Thread.Spawn(fun -> { IO.Println("spawned"); });
+        Thread.Sleep(100);
+
+        IO.Println("main end");
+    }
+}

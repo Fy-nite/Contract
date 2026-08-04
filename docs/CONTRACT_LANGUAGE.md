@@ -1,6 +1,6 @@
 # Contract Language Reference
 
-Contract is a statically-typed programming language that compiles to an intermediate representation (CIL1 bytecode). It features a clean syntax with contracts, functions, structs, and functional programming constructs.
+Contract is a statically-typed programming language. It features a clean syntax with contracts, functions, structs, and functional programming constructs.
 
 ## File Structure
 
@@ -273,21 +273,22 @@ Inference works from literals, `new` expressions, and other variables. `null` an
 
 Type names are **case-insensitive**: `Int`, `String`, and `int` all refer to the same type.
 
-### Classes (Contracts with Fields)
+### Classes (Contracts with Instance Methods)
 
-A contract that declares instance fields acts as a class. Instances are
-created with `new ContractName()`, and non-static member functions become
+A contract with member functions and (optionally) instance fields acts as a
+class. Instances are created with `new ContractName()` — this works whether or
+not the contract declares fields — and non-static member functions are
 instance methods that receive the receiver implicitly:
 
 ```ct
 Contract Counter {
-    count: int;                    // instance field
+    count: int;                    // instance field (optional)
 
     constructor() {
         this.count = 0;
     }
 
-    fn increment() {               // instance method (contract has fields)
+    fn increment() {               // instance method
         this.count += 1;
     }
 
@@ -307,12 +308,16 @@ Contract Counter {
 Inside an instance method the receiver is available as `this`, and fields can
 be read/written either through `this` or directly by name (`count` vs
 `this.count`). Constructors receive `this` too, so they can initialize fields
-before the instance is returned.
+before the instance is returned. A bare call to a sibling instance method
+(`increment()` inside another instance method of the same contract) implicitly
+passes `this`.
 
-> A non-static member function is an instance method **only when its contract
-> declares fields**. Contracts without fields keep the legacy module-function
-> behavior (no implicit receiver), preserving the module-style use of
-> contracts as namespaces (e.g. `IO`, `Math`, `List`).
+> Every non-static member function is an instance method, whether or not its
+> contract declares fields. Module-style use of contracts as namespaces (e.g.
+> `IO`, `Math`, `List`) is expressed with `static fn` — static members are
+> called on the type itself (`Util.Bump()`, `Counter::Reset()`), never on an
+> instance, and an instance method cannot be invoked without an object created
+> with `new`.
 
 ### Static Fields
 
@@ -957,6 +962,29 @@ static fn Main() {
 }
 ```
 
+**Captured variables are shared (C#-style by-reference capture).** When a
+lambda references a local of the enclosing function, that variable is hoisted
+into a shared "display" object that the function body *and* every lambda
+created in it reference — there is no per-lambda copy. Writes from the lambda
+are visible to the enclosing scope and to any other lambda that captured the
+same variable, which is what makes thread communication through captured
+variables work:
+
+```ct
+static fn Main() {
+    var n: int = 0;
+    let inc  = fun -> { n += 1; };   // shares n with Main
+    let peek = fun -> { IO.Println(n); };
+    inc();
+    peek();            // 1 — the same n
+    IO.Println(n);     // 1
+}
+```
+
+This also applies to `this` captured from an instance method (field writes
+through a captured receiver mutate the same instance), and to captured
+parameters.
+
 ### `Delegate<T>`
 
 A function type can also be wrapped in `Delegate<T>`, which is the runtime's
@@ -1048,6 +1076,14 @@ Contract Program {
 ```
 
 ## Standard Library
+
+The standard library modules below are implemented in the generic
+**`ObjektRT.Stdlib`** project (the official ObjektRT stdlib) — they contain no
+Contract-specific code. The Contract compiler and runtime bind them under
+their short names (`IO.Println`, `String.Length`, ...) and their
+fully-qualified names (`ObjektRT.Stdlib.System.IO.Println`, ...), so both
+forms work. The one Contract-specific binding, `Reflect`, is hosted by
+`Contract.Runtime`.
 
 ### IO Module
 
@@ -1177,15 +1213,34 @@ Debug.Assert(true, "ok");
 
 ### Threading
 
-`Thread.Sleep(ms)` pauses the current thread. `Thread.Spawn` starts a
-background thread running a delegate — any lambda, capturing or not:
+Threads follow the C# model: **a thread is a value**. `Thread.Create(delegate)`
+returns a handle you can store in a variable; it does nothing until
+`Thread.Start` is called. `Thread.Join(handle)` blocks until the thread
+finishes, and `Thread.IsAlive(handle)` polls it:
+
+```ct
+// Create a thread and hold it in a variable — nothing runs yet.
+var t = Thread.Create(fun -> { IO.Println("hello from thread"); });
+Thread.Start(t);          // start it explicitly
+Thread.Join(t);           // wait for it to finish
+IO.Println(Thread.IsAlive(t));   // false — finished
+
+// Threads are values: closures capture by reference (C#-style), so the
+// captured variable is shared between the thread and the caller.
+var n: int = 0;
+let bump = fun -> { n += 1; };
+var t2 = Thread.Create(bump);
+Thread.Start(t2);
+Thread.Join(t2);
+IO.Println(n);            // 1 — the thread mutated the shared variable
+```
+
+`Thread.Sleep(ms)` pauses the current thread. `Thread.Spawn(delegate)` is the
+fire-and-forget variant — it starts a background thread immediately without
+returning a handle:
 
 ```ct
 Thread.Spawn(fun -> { IO.Println("hello from thread"); });
-
-var n: int = 0;
-let bump = fun -> { n += 1; IO.Println(n); };
-Thread.Spawn(bump);   // capturing lambda: closure lives in the shared heap
 
 Thread.Sleep(200);    // give background threads time to run
 ```

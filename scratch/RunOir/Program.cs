@@ -1,10 +1,9 @@
 using ObjectRT.Runtime;
-using Contract.Compiler.StandardLibrary.Builtins;
 using ObjectRT.Reader;
 using ObjectRT.VM;
 
-// Minimal end-to-end harness: register the Contract compiler's real stdlib
-// modules as host bindings, load a compiled .oir module, and run its entry.
+// Minimal end-to-end harness: register the generic ObjektRT.Stdlib modules
+// as host bindings, load a compiled .oir module, and run its entry.
 // With --dump, print the compiled bytecode of *Program.Main instead of running.
 if (args.Length < 1)
 {
@@ -29,20 +28,20 @@ if (args.Contains("--dump"))
 }
 
 var rt = new Runtime();
-rt.RegisterClrType("IO", typeof(IO));
-rt.RegisterClrType("String", typeof(StringModule));
-rt.RegisterClrType("Math", typeof(MathModule));
-rt.RegisterClrType("Convert", typeof(ConvertModule));
-rt.RegisterClrType("Random", typeof(RandomModule));
-rt.RegisterClrType("List", typeof(ListModule));
-rt.RegisterClrType("Dict", typeof(DictModule));
-rt.RegisterClrType("Array", typeof(ArrayModule));
-rt.RegisterClrType("File", typeof(FileModule));
-rt.RegisterClrType("Environment", typeof(EnvironmentModule));
-rt.RegisterClrType("GC", typeof(GCModule));
-rt.RegisterClrType("Debug", typeof(DebugModule));
-rt.RegisterClrType("Time", typeof(TimeModule));
-rt.RegisterClrType("Thread", typeof(ThreadModule));
+rt.RegisterClrType("IO", typeof(ObjektRT.Stdlib.System.IO));
+rt.RegisterClrType("String", typeof(ObjektRT.Stdlib.System.String));
+rt.RegisterClrType("Math", typeof(ObjektRT.Stdlib.Math.Numbers));
+rt.RegisterClrType("Convert", typeof(ObjektRT.Stdlib.System.Convert));
+rt.RegisterClrType("Random", typeof(ObjektRT.Stdlib.System.Random));
+rt.RegisterClrType("List", typeof(ObjektRT.Stdlib.Generics.List));
+rt.RegisterClrType("Dict", typeof(ObjektRT.Stdlib.Generics.Dict));
+rt.RegisterClrType("Array", typeof(ObjektRT.Stdlib.Generics.Array));
+rt.RegisterClrType("File", typeof(ObjektRT.Stdlib.System.File));
+rt.RegisterClrType("Environment", typeof(ObjektRT.Stdlib.System.Environment));
+rt.RegisterClrType("GC", typeof(ObjektRT.Stdlib.System.GC));
+rt.RegisterClrType("Debug", typeof(ObjektRT.Stdlib.System.Debug));
+rt.RegisterClrType("Time", typeof(ObjektRT.Stdlib.System.Time));
+rt.RegisterClrType("Thread", typeof(ObjektRT.Stdlib.Threading.Thread));
 
 rt.LoadModuleFile(args[0]);
 // Find the first type with a static Main, else fall back to Program.Main.
