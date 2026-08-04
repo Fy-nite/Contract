@@ -15,6 +15,8 @@ namespace Contract.Compiler.Semantics
         private readonly HashSet<string> _definedFunctions = new();
         private readonly Dictionary<string, TypeDescriptor> _functionReturnTypes = new();
         private readonly List<ContractDeclaration> _contractsWithFields = new();
+        private readonly Dictionary<string, ContractDeclaration> _contractsByName =
+            new(StringComparer.OrdinalIgnoreCase);
 
         public SemanticAnalyzer(SymbolTable symbolTable, DiagnosticBag diagnostics)
         {
@@ -89,6 +91,11 @@ namespace Contract.Compiler.Semantics
             // Validate inheritance (base types, cycles) and mark attribute types,
             // then validate every attribute application against those types.
             ValidateInheritanceAndAttributes(program);
+
+            // Validate <NativeBinding("Module")> contracts: the module must be
+            // bound, methods must be empty-bodied declarations, and every method
+            // name must exist on the host module.
+            ValidateNativeBindings(program);
 
             // Second pass: detailed analysis
             foreach (var contract in program.Contracts)
@@ -183,7 +190,9 @@ namespace Contract.Compiler.Semantics
         /// </summary>
         private void ValidateInheritanceAndAttributes(Program program)
         {
-            var byName = program.Contracts.ToDictionary(c => c.Name, StringComparer.OrdinalIgnoreCase);
+            _contractsByName.Clear();
+            foreach (var c in program.Contracts)
+                _contractsByName[c.Name] = c;
 
             foreach (var contract in program.Contracts)
             {
@@ -209,7 +218,7 @@ namespace Contract.Compiler.Semantics
                         break;
                     }
 
-                    if (!byName.TryGetValue(baseName, out var baseContract))
+                    if (!_contractsByName.TryGetValue(baseName, out var baseContract))
                     {
                         if (!_typeRegistry.IsValidType(baseName))
                         {
@@ -217,7 +226,6 @@ namespace Contract.Compiler.Semantics
                         }
                         break;
                     }
-
                     current = baseContract;
                 }
 
@@ -231,29 +239,45 @@ namespace Contract.Compiler.Semantics
 
             foreach (var contract in program.Contracts)
             {
-                ValidateAttributes(contract.Attributes, "contract", byName);
+                ValidateAttributes(contract.Attributes, "contract", _contractsByName);
                 foreach (var ctor in contract.Constructors)
-                    ValidateAttributes(ctor.Attributes, "constructor", byName);
+                    ValidateAttributes(ctor.Attributes, "constructor", _contractsByName);
                 foreach (var member in contract.Members)
                 {
                     if (member is FunctionDeclaration func)
-                        ValidateAttributes(func.Attributes, "function", byName);
+                        ValidateAttributes(func.Attributes, "function", _contractsByName);
                     else if (member is StructDeclaration structDecl)
-                        ValidateAttributes(structDecl.Attributes, "struct", byName);
+                        ValidateAttributes(structDecl.Attributes, "struct", _contractsByName);
                 }
             }
 
             foreach (var structDecl in program.Structs)
-                ValidateAttributes(structDecl.Attributes, "struct", byName);
+                ValidateAttributes(structDecl.Attributes, "struct", _contractsByName);
 
             foreach (var func in program.Functions)
-                ValidateAttributes(func.Attributes, "function", byName);
+                ValidateAttributes(func.Attributes, "function", _contractsByName);
         }
 
         private void ValidateAttributes(List<AttributeUsage> attributes, string targetKind, Dictionary<string, ContractDeclaration> contractsByName)
         {
             foreach (var attr in attributes)
             {
+                // Built-in attribute: <NativeBinding("ModuleName")> — no user
+                // declaration needed. Only valid on contracts; argument must be
+                // the name of a host binding module.
+                if (attr.Name.Equals("NativeBinding", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (targetKind != "contract")
+                    {
+                        _diagnostics.AddError($"NativeBinding attribute is only valid on contracts", attr.Line, attr.Column);
+                    }
+                    else if (attr.Arguments.Count != 1)
+                    {
+                        _diagnostics.AddError($"NativeBinding expects exactly 1 argument (the binding module name), got {attr.Arguments.Count}", attr.Line, attr.Column);
+                    }
+                    continue;
+                }
+
                 if (!contractsByName.TryGetValue(attr.Name, out var attrContract))
                 {
                     _diagnostics.AddError($"Unknown attribute '{attr.Name}'", attr.Line, attr.Column);
@@ -275,6 +299,62 @@ namespace Contract.Compiler.Semantics
                         var expected = string.Join(" or ", attrContract.Constructors.Select(c => c.Parameters.Count.ToString()));
                         _diagnostics.AddError($"Attribute '{attr.Name}' expects {expected} argument(s), got {attr.Arguments.Count}", attr.Line, attr.Column);
                     }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Validates <c>&lt;NativeBinding("Module")&gt;</c> contracts: a native
+        /// binding is a pure facade — no fields, no constructors, and every
+        /// member function is an empty-bodied declaration that dispatches to
+        /// <c>Module.Method</c> at runtime. The module must be a registered
+        /// host binding and each declared method must exist on it.
+        /// </summary>
+        private void ValidateNativeBindings(Program program)
+        {
+            foreach (var contract in program.Contracts)
+            {
+                var attr = contract.Attributes.FirstOrDefault(a =>
+                    a.Name.Equals("NativeBinding", StringComparison.OrdinalIgnoreCase));
+                if (attr == null) continue;
+
+                if (attr.Arguments.Count != 1) continue; // arity already reported
+
+                string bindingName = attr.Arguments[0].Trim();
+                if (bindingName.Length >= 2 && bindingName[0] == '"' && bindingName[^1] == '"')
+                    bindingName = bindingName[1..^1];
+
+                if (!_symbolTable.IsBoundModule(bindingName))
+                {
+                    _diagnostics.AddError(
+                        $"NativeBinding module '{bindingName}' is not a registered binding (check bindingAssemblies)",
+                        attr.Line, attr.Column);
+                    continue;
+                }
+
+                contract.NativeBindingName = bindingName;
+
+                // The parser marks non-static members as instance methods only
+                // for contracts with fields; native-bound contracts are pure
+                // facades (no fields), so mark their methods as instance here.
+                foreach (var member in contract.Members)
+                {
+                    if (member is FunctionDeclaration f && !f.IsStatic)
+                        f.IsInstance = true;
+                }
+
+                if (contract.Fields.Count > 0)
+                    _diagnostics.AddError($"Native-bound contract '{contract.Name}' cannot have fields", contract.Line, contract.Column);
+                if (contract.Constructors.Count > 0)
+                    _diagnostics.AddError($"Native-bound contract '{contract.Name}' cannot declare constructors — 'new' maps to '{bindingName}.Create'", contract.Line, contract.Column);
+
+                foreach (var member in contract.Members)
+                {
+                    if (member is not FunctionDeclaration func) continue;
+                    if (func.Body != null && func.Body.Statements.Count > 0)
+                        _diagnostics.AddError($"Native-bound method '{contract.Name}.{func.Name}' must have an empty body", func.Line, func.Column);
+                    if (!_symbolTable.TryGetMethod(bindingName, func.Name, out _))
+                        _diagnostics.AddError($"Native binding '{bindingName}' has no method named '{func.Name}'", func.Line, func.Column);
                 }
             }
         }
@@ -508,6 +588,15 @@ namespace Contract.Compiler.Semantics
                     {
                         _diagnostics.AddError($"Unknown type '{newExpr.TypeName}'", newExpr.Line, newExpr.Column);
                     }
+
+                    // Native-bound contracts construct through the host module's
+                    // Create method: new Window() → binding.Create().
+                    if (_contractsByName.TryGetValue(newExpr.TypeName, out var nbContract)
+                        && nbContract.NativeBindingName != null
+                        && !_symbolTable.TryGetMethod(nbContract.NativeBindingName, "Create", out _))
+                    {
+                        _diagnostics.AddError($"Native binding '{nbContract.NativeBindingName}' has no method named 'Create' (required for 'new {newExpr.TypeName}')", newExpr.Line, newExpr.Column);
+                    }
                     break;
                 case LambdaExpression lambda:
                     // Validate annotated param types and analyze the body so
@@ -728,19 +817,16 @@ namespace Contract.Compiler.Semantics
                     if (IsVariableDefined(className))
                     {
                         var varType = FindVariableType(className);
-                        if (varType is TypeDescriptor.Named n)
+                        if (varType is TypeDescriptor.Named n
+                            && _contractsByName.TryGetValue(n.Name, out var contract))
                         {
-                            var contract = _contractsWithFields.FirstOrDefault(c => c.Name == n.Name);
-                            if (contract != null)
+                            var member = contract.Members
+                                .OfType<FunctionDeclaration>()
+                                .FirstOrDefault(f => f.Name == methodName && f.IsInstance);
+                            if (member != null)
                             {
-                                var member = contract.Members
-                                    .OfType<FunctionDeclaration>()
-                                    .FirstOrDefault(f => f.Name == methodName && f.IsInstance);
-                                if (member != null)
-                                {
-                                    call.Symbol = member;
-                                    return;
-                                }
+                                call.Symbol = member;
+                                return;
                             }
                         }
                         // Fall through to error below.

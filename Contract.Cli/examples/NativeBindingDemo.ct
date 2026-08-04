@@ -1,0 +1,18 @@
+// Compile-only verification that <NativeBinding("Module")> works with a module
+// the CLI knows (File). Compile:  dotnet run --project Contract.Cli -- examples/NativeBindingDemo.ct -c
+
+<NativeBinding("File")>
+Contract Saver {
+    static fn WriteAllText(path: string, contents: string) { }
+    static fn Exists(path: string) -> bool { }
+    static fn Delete(path: string) { }
+}
+
+Contract Program {
+    static fn Main() {
+        Saver.WriteAllText("hello.txt", "hi from contract");
+        var ok: bool = Saver.Exists("hello.txt");
+        IO.Println(ok);
+        Saver.Delete("hello.txt");
+    }
+}
