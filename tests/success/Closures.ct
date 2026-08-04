@@ -1,9 +1,9 @@
 Contract Program {
-    fn apply(f: (int) -> int, x: int) -> int {
+    static fn apply(f: (int) -> int, x: int) -> int {
         return f(x);
     }
 
-    fn makeCounter(start: int) -> () -> int {
+    static fn makeCounter(start: int) -> () -> int {
         var n: int = start;
         return fun () -> { n += 1; return n; };
     }

@@ -16,6 +16,8 @@ namespace Contract.Compiler.Semantics
         private readonly Dictionary<string, TypeDescriptor> _functionReturnTypes = new();
         private readonly List<ContractDeclaration> _contractsWithFields = new();
         private Program? _program;
+        private bool _currentIsInstance;        // context: analyzing an instance method
+        private string? _currentContractName;   // context: the contract being analyzed
 
         public SemanticAnalyzer(SymbolTable symbolTable, DiagnosticBag diagnostics)
         {
@@ -131,8 +133,10 @@ namespace Contract.Compiler.Semantics
 
         private void AnalyzeContract(ContractDeclaration contract)
         {
+            _currentContractName = contract.Name;
             foreach (var ctor in contract.Constructors)
             {
+                _currentIsInstance = true;   // ctors receive `this` as param 0
                 AnalyzeConstructor(ctor);
             }
 
@@ -330,6 +334,8 @@ namespace Contract.Compiler.Semantics
 
         private void AnalyzeFunction(FunctionDeclaration func)
         {
+            _currentIsInstance = func.IsInstance;
+            _currentContractName = func.ContractName;
             _scopes.Clear();
             _scopes.Push(new Dictionary<string, VariableDeclaration>());
 
@@ -692,6 +698,32 @@ namespace Contract.Compiler.Semantics
             return _program.Contracts.FirstOrDefault(c => c.Name == name || c.FullName == name);
         }
 
+        /// <summary>Finds a function declaration by name (top-level or contract member).</summary>
+        private FunctionDeclaration? FindFunctionDecl(string name)
+        {
+            if (_program == null) return null;
+            foreach (var f in _program.Functions)
+                if (f.Name == name) return f;
+            foreach (var c in _program.Contracts)
+                foreach (var m in c.Members)
+                    if (m is FunctionDeclaration f && f.Name == name) return f;
+            return null;
+        }
+
+        /// <summary>
+        /// True when a bare call to <paramref name="name"/> targets an instance
+        /// method that has no implicit receiver here: we're not inside an
+        /// instance method, or the method belongs to a different contract.
+        /// </summary>
+        private bool IsInvalidBareInstanceCall(string name)
+        {
+            var target = FindFunctionDecl(name);
+            if (target is not { IsInstance: true }) return false;
+            // Inside an instance method of the same contract a bare call
+            // implicitly passes `this` (the codegen pushes it as the receiver).
+            return !(_currentIsInstance && target.ContractName == _currentContractName);
+        }
+
         /// <summary>Type of a static field on a contract, or null when it isn't one.</summary>
         private TypeDescriptor? FindContractStaticField(string contractName, string fieldName)
         {
@@ -795,6 +827,14 @@ namespace Contract.Compiler.Semantics
                     {
                         return MapSystemTypeToLanguageType(em.Info.ReturnType);
                     }
+                    // A resolved user function's declared return type (covers
+                    // member calls like `obj.makeFn()` returning a function type).
+                    if (call.Symbol is FunctionDeclaration symFd
+                        && symFd.ReturnType != null
+                        && !symFd.ReturnType.IsEmpty)
+                    {
+                        return symFd.ReturnType;
+                    }
                     if (call.Callee is IdentifierExpression calleeIdent &&
                         _functionReturnTypes.TryGetValue(calleeIdent.Name, out var funcReturnType))
                     {
@@ -880,6 +920,16 @@ namespace Contract.Compiler.Semantics
 
                     if (_symbolTable.TryGetMethod(moduleName, methodName, out var moduleMethod))
                     {
+                        // A method reached through a type/module name must be
+                        // static — an instance method needs an object created
+                        // with `new`. (Stdlib modules resolve as ExternalMethod.)
+                        if (moduleMethod is FunctionDeclaration udf && !udf.IsStatic)
+                        {
+                            _diagnostics.AddError(
+                                $"Instance method '{methodName}' cannot be called on type '{moduleName}' — create an instance with 'new {moduleName}()' first.",
+                                call.Line, call.Column);
+                            return;
+                        }
                         call.Symbol = moduleMethod;
                         return;
                     }
@@ -934,10 +984,19 @@ namespace Contract.Compiler.Semantics
             }
             else if (call.Callee is IdentifierExpression ident)
             {
-                // Allow calling identifiers that hold lambdas (or are defined functions).
-                if (!_definedFunctions.Contains(ident.Name) && !ident.Name.StartsWith("__lambda_") && !IsVariableDefined(ident.Name))
+                // Bare call: a defined function, a lambda, or a function-typed value.
+                bool isFunctionValue = ident.Name.StartsWith("__lambda_") || IsVariableDefined(ident.Name);
+                if (!_definedFunctions.Contains(ident.Name) && !isFunctionValue)
                 {
                     _diagnostics.AddError($"Undefined function: '{ident.Name}'", call.Line, call.Column);
+                }
+                else if (!isFunctionValue && IsInvalidBareInstanceCall(ident.Name))
+                {
+                    // An instance method called bare from a context that has no
+                    // implicit `this` (or that belongs to another contract).
+                    _diagnostics.AddError(
+                        $"Instance method '{ident.Name}' requires an instance — call it on a 'new' object or declare it 'static fn'",
+                        call.Line, call.Column);
                 }
             }
             else if (call.Callee is CallExpression innerCall)

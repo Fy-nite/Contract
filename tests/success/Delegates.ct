@@ -1,9 +1,9 @@
 Contract Program {
-    fn apply(f: (int) -> int, x: int) -> int {
+    static fn apply(f: (int) -> int, x: int) -> int {
         return f(x);
     }
 
-    fn twice(f: (int) -> int, x: int) -> int {
+    static fn twice(f: (int) -> int, x: int) -> int {
         return f(f(x));
     }
 

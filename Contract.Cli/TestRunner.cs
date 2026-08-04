@@ -5,7 +5,6 @@ using Contract.Compiler.Parsing;
 using Contract.Compiler.Diagnostics;
 using Contract.Compiler.Semantics;
 using Contract.Compiler.StandardLibrary;
-using Contract.Compiler.StandardLibrary.Builtins;
 
 namespace Contract.Cli
 {
@@ -56,7 +55,9 @@ namespace Contract.Cli
                 if (!diagnostics.HasErrors)
                 {
                     var symbolTable = new SymbolTable();
-                    symbolTable.RegisterAssembly(typeof(IO).Assembly);
+                    // The stdlib is the generic ObjektRT.Stdlib; Reflect is
+                    // the one Contract-specific [ClassBinding] module.
+                    symbolTable.RegisterAssembly(typeof(ReflectModule).Assembly);
                     StdlibCatalog.RegisterInto(symbolTable);
                     var analyzer = new SemanticAnalyzer(symbolTable, diagnostics);
                     analyzer.Analyze(program);

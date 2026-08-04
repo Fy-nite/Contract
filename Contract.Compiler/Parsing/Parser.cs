@@ -376,14 +376,15 @@ namespace Contract.Compiler.Parsing
 
             Consume(TokenType.RBrace, "Expected '}' after contract body");
 
-            // A non-static member fn is an instance method only when the
-            // contract declares instance fields â€” that's the "class" case.
-            // Contracts without fields keep the legacy module-function behavior.
-            bool hasFields = contract.Fields.Count > 0;
+            // A non-static member fn is an instance method: it takes the
+            // receiver (`this`) as param 0, whether or not the contract
+            // declares fields. Module-style behavior is opt-in via
+            // `static fn` — that keeps contracts-as-namespaces working while
+            // letting field-less contracts be used with `new Type()` too.
             foreach (var member in contract.Members)
             {
                 if (member is FunctionDeclaration f)
-                    f.IsInstance = hasFields && !f.IsStatic;
+                    f.IsInstance = !f.IsStatic;
             }
 
             return contract;

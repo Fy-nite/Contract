@@ -1,0 +1,8 @@
+Contract Foo {
+    constructor() { }
+
+    static fn Main() {
+        var f: Foo = new Foo();
+        IO.Println("made it");
+    }
+}

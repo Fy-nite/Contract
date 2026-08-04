@@ -1,13 +1,12 @@
-using Contract.Compiler.StandardLibrary;
-
-namespace Contract.Compiler.StandardLibrary.Builtins;
+namespace Contract.Compiler.StandardLibrary;
 
 /// <summary>
 /// In-language reflection: <c>Reflect.Types()</c>, <c>Reflect.Methods("Foo")</c>,
 /// <c>Reflect.GetStatic(...)</c>, <c>Reflect.Call(...)</c>, <c>Reflect.Invoke(...)</c>,
 /// <c>Reflect.Hierarchy("Foo")</c>, ... — runtime introspection over the loaded
 /// module. The host (a ContractRuntime) sets <see cref="Host"/>; without one
-/// every call returns empty/false/null.
+/// every call returns empty/false/null. This is a Contract-specific binding —
+/// the generic stdlib stays free of it.
 /// </summary>
 [ClassBinding("Reflect")]
 public static class ReflectModule

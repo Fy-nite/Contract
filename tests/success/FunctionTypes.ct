@@ -1,19 +1,19 @@
 // Function types with named and unnamed parameters, lambdas returned from
 // functions, and closures passed as arguments.
 Contract Program {
-    fn makeAdder() -> (x:int) -> int {
+    static fn makeAdder() -> (x:int) -> int {
         return fun a -> a + 1;
     }
 
-    fn addPair() -> (a:int, b:int) -> int {
+    static fn addPair() -> (a:int, b:int) -> int {
         return fun x y -> x + y;
     }
 
-    fn apply(f: (v:int) -> int, n: int) -> int {
+    static fn apply(f: (v:int) -> int, n: int) -> int {
         return f(n);
     }
 
-    fn makeClosure(base: int) -> (n:int) -> int {
+    static fn makeClosure(base: int) -> (n:int) -> int {
         return fun v -> v + base;
     }
 

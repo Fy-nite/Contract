@@ -1,0 +1,9 @@
+Contract Foo {
+    fn noop() { }
+
+    static fn Main() {
+        var f = new Foo();
+        f.noop();
+        IO.Println("made it");
+    }
+}

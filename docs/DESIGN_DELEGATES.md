@@ -311,8 +311,9 @@ thread) are valid on the new thread, and the thread has its own call stack.
 - `Runtime.SpawnThread(handle)` — registers `Thread.Spawn` as an explicit
   native; spawns a background `Thread` running `RunDelegate` on a fresh
   interpreter with `NativeCallHandler` wired to the runtime's resolver chain.
-- Compiler: `ThreadModule.Spawn(object d)` stub so the analyzer accepts the
-  call; the runtime host binding takes precedence at dispatch.
+- Compiler: `ObjektRT.Stdlib.Threading.Thread.Spawn(object d)` stub so the
+  analyzer accepts the call; the runtime host binding takes precedence at
+  dispatch.
 - **v1 surface:** `Thread.Spawn(delegate)` (fire-and-forget, background
   thread), `Thread.Sleep`. No join/result/locks yet.
 - Validated end-to-end: `tests/success/Threading.ct` → non-capturing lambda

@@ -1,0 +1,7 @@
+Contract Foo {
+    fn greet() { IO.Println("legacy module fn"); }
+
+    static fn Main() {
+        Foo.greet();
+    }
+}

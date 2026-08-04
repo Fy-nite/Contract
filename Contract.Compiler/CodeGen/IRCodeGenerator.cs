@@ -22,6 +22,7 @@ public class IRCodeGenerator
     private bool _lastIsReturn = false;
     private int _lambdaCounter = 0;
     private int _closureCounter = 0;
+    private int _displayCounter = 0;
     private Dictionary<string, LambdaInfo> _lambdaVariableMap = new();
     private readonly Dictionary<string, LambdaInfo> _lambdaInfos = new();
     private Program? _program;
@@ -42,6 +43,16 @@ public class IRCodeGenerator
     private int? _closureArgIndex;
     private HashSet<string>? _captureNames;
     private HashSet<string>? _lambdaBodyLocals;
+    // By-reference capture: captured variables are hoisted into a per-function
+    // "display" object shared by the function body and every lambda it creates.
+    // The display is a local in an ordinary function and the __closure arg in a
+    // lambda body; _closureIsArg says which, _closureLocalName the local name.
+    private Dictionary<string, TypeDescriptor>? _displayFields;
+    private bool _closureIsArg;
+    private string? _closureLocalName;
+    // Capture sets precomputed per function so the enclosing scope's locals are
+    // visible even for lambdas that appear before a variable's declaration.
+    private readonly Dictionary<LambdaExpression, List<(string Name, TypeDescriptor Type)>> _precomputedCaptures = new();
     // Instance-method context: the arg index of 'this' and the declaring contract
     // (used for field access like `x = ...` or `this.x`).
     private int? _thisArgIndex;
@@ -63,6 +74,10 @@ public class IRCodeGenerator
         public string Name = "";
         public string? ClosureClass;                       // null when no captures
         public List<(string Name, TypeDescriptor Type)> Captures = new();
+        // The function's shared display (by-reference capture): its fields are
+        // the union of every lambda's captures; all lambdas share one instance.
+        public Dictionary<string, TypeDescriptor>? DisplayFields;
+        public bool SharedClosure;                         // closure is the shared display
         public List<TypeDescriptor> ParamTypes = new();
         public TypeDescriptor ReturnType = new TypeDescriptor.Named("int");
         public bool HasCaptures => ClosureClass != null;
@@ -257,23 +272,49 @@ public class IRCodeGenerator
         var savedClosureArg = _closureArgIndex;
         var savedCaptureNames = _captureNames;
         var savedBodyLocals = _lambdaBodyLocals;
+        var savedDisplayFields = _displayFields;
+        var savedClosureIsArg = _closureIsArg;
+        var savedClosureLocal = _closureLocalName;
         _variableTypes = new Dictionary<string, TypeDescriptor>();
-        _lambdaBodyLocals = new HashSet<string>();
 
         _lambdaInfos.TryGetValue(func.Name, out var lambdaInfo);
+        // Only lambda bodies track their own declared locals (to exclude them
+        // from capture); an ordinary function's hoisted locals must remain
+        // captured so they live in the shared display.
+        _lambdaBodyLocals = lambdaInfo != null ? new HashSet<string>() : null;
         if (lambdaInfo != null && lambdaInfo.HasCaptures)
         {
+            // This is a synthesized lambda body. Captured variables live either
+            // in the enclosing function's shared display (by-reference, passed
+            // in as __closure) or in a fresh per-lambda closure (by-value
+            // fallback for nested lambdas capturing parent-lambda locals).
             _closureClass = lambdaInfo.ClosureClass;
             _closureArgIndex = 0; // __closure is the first parameter
-            _captureNames = lambdaInfo.Captures.Select(c => c.Name).ToHashSet();
-            foreach (var c in lambdaInfo.Captures)
-                _variableTypes[c.Name] = c.Type;
+            _closureIsArg = true;
+            _closureLocalName = null;
+            if (lambdaInfo.DisplayFields != null)
+            {
+                _displayFields = lambdaInfo.DisplayFields;
+                _captureNames = _displayFields.Keys.ToHashSet();
+                foreach (var (n, t) in _displayFields)
+                    _variableTypes[n] = t;
+            }
+            else
+            {
+                _displayFields = null;
+                _captureNames = lambdaInfo.Captures.Select(c => c.Name).ToHashSet();
+                foreach (var c in lambdaInfo.Captures)
+                    _variableTypes[c.Name] = c.Type;
+            }
         }
         else
         {
             _closureClass = null;
             _closureArgIndex = null;
+            _closureIsArg = false;
+            _closureLocalName = null;
             _captureNames = null;
+            _displayFields = null;
         }
 
         // Explicit return type if declared; otherwise guess: Main is void, others are int32 by default in v1
@@ -322,6 +363,64 @@ public class IRCodeGenerator
         _thisArgIndex = func.IsInstance ? 0 : (int?)null;
 
         var ib = mb.Body();
+
+        // Hoisting pre-pass: every lambda in this function (at any depth) and
+        // every local declaration, so capture analysis sees the whole scope.
+        var displayFields = new Dictionary<string, TypeDescriptor>();
+        if (func.Body != null)
+        {
+            var locals = new Dictionary<string, TypeDescriptor>();
+            var lambdas = new List<LambdaExpression>();
+            CollectHoistInfo(func.Body, locals, lambdas);
+            var visible = new Dictionary<string, TypeDescriptor>(_variableTypes);
+            foreach (var (n, t) in locals)
+                if (!visible.ContainsKey(n)) visible[n] = t;
+            _precomputedCaptures.Clear();
+            foreach (var l in lambdas)
+            {
+                var caps = AnalyzeCaptures(l, visible);
+                _precomputedCaptures[l] = caps;
+                foreach (var (n, t) in caps)
+                    displayFields[n] = t;
+            }
+        }
+        else
+        {
+            _precomputedCaptures.Clear();
+        }
+
+        // Ordinary functions: create the shared display when anything is
+        // captured. (Lambda bodies reuse the enclosing function's display.)
+        if (lambdaInfo == null && displayFields.Count > 0)
+        {
+            _displayFields = displayFields;
+            _closureClass = $"__display_{_displayCounter++}";
+            _closureIsArg = false;
+            _closureLocalName = "__display";
+            _captureNames = displayFields.Keys.ToHashSet();
+            var classBuilder = _builder.Class(_closureClass);
+            foreach (var (n, t) in displayFields)
+                classBuilder.Field(n, MapType(t));
+            classBuilder.EndClass();
+
+            // Allocate the display before the first statement, and copy any
+            // captured parameters (incl. 'this') into it so the lambdas see them.
+            ib.Local(_closureLocalName!, TypeRef.Object);
+            ib.Newobj(new TypeRef(_closureClass));
+            ib.Stloc(_closureLocalName!);
+            foreach (var (n, _) in displayFields)
+            {
+                if (paramMap.TryGetValue(n, out int pidx))
+                {
+                    LoadClosure(ib);
+                    ib.Dup();
+                    ib.Ldarg(pidx);
+                    ib.Stfld(CaptureFieldReference(n));
+                    ib.Pop();
+                }
+            }
+        }
+
         if (func.Body != null)
         {
             GenerateStatement(ib, func.Body, paramMap);
@@ -330,6 +429,11 @@ public class IRCodeGenerator
         // Implicit return safety
         if (!_lastIsReturn)
         {
+            // The VM treats a ≤2-byte method body as a native stub
+            // (@DllImport placeholder) and routes calls to native dispatch.
+            // An empty body is a real no-op, so pad it so it isn't misrouted.
+            if (func.Body is { Statements.Count: 0 } && (returnType == TypeRef.Void || returnType == TypeRef.String))
+                ib.Ldnull().Pop();
             if (returnType == TypeRef.Void) ib.Ret();
             else if (returnType == TypeRef.String) ib.Ldnull().Ret();
             else if (returnType == TypeRef.Float32) ib.LdcR4(0).Ret();
@@ -344,6 +448,9 @@ public class IRCodeGenerator
         _closureArgIndex = savedClosureArg;
         _captureNames = savedCaptureNames;
         _lambdaBodyLocals = savedBodyLocals;
+        _displayFields = savedDisplayFields;
+        _closureIsArg = savedClosureIsArg;
+        _closureLocalName = savedClosureLocal;
         _thisArgIndex = savedThisIndex;
     }
 
@@ -455,9 +562,23 @@ public class IRCodeGenerator
         var savedVariableTypes = _variableTypes;
         var savedThisIndex = _thisArgIndex;
         var savedContract = _currentContractName;
+        var savedClosureClass = _closureClass;
+        var savedClosureArg = _closureArgIndex;
+        var savedCaptureNames = _captureNames;
+        var savedBodyLocals = _lambdaBodyLocals;
+        var savedDisplayFields = _displayFields;
+        var savedClosureIsArg = _closureIsArg;
+        var savedClosureLocal = _closureLocalName;
         _variableTypes = new Dictionary<string, TypeDescriptor>();
+        _lambdaBodyLocals = null;   // constructors aren't lambda bodies
         _thisArgIndex = 0;
         _currentContractName = contractName;
+        _closureClass = null;
+        _closureArgIndex = null;
+        _closureIsArg = false;
+        _closureLocalName = null;
+        _captureNames = null;
+        _displayFields = null;
 
         var mb = cb.Constructor();
 
@@ -480,6 +601,59 @@ public class IRCodeGenerator
         }
 
         var ib = mb.Body();
+
+        // Hoisting pre-pass — same by-reference capture scheme as functions.
+        var displayFields = new Dictionary<string, TypeDescriptor>();
+        if (ctor.Body != null)
+        {
+            var locals = new Dictionary<string, TypeDescriptor>();
+            var lambdas = new List<LambdaExpression>();
+            CollectHoistInfo(ctor.Body, locals, lambdas);
+            var visible = new Dictionary<string, TypeDescriptor>(_variableTypes);
+            foreach (var (n, t) in locals)
+                if (!visible.ContainsKey(n)) visible[n] = t;
+            _precomputedCaptures.Clear();
+            foreach (var l in lambdas)
+            {
+                var caps = AnalyzeCaptures(l, visible);
+                _precomputedCaptures[l] = caps;
+                foreach (var (n, t) in caps)
+                    displayFields[n] = t;
+            }
+        }
+        else
+        {
+            _precomputedCaptures.Clear();
+        }
+
+        if (displayFields.Count > 0)
+        {
+            _displayFields = displayFields;
+            _closureClass = $"__display_{_displayCounter++}";
+            _closureIsArg = false;
+            _closureLocalName = "__display";
+            _captureNames = displayFields.Keys.ToHashSet();
+            var classBuilder = _builder.Class(_closureClass);
+            foreach (var (n, t) in displayFields)
+                classBuilder.Field(n, MapType(t));
+            classBuilder.EndClass();
+
+            ib.Local(_closureLocalName!, TypeRef.Object);
+            ib.Newobj(new TypeRef(_closureClass));
+            ib.Stloc(_closureLocalName!);
+            foreach (var (n, _) in displayFields)
+            {
+                if (paramMap.TryGetValue(n, out int pidx))
+                {
+                    LoadClosure(ib);
+                    ib.Dup();
+                    ib.Ldarg(pidx);
+                    ib.Stfld(CaptureFieldReference(n));
+                    ib.Pop();
+                }
+            }
+        }
+
         if (ctor.Body != null)
         {
             GenerateStatement(ib, ctor.Body, paramMap);
@@ -487,7 +661,13 @@ public class IRCodeGenerator
 
         if (!_lastIsReturn)
         {
-            ib.Ret();
+            // The VM treats a ≤2-byte method body as a native stub (@DllImport
+            // placeholder) and routes calls to native dispatch. An empty
+            // constructor is a real no-op, so pad it so it isn't misrouted.
+            if (ctor.Body is { Statements.Count: 0 })
+                ib.Ldnull().Pop().Ret();
+            else
+                ib.Ret();
         }
 
         ib.EndBody().EndMethod();
@@ -495,6 +675,13 @@ public class IRCodeGenerator
         _variableTypes = savedVariableTypes;
         _thisArgIndex = savedThisIndex;
         _currentContractName = savedContract;
+        _closureClass = savedClosureClass;
+        _closureArgIndex = savedClosureArg;
+        _captureNames = savedCaptureNames;
+        _lambdaBodyLocals = savedBodyLocals;
+        _displayFields = savedDisplayFields;
+        _closureIsArg = savedClosureIsArg;
+        _closureLocalName = savedClosureLocal;
     }
 
     private LambdaInfo GenerateLambda(LambdaExpression lambda, Dictionary<string, int> enclosingParamMap)
@@ -514,18 +701,44 @@ public class IRCodeGenerator
             : InferLambdaReturnType(lambda.Body);
 
         // Free-variable analysis: which enclosing vars does this lambda touch?
-        var captures = AnalyzeCaptures(lambda);
-        if (captures.Count > 0)
+        // Precomputed during the function's hoisting pre-pass so the enclosing
+        // scope's locals are visible; falls back to the live scope.
+        var captures = _precomputedCaptures.TryGetValue(lambda, out var pre)
+            ? pre
+            : AnalyzeCaptures(lambda, _variableTypes);
+        if (captures.Count > 0 && _closureClass != null && _displayFields != null
+            && captures.All(c => _displayFields.ContainsKey(c.Name)))
         {
+            // By-reference capture: share the function's display object with the
+            // enclosing scope (C#-style). No per-lambda copy — the display is
+            // already allocated (function body) or is our __closure arg (lambda
+            // body), and every lambda in the function shares the same one.
+            info.ClosureClass = _closureClass;
+            info.DisplayFields = _displayFields;
+            info.SharedClosure = true;
+            info.Captures = captures;
+        }
+        else if (captures.Count > 0)
+        {
+            // Fallback (e.g. a nested lambda capturing a local declared in its
+            // parent lambda's body): a fresh per-lambda closure copying current
+            // values — the previous by-value behavior.
             info.ClosureClass = $"__closure_{_closureCounter++}";
             info.Captures = captures;
+            info.SharedClosure = false;
             EnsureClosureClass(info);
         }
 
         // Synthesize the lambda method. Capturing lambdas take the closure as
         // their first parameter ("__closure"); the body reads/writes captured
-        // vars through it as closure fields.
-        var func = new FunctionDeclaration(info.Name, lambda.Line, lambda.Column) { IsStatic = true };
+        // vars through it as closure fields. The declaring contract is carried
+        // so member access on a captured 'this' (this.count) resolves to the
+        // right type inside the lambda body.
+        var func = new FunctionDeclaration(info.Name, lambda.Line, lambda.Column)
+        {
+            IsStatic = true,
+            ContractName = _currentContractName,
+        };
         if (info.HasCaptures)
             func.Parameters.Add(new Parameter("__closure", TypeDescriptor.Parse("object"), lambda.Line, lambda.Column));
         for (int i = 0; i < lambda.Parameters.Count; i++)
@@ -561,11 +774,110 @@ public class IRCodeGenerator
         };
 
     /// <summary>
+    /// Walks a function body collecting every local declaration (name → type)
+    /// and every lambda expression at any depth — the input to the hoisting
+    /// pre-pass so capture analysis sees the whole scope, not just the locals
+    /// declared before a given lambda.
+    /// </summary>
+    private static void CollectHoistInfo(Contract.Compiler.AST.Statement stmt, Dictionary<string, TypeDescriptor> locals, List<LambdaExpression> lambdas)
+    {
+        switch (stmt)
+        {
+            case Contract.Compiler.AST.BlockStatement b:
+                foreach (var s in b.Statements) CollectHoistInfo(s, locals, lambdas);
+                break;
+            case Contract.Compiler.AST.VariableDeclaration v:
+                locals[v.Name] = v.Type;
+                if (v.Initializer != null) CollectHoistInfoExpr(v.Initializer, locals, lambdas);
+                break;
+            case Contract.Compiler.AST.ExpressionStatement es:
+                CollectHoistInfoExpr(es.Expression, locals, lambdas);
+                break;
+            case Contract.Compiler.AST.IfStatement i:
+                CollectHoistInfoExpr(i.Condition, locals, lambdas);
+                CollectHoistInfo(i.ThenBranch, locals, lambdas);
+                if (i.ElseBranch != null) CollectHoistInfo(i.ElseBranch, locals, lambdas);
+                break;
+            case Contract.Compiler.AST.WhileStatement w:
+                CollectHoistInfoExpr(w.Condition, locals, lambdas);
+                CollectHoistInfo(w.Body, locals, lambdas);
+                break;
+            case Contract.Compiler.AST.ForStatement f:
+                if (f.Initializer != null) CollectHoistInfo(f.Initializer, locals, lambdas);
+                if (f.Condition != null) CollectHoistInfoExpr(f.Condition, locals, lambdas);
+                CollectHoistInfo(f.Body, locals, lambdas);
+                if (f.Update != null) CollectHoistInfoExpr(f.Update, locals, lambdas);
+                break;
+            case Contract.Compiler.AST.ReturnStatement r:
+                if (r.Value != null) CollectHoistInfoExpr(r.Value, locals, lambdas);
+                break;
+            case Contract.Compiler.AST.SwitchStatement sw:
+                CollectHoistInfoExpr(sw.Expression, locals, lambdas);
+                foreach (var c in sw.Cases)
+                    foreach (var s in c.Statements) CollectHoistInfo(s, locals, lambdas);
+                break;
+            case Contract.Compiler.AST.BreakStatement:
+            case Contract.Compiler.AST.ContinueStatement:
+                break;
+        }
+    }
+
+    private static void CollectHoistInfoExpr(Expression e, Dictionary<string, TypeDescriptor> locals, List<LambdaExpression> lambdas)
+    {
+        switch (e)
+        {
+            case LambdaExpression l:
+                lambdas.Add(l);
+                if (l.BlockBody != null)
+                {
+                    foreach (var s in l.BlockBody.Statements) CollectHoistInfo(s, locals, lambdas);
+                }
+                else if (l.Body != null)
+                {
+                    CollectHoistInfoExpr(l.Body, locals, lambdas);
+                }
+                break;
+            case BinaryExpression b:
+                CollectHoistInfoExpr(b.Left, locals, lambdas);
+                CollectHoistInfoExpr(b.Right, locals, lambdas);
+                break;
+            case UnaryExpression u:
+                CollectHoistInfoExpr(u.Operand, locals, lambdas);
+                break;
+            case CallExpression c:
+                CollectHoistInfoExpr(c.Callee, locals, lambdas);
+                foreach (var a in c.Arguments) CollectHoistInfoExpr(a, locals, lambdas);
+                break;
+            case MemberExpression m:
+                CollectHoistInfoExpr(m.Object, locals, lambdas);
+                break;
+            case IndexExpression ix:
+                CollectHoistInfoExpr(ix.Target, locals, lambdas);
+                CollectHoistInfoExpr(ix.Index, locals, lambdas);
+                break;
+            case NewExpression ne:
+                if (ne.Size != null) CollectHoistInfoExpr(ne.Size, locals, lambdas);
+                foreach (var a in ne.Arguments) CollectHoistInfoExpr(a, locals, lambdas);
+                break;
+            case ArrayLiteralExpression al:
+                foreach (var el in al.Elements) CollectHoistInfoExpr(el, locals, lambdas);
+                break;
+            case PipeExpression p:
+                CollectHoistInfoExpr(p.Left, locals, lambdas);
+                CollectHoistInfoExpr(p.Right, locals, lambdas);
+                break;
+            default:
+                break;
+        }
+    }
+
+    /// <summary>
     /// Collects free variables in the lambda body: identifiers that are not
     /// lambda params (or shadowed by nested lambda params / block locals) and
-    /// whose type is known in the enclosing scope. These become closure fields.
+    /// whose type is known in <paramref name="visibleTypes"/> (the enclosing
+    /// scope). These become display fields (by-reference capture).
     /// </summary>
-    private List<(string Name, TypeDescriptor Type)> AnalyzeCaptures(LambdaExpression lambda)
+    private List<(string Name, TypeDescriptor Type)> AnalyzeCaptures(LambdaExpression lambda, Dictionary<string, TypeDescriptor> visibleTypes)
     {
         var result = new List<(string, TypeDescriptor)>();
         var seen = new HashSet<string>();
@@ -577,7 +889,7 @@ public class IRCodeGenerator
             {
                 case IdentifierExpression id:
                     if (sh.Contains(id.Name) || seen.Contains(id.Name)) return;
-                    if (_variableTypes.TryGetValue(id.Name, out var t))
+                    if (visibleTypes.TryGetValue(id.Name, out var t))
                     {
                         result.Add((id.Name, t));
                         seen.Add(id.Name);
@@ -670,10 +982,11 @@ public class IRCodeGenerator
 
     /// <summary>
     /// Emits a delegate value for a lambda. Non-capturing: newobj Delegate +
-    /// store target. Capturing: allocate the delegate first, then the closure
-    /// object (fields for each captured var, read from the enclosing scope),
-    /// store the closure into the delegate, then the target name. The delegate
-    /// is left on the stack as the value.
+    /// store target. By-reference capture: the delegate's closure is the
+    /// function's shared display object (no values are copied). Fallback
+    /// (fresh per-lambda closure): allocate the delegate, then a closure
+    /// copying current values from the enclosing scope. The delegate is left
+    /// on the stack as the value.
     /// </summary>
     private void GenerateLambdaValue(InstructionBuilder ib, LambdaInfo info, Dictionary<string, int> enclosingParamMap)
     {
@@ -688,6 +1001,22 @@ public class IRCodeGenerator
             return;
         }
 
+        if (info.SharedClosure)
+        {
+            // By-reference capture: the closure IS the function's shared
+            // display — already allocated (function body) or our __closure arg
+            // (lambda body). Just wire the delegate to it; no copies.
+            ib.Newobj(new TypeRef(DelegateClassName));   // [d]
+            ib.Dup();                                    // [d, d]
+            LoadClosure(ib);                             // [d, d, display]
+            ib.Stfld(new FieldReference(new TypeRef(DelegateClassName), DelegateClosureField, TypeRef.Object)); // [d]
+            ib.Dup();                                    // [d, d]
+            ib.Ldstr($"Global.{info.Name}");             // [d, d, s]
+            ib.Stfld(new FieldReference(new TypeRef(DelegateClassName), DelegateTargetField, TypeRef.String));  // [d]
+            return;
+        }
+
+        // Fallback (by-value): fresh closure, copy current values.
         // Stack convention: stfld pops [value, object], so push object first.
         // The delegate must survive all stores, so keep a spare copy around.
         ib.Newobj(new TypeRef(DelegateClassName));          // [d]
@@ -704,6 +1033,16 @@ public class IRCodeGenerator
         ib.Dup();                                           // [d, d]
         ib.Ldstr($"Global.{info.Name}");                    // [d, d, s]
         ib.Stfld(new FieldReference(new TypeRef(DelegateClassName), DelegateTargetField, TypeRef.String));  // [d]
+    }
+
+    /// <summary>
+    /// Pushes the active closure object: the __closure arg in a lambda body, or
+    /// the shared display local in an ordinary function body.
+    /// </summary>
+    private void LoadClosure(InstructionBuilder ib)
+    {
+        if (_closureIsArg) ib.Ldarg(_closureArgIndex!.Value);
+        else ib.Ldloc(_closureLocalName!);
     }
 
     /// <summary>
@@ -736,13 +1075,47 @@ public class IRCodeGenerator
                 break;
 
             case Contract.Compiler.AST.VariableDeclaration v:
-                ib.Local(v.Name, MapType(v.Type));
                 _variableTypes[v.Name] = v.Type;
                 _lambdaBodyLocals?.Add(v.Name);
                 if (v.Type is TypeDescriptor.Function fnLocalType)
                     _functionTypedLocals[v.Name] = fnLocalType;
                 else if (v.Type is TypeDescriptor.GenericInstance gLocal && TryGetDelegateFunctionType(gLocal, out var gfLocal))
                     _functionTypedLocals[v.Name] = gfLocal;
+                if (IsCaptured(v.Name))
+                {
+                    // Hoisted variable: it lives in the shared display, not a
+                    // local slot. The initializer writes through the display
+                    // field; nothing is left on the stack afterwards.
+                    if (v.Initializer != null)
+                    {
+                        LoadClosure(ib);
+                        ib.Dup();
+                        if (v.Initializer is LambdaExpression lambda)
+                        {
+                            // A lambda assigned to a variable is a value now: build
+                            // the delegate object. The direct-call fast path below
+                            // still resolves through _lambdaVariableMap for `inc(5)`.
+                            var info = GenerateLambda(lambda, paramMap);
+                            _lambdaVariableMap[v.Name] = info;
+                            GenerateLambdaValue(ib, info, paramMap);
+                        }
+                        else
+                        {
+                            // Array-literal element-type hint: used for empty
+                            // literals like 'let x: string[] = []'.
+                            var prevHint = _arrayElementTypeHint;
+                            if (v.Initializer is Contract.Compiler.AST.ArrayLiteralExpression)
+                                _arrayElementTypeHint = v.Type;
+                            GenerateExpression(ib, v.Initializer, paramMap);
+                            _arrayElementTypeHint = prevHint;
+                        }
+                        ib.Stfld(CaptureFieldReference(v.Name));
+                        ib.Pop();   // discard the leftover display reference
+                    }
+                    break;
+                }
+
+                ib.Local(v.Name, MapType(v.Type));
                 if (v.Initializer != null)
                 {
                     if (v.Initializer is LambdaExpression lambda)
@@ -925,8 +1298,8 @@ public class IRCodeGenerator
                 }
                 if (IsCaptured(id.Name))
                 {
-                    // Captured var: read through the closure object's field.
-                    ib.Ldarg(_closureArgIndex!.Value);
+                    // Captured var: read through the shared display's field.
+                    LoadClosure(ib);
                     ib.Ldfld(CaptureFieldReference(id.Name));
                     break;
                 }
@@ -939,10 +1312,10 @@ public class IRCodeGenerator
                 {
                     if (bin.Left is IdentifierExpression capturedTarget && IsCaptured(capturedTarget.Name))
                     {
-                        // Captured var write: store through the closure object.
+                        // Captured var write: store through the shared display.
                         // stfld pops [value, object], so dup the object first.
-                        ib.Ldarg(_closureArgIndex!.Value);       // object
-                        ib.Dup();                                // object, object
+                        LoadClosure(ib);                     // object
+                        ib.Dup();                            // object, object
                         GenerateExpression(ib, bin.Right, paramMap); // object, object, value
                         ib.Stfld(CaptureFieldReference(capturedTarget.Name)); // object (leftover)
                         return;
@@ -1027,14 +1400,14 @@ public class IRCodeGenerator
                     if (bin.Left is IdentifierExpression capCompoundTarget && IsCaptured(capCompoundTarget.Name))
                     {
                         var cfieldRef = CaptureFieldReference(capCompoundTarget.Name);
-                        // dup the closure twice: one for ldfld, one left after stfld.
-                        ib.Ldarg(_closureArgIndex!.Value);   // [c]
-                        ib.Dup();                            // [c, c]
-                        ib.Dup();                            // [c, c, c]
-                        ib.Ldfld(cfieldRef);                 // [c, c, val]
+                        // dup the display twice: one for ldfld, one left after stfld.
+                        LoadClosure(ib);                 // [c]
+                        ib.Dup();                        // [c, c]
+                        ib.Dup();                        // [c, c, c]
+                        ib.Ldfld(cfieldRef);             // [c, c, val]
                         GenerateExpression(ib, bin.Right, paramMap);
                         EmitArithmeticOrConcat(ib, op, bin); // [c, c, newval]
-                        ib.Stfld(cfieldRef);                 // [c]
+                        ib.Stfld(cfieldRef);             // [c]
                         return;
                     }
                     if (bin.Left is IdentifierExpression fieldCompound && IsInstanceField(fieldCompound.Name))
@@ -1157,11 +1530,21 @@ public class IRCodeGenerator
                 // receiver must be pushed FIRST (before the arguments) to land
                 // in locals[0]. (Delegates keep the receiver-last convention.)
                 bool isInstanceCall = call.Symbol is FunctionDeclaration instCallFunc && instCallFunc.IsInstance;
-                if (isInstanceCall)
+
+                // A bare call to a sibling instance method (method() inside an
+                // instance method of the same contract) implicitly passes
+                // `this` as the receiver — C#-style.
+                bool implicitThisCall = call.Symbol == null
+                    && call.Callee is IdentifierExpression bareTarget
+                    && _thisArgIndex != null
+                    && FindFunction(bareTarget.Name) is { IsInstance: true } bareFn
+                    && bareFn.ContractName == _currentContractName;
+
+                if (isInstanceCall || implicitThisCall)
                 {
                     if (call.Callee is MemberExpression recvMem)
                         GenerateExpression(ib, recvMem.Object, paramMap);
-                    else if (call.Callee is IdentifierExpression recvSelf && recvSelf.Name == "this")
+                    else if (call.Callee is IdentifierExpression recvSelf)
                         ib.Ldarg(_thisArgIndex!.Value);
                 }
 
