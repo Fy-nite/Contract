@@ -27,7 +27,9 @@ public static class TextUtility
     /// <summary>Normalizes a filesystem path for use as a dictionary key (case-insensitive on Windows).</summary>
     public static string NormalizePath(string path)
     {
-        string full = Path.GetFullPath(path);
+        // Never throw on odd paths (drive-relative, malformed URIs, ...) —
+        // the key just needs to be stable, not valid.
+        string full = Contract.Compiler.ImportResolver.NormalizeAbsolutePath(path);
         return OperatingSystem.IsWindows() ? full.ToLowerInvariant() : full;
     }
 

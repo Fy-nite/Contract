@@ -59,7 +59,7 @@ namespace Contract.Cli
                     // the one Contract-specific [ClassBinding] module.
                     symbolTable.RegisterAssembly(typeof(ReflectModule).Assembly);
                     StdlibCatalog.RegisterInto(symbolTable);
-                    var analyzer = new SemanticAnalyzer(symbolTable, diagnostics);
+                    var analyzer = new SemanticAnalyzer(symbolTable, diagnostics, path);
                     analyzer.Analyze(program);
                 }
                 if (!diagnostics.HasErrors)

@@ -1,0 +1,79 @@
+// Warning showcase — every warning the analyzer can produce.
+import ObjektRT.Stdlib.System;
+import ovh.finite.demo.Utils;   // unused namespace import (no such file, never resolves a short name)
+
+namespace ovh.finite.demo;
+
+Contract UnusedContract {        // unused contract
+}
+
+struct UnusedStruct {            // unused struct
+    value: int;
+}
+
+enum UnusedEnum {                // unused enum
+    A, B
+}
+
+Contract Utils {
+    static unusedHelper: int;    // field never used
+
+    static fn DeadStatic() -> int {   // unused static function
+        return 1;
+    }
+}
+
+Contract Program {
+    static total: int;           // assigned but never read
+
+    constructor() {
+    }
+
+    static fn Main() {
+        var unused = 5;                              // unused local
+        var writeOnly: int = 0;                      // assigned but never read
+        writeOnly = 1;
+        var outer: int = 1;
+
+        if (true) {                                  // constant condition
+        }                                            // empty block
+
+        var x = 10;
+        if (x = 5) {                                 // assignment in condition
+            IO.Println(x);
+        }
+
+        var half = 10 / 0;                           // division by zero
+
+        var huge = 999999999999999;                  // int literal overflow
+
+        var w = new Widget("ok");
+        var bad = new Widget(1, 2);                  // ctor arity mismatch
+
+        while (false) {                              // constant false loop
+            IO.Println("never");
+        }
+        return;
+
+        IO.Println("unreachable");                   // unreachable code
+    }
+
+    static fn MissingReturn() -> int {               // missing return
+        var v: int = 1;
+    }
+}
+
+Contract Widget {
+    name: string;
+
+    constructor(n: string) {
+        this.name = n;
+    }
+
+    fn Describe() -> string {
+        return name;
+    }
+}
+
+fn DeadTopLevel() {                                  // unused function
+}

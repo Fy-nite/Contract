@@ -55,6 +55,8 @@ namespace Contract.Compiler.AST
     {
         public string Name { get; }
         public bool IsExported { get; set; }
+        /// <summary>Absolute path of the .ct file that declared this contract (set by the parser).</summary>
+        public string? SourceFile { get; set; }
         /// <summary>Java-style package, from `namespace com.example;`. Null when undeclared.</summary>
         public string? Namespace { get; set; }
         /// <summary>True when this type came from an imported compiled module (statically linked, not re-emitted).</summary>
@@ -91,6 +93,8 @@ namespace Contract.Compiler.AST
     {
         public string Name { get; }
         public bool IsExported { get; set; }
+        /// <summary>Absolute path of the .ct file that declared this struct (set by the parser).</summary>
+        public string? SourceFile { get; set; }
         /// <summary>Java-style package, from `namespace com.example;`. Null when undeclared.</summary>
         public string? Namespace { get; set; }
         /// <summary>True when this type came from an imported compiled module.</summary>
@@ -118,6 +122,8 @@ namespace Contract.Compiler.AST
         public string Name { get; }
         public List<string> Members { get; } = new();
         public bool IsExported { get; set; }
+        /// <summary>Absolute path of the .ct file that declared this enum (set by the parser).</summary>
+        public string? SourceFile { get; set; }
         /// <summary>Java-style package, from `namespace com.example;`. Null when undeclared.</summary>
         public string? Namespace { get; set; }
         /// <summary>True when this type came from an imported compiled module.</summary>
@@ -158,6 +164,8 @@ namespace Contract.Compiler.AST
 
     public class ConstructorDeclaration : Node
     {
+        /// <summary>Absolute path of the .ct file that declared this constructor (set by the parser).</summary>
+        public string? SourceFile { get; set; }
         public List<Parameter> Parameters { get; } = new();
         public BlockStatement? Body { get; set; }
         public List<AttributeUsage> Attributes { get; } = new();
@@ -169,6 +177,8 @@ namespace Contract.Compiler.AST
     {
         public string Name { get; }
         public bool IsExported { get; set; }
+        /// <summary>Absolute path of the .ct file that declared this function (set by the parser).</summary>
+        public string? SourceFile { get; set; }
         public List<Parameter> Parameters { get; } = new();
         public BlockStatement? Body { get; set; }
         public string? ContractName { get; set; }
@@ -444,7 +454,13 @@ namespace Contract.Compiler.AST
 
     public class NewExpression : Expression
     {
-        public string TypeName { get; }
+        /// <summary>
+        /// The type to allocate. Written form initially (short or
+        /// module-qualified, e.g. <c>Terminal.Terminal</c>); the semantic
+        /// analyzer rewrites it to the fully-qualified wire name once
+        /// namespace/import resolution runs.
+        /// </summary>
+        public string TypeName { get; set; }
         public Expression? Size { get; set; }
         /// <summary>Constructor arguments — non-null for `new Type(args)`.</summary>
         public List<Expression> Arguments { get; } = new();

@@ -58,6 +58,30 @@ namespace Contract.Compiler.Diagnostics
             _diagnostics.Add(new Diagnostic(DiagnosticSeverity.Info, message, line, column, sourceFile));
         }
 
+        /// <summary>Reports warnings and info (not errors) to the console. Used after a
+        /// successful compile so developers see warnings without a failure.</summary>
+        public void ReportWarningsToConsole()
+        {
+            var warnings = _diagnostics
+                .Where(d => d.Severity != DiagnosticSeverity.Error)
+                .OrderBy(d => d.Line).ThenBy(d => d.Column)
+                .ToList();
+            foreach (var diagnostic in warnings)
+            {
+                string color = diagnostic.Severity switch
+                {
+                    DiagnosticSeverity.Warning => "\u001b[33;1m", // Bold Yellow
+                    _ => "\u001b[36;1m"                            // Bold Cyan for info
+                };
+                string reset = "\u001b[0m";
+
+                Console.WriteLine($"{color}{diagnostic.Severity.ToString().ToLower()}{reset}: {diagnostic.Message}");
+                string fileInfo = diagnostic.SourceFile ?? "source";
+                Console.WriteLine($"  \u001b[34m-->\u001b[0m {fileInfo}:{diagnostic.Line}:{diagnostic.Column}");
+                Console.WriteLine();
+            }
+        }
+
         public void ReportToConsole()
         {
             var lines = SourceCode?.Split('\n');

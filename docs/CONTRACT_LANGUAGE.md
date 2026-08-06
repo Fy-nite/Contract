@@ -511,8 +511,44 @@ Contract Program {
   cross-file and cross-module references resolve by name at runtime.
 - `import com.lib;` is the "wildcard import" for a package; a single contract
   inside it can be referenced by its full name without any import.
-- The namespace applies to contracts, structs, and enums. It is independent of
-  file layout.
+- The namespace applies to contracts, structs, and enums. The declared
+  namespace is independent of file layout, but a namespace import can also
+  *find* its file by location — see "Python-style module resolution" below.
+
+### Python-style module resolution
+
+A namespace import resolves to a file by *location*, the way Python maps
+modules to paths: `import ovh.finite.hello.Terminal;` looks for
+`ovh/finite/hello/Terminal.ct` (then `.oir` / `.oil` / `.orbt`) relative to the
+importing file's directory, then the main file's directory, then the working
+directory. This lets a directory tree BE the package:
+
+```ct
+// src/main.ct
+namespace ovh.finite.hello;
+import ovh.finite.hello.Terminal;
+
+Contract Program {
+    static fn Main() {
+        var t = new Terminal::Terminal();
+        t.Start();
+    }
+}
+```
+
+```text
+src/
+  main.ct
+  ovh/finite/hello/Terminal.ct      # import ovh.finite.hello.Terminal finds this
+```
+
+When a file is loaded this way it is merged exactly like a quoted file import
+(`import "path/to/file.ct";` resolves relative to the importing file's
+directory); the namespace declared inside it still determines type names.
+Namespace imports that have no backing file — like stdlib imports — are still
+registered for short-name resolution. Types can also be constructed with a
+module qualifier: `new Terminal::Terminal()` is `Terminal.Terminal`, resolved
+through the namespace import to its fully-qualified wire name.
 
 ## Compiled module references (DLL-style)
 
@@ -1430,3 +1466,35 @@ ArgList ::= Expression (',' Expression)*
 - Exception handling (`try`/`throw`)
 - Async/await patterns
 - Contracts as objects (metaclasses)
+
+## Compiler Warnings
+
+The compiler reports development-time warnings (not errors — compilation
+continues) for suspicious code. The CLI prints them after a successful
+compile; the language server shows them as yellow squiggles in the editor.
+The full set:
+
+| Warning | When it fires |
+| --- | --- |
+| `Variable 'x' is declared but never used` | A local is never read |
+| `Variable 'x' is assigned but its value is never used` | A local is only written, never read |
+| `Variable 'x' shadows a declaration in an outer scope` | A local/parameter hides a name from an enclosing block (lambda parameters are exempt) |
+| `Function 'f' is never called` | A top-level or `static fn` is never referenced |
+| `Contract/Struct/Enum 'X' is never used` | A declared type is never referenced by name |
+| `Field 'C.f' is never used` / `assigned but never read` | A contract field is never read |
+| `Function 'f' declares return type 'T' but not all code paths return a value` | A non-void function can fall off the end |
+| `'return' with no value in a function returning 'T'` | A `return;` in a function that declares a return type |
+| `Unreachable code — ... follows a 'return', 'break', or 'continue'` | A statement can never execute |
+| `'if'/'while'/'for' condition is always true/false` | A literal condition |
+| `'if'/'while'/'for' condition is an assignment — did you mean '=='?` | `=` used where `==` was probably meant |
+| `Empty block — the branch does nothing` / `Empty loop body` | An empty `{}` branch or loop body |
+| `Division by zero` | `/` or `%` by a constant zero |
+| `Integer literal '...' exceeds the int range; value clamped to 0` | A numeric literal overflows `int` |
+| `No constructor of 'X' takes N argument(s)` | `new X(...)` arity matches no declared constructor — the ctor won't run |
+| `Namespace import 'A.B' is never used` | An `import A.B;` resolved nothing |
+| `Imported file 'x.ct' is never used` | Every declaration in an imported file is unreferenced |
+| `No static 'Main' entry point found` (info) | The module has no runnable entry point |
+
+Dead-code analysis is name-based and intentionally conservative: types and
+functions referenced only through string-based reflection (`Reflect.Invoke`)
+are invisible to it and may still be reported.

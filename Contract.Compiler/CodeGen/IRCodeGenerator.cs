@@ -179,7 +179,10 @@ public class IRCodeGenerator
             if (cls.NativeBindingName != null)
                 _nativeBindings[cls.Name] = cls.NativeBindingName;
 
-            var classBuilder = _builder.Class(cls.Name);
+            // Contracts are emitted under their fully-qualified wire name
+            // (com.example.Foo), matching structs/enums — the VM keys types,
+            // fields, and methods by these exact names.
+            var classBuilder = _builder.Class(cls.FullName);
 
             // Type-level attributes; attribute types are additionally marked
             // with the built-in @Attribute annotation so the runtime/host can
@@ -1605,7 +1608,7 @@ public class IRCodeGenerator
                     // receiver (an external object handle) as argument 0.
                     string instanceTarget = _nativeBindings.TryGetValue(instanceFunc.ContractName ?? "", out var instBinding)
                         ? instBinding
-                        : instanceFunc.ContractName ?? "TODO";
+                        : ResolveTypeName(instanceFunc.ContractName ?? "TODO");
                     if (instanceTarget != instanceFunc.ContractName)
                     {
                         // The VM pops args in reverse, so the receiver (pushed
@@ -1625,7 +1628,7 @@ public class IRCodeGenerator
                     var paramTypes = staticFunc.Parameters.Select(p => MapType(p.Type)).ToList();
                     string staticTarget = _nativeBindings.TryGetValue(staticFunc.ContractName ?? "", out var statBinding)
                         ? statBinding
-                        : staticFunc.ContractName ?? "Global";
+                        : ResolveTypeName(staticFunc.ContractName ?? "Global");
                     ib.Call(new MethodReference(new TypeRef(staticTarget), staticFunc.Name, returnType, paramTypes));
                 }
                 else if (call.Callee is IdentifierExpression calleeIdent)
@@ -1946,35 +1949,29 @@ public class IRCodeGenerator
 
     /// <summary>
     /// Resolves a possibly-short type name to its fully-qualified wire name:
-    /// already-dotted names pass through; the current contract's namespace is
-    /// preferred, then namespace imports, then a unique short-name match.
-    /// Falls back to the name unchanged.
+    /// the current contract's namespace is preferred, then namespace imports
+    /// (mapping the first segment of dotted names too — `Terminal.Terminal`
+    /// with `import ovh.finite.hello.Terminal;` → `ovh.finite.hello.Terminal.Terminal`),
+    /// then a unique short-name match. Falls back to the name unchanged.
     /// </summary>
     private string ResolveTypeName(string name)
+        => TypeNameResolver.Resolve(
+            name,
+            _program?.NamespaceImports ?? (IReadOnlyList<string>)Array.Empty<string>(),
+            HasType,
+            CurrentContractNamespace(),
+            UniqueShortMatch);
+
+    /// <summary>The namespace of the contract currently being generated, if any.</summary>
+    private string? CurrentContractNamespace()
     {
-        if (string.IsNullOrEmpty(name) || name.Contains('.')) return name;
-
-        // 1. The current contract's own namespace (same-file types).
-        if (_currentContractName != null)
-        {
-            var cur = _program?.Contracts.FirstOrDefault(c => c.Name == _currentContractName);
-            if (cur?.Namespace != null && HasType($"{cur.Namespace}.{name}"))
-                return $"{cur.Namespace}.{name}";
-        }
-
-        // 2. Declared namespace imports (import com.example;).
-        foreach (var ns in _program?.NamespaceImports ?? Enumerable.Empty<string>())
-        {
-            if (HasType($"{ns}.{name}"))
-                return $"{ns}.{name}";
-        }
-
-        // 3. Unique short-name match anywhere.
-        if (_shortToFull.TryGetValue(name, out var list) && list.Count == 1)
-            return list[0];
-
-        return name;
+        if (_currentContractName == null || _program == null) return null;
+        return _program.Contracts.FirstOrDefault(c => c.Name == _currentContractName)?.Namespace;
     }
+
+    /// <summary>The single qualified name for a short name, or null when ambiguous/absent.</summary>
+    private string? UniqueShortMatch(string shortName)
+        => _shortToFull.TryGetValue(shortName, out var list) && list.Count == 1 ? list[0] : null;
 
     /// <summary>
     /// Resolves the element type for a newarr from an array literal. Prefers the
@@ -2016,7 +2013,9 @@ public class IRCodeGenerator
         {
             foreach (var c in _program.Contracts)
             {
-                if (string.Equals(c.Name, typeName, StringComparison.OrdinalIgnoreCase) && c.NativeBindingName != null)
+                if ((string.Equals(c.Name, typeName, StringComparison.OrdinalIgnoreCase)
+                     || string.Equals(c.FullName, typeName, StringComparison.OrdinalIgnoreCase))
+                    && c.NativeBindingName != null)
                     return c.NativeBindingName;
             }
         }
@@ -2097,9 +2096,11 @@ public class IRCodeGenerator
 
         // The runtime's FunctionMap keys are qualified names like "Program.sumTo".
         // Emit the real declaring contract so module calls resolve; lambdas and
-        // module-level functions live in the generated Global class.
+        // module-level functions live in the generated Global class. The
+        // declaring contract name is resolved through namespaces/imports to its
+        // wire name (classes are emitted fully qualified).
         var declaringType = func?.ContractName != null
-            ? func.ContractName
+            ? ResolveTypeName(func.ContractName)
             : func != null ? "Global" : fallbackDeclaringType;
 
         return new MethodReference(new TypeRef(declaringType), name, returnType, paramTypes);

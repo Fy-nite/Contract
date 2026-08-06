@@ -27,6 +27,10 @@ namespace Contract.Compiler.Parsing
         private void AddError(string message, int line, int column)
             => _diagnostics.AddError(message, line, column, _sourceFile);
 
+        /// <summary>Reports a parse warning attributed to this parser's source file (if any).</summary>
+        private void AddWarning(string message, int line, int column)
+            => _diagnostics.AddWarning(message, line, column, _sourceFile);
+
         public Program Parse()
         {
             var program = new Program(Current.Line, Current.Column);
@@ -65,9 +69,10 @@ namespace Contract.Compiler.Parsing
                     {
                         if (Match(TokenType.StringLiteral))
                         {
-                            // File import: import "path/to/file.ct";
-                            string importPath = Previous.Text.Trim('"');
-                            program.Imports.Add(importPath);
+                            // File import: import "path/to/file.ct". The quotes
+                            // are kept so import resolution can distinguish a
+                            // file path from a dotted namespace import.
+                            program.Imports.Add(Previous.Text);
                         }
                         else
                         {
@@ -88,6 +93,7 @@ namespace Contract.Compiler.Parsing
                         var contract = ParseContract();
                         contract.IsExported = isExported;
                         contract.Namespace = _currentNamespace;
+                        contract.SourceFile = _sourceFile;
                         contract.Attributes.AddRange(attributes);
                         program.Contracts.Add(contract);
                     }
@@ -96,6 +102,7 @@ namespace Contract.Compiler.Parsing
                         var structDecl = ParseStruct();
                         structDecl.IsExported = isExported;
                         structDecl.Namespace = _currentNamespace;
+                        structDecl.SourceFile = _sourceFile;
                         structDecl.Attributes.AddRange(attributes);
                         program.Structs.Add(structDecl);
                     }
@@ -104,6 +111,7 @@ namespace Contract.Compiler.Parsing
                         var enumDecl = ParseEnum();
                         enumDecl.IsExported = isExported;
                         enumDecl.Namespace = _currentNamespace;
+                        enumDecl.SourceFile = _sourceFile;
                         enumDecl.Attributes.AddRange(attributes);
                         program.Enums.Add(enumDecl);
                     }
@@ -209,7 +217,10 @@ namespace Contract.Compiler.Parsing
 
             Consume(TokenType.LBrace, "Expected '{' after enum name");
 
-            var enumDecl = new EnumDeclaration(name, line, column);
+            var enumDecl = new EnumDeclaration(name, line, column)
+            {
+                SourceFile = _sourceFile,
+            };
 
             if (Check(TokenType.RBrace))
             {
@@ -244,7 +255,10 @@ namespace Contract.Compiler.Parsing
 
             Consume(TokenType.LBrace, "Expected '{' after struct name");
 
-            var structDecl = new StructDeclaration(name, line, column);
+            var structDecl = new StructDeclaration(name, line, column)
+            {
+                SourceFile = _sourceFile,
+            };
 
             while (!Check(TokenType.RBrace) && !IsAtEnd())
             {
@@ -321,6 +335,7 @@ namespace Contract.Compiler.Parsing
                     var structDecl = ParseStruct();
                     structDecl.Attributes.AddRange(memberAttributes);
                     structDecl.Namespace = _currentNamespace;
+                    structDecl.SourceFile = _sourceFile;
                     contract.Members.Add(structDecl);
                 }
                 else if (Match(TokenType.Enum))
@@ -328,6 +343,7 @@ namespace Contract.Compiler.Parsing
                     var enumDecl = ParseEnum();
                     enumDecl.Attributes.AddRange(memberAttributes);
                     enumDecl.Namespace = _currentNamespace;
+                    enumDecl.SourceFile = _sourceFile;
                     contract.Members.Add(enumDecl);
                 }
                 else if (Match(TokenType.Fn))
@@ -394,7 +410,10 @@ namespace Contract.Compiler.Parsing
         {
             int line = Previous.Line;
             int column = Previous.Column;
-            var ctor = new ConstructorDeclaration(line, column);
+            var ctor = new ConstructorDeclaration(line, column)
+            {
+                SourceFile = _sourceFile,
+            };
 
             Consume(TokenType.LParen, "Expected '(' after 'constructor'");
 
@@ -437,7 +456,10 @@ namespace Contract.Compiler.Parsing
             Consume(TokenType.Identifier, "Expected function name");
             string name = Previous.Text;
 
-            var function = new FunctionDeclaration(name, line, column);
+            var function = new FunctionDeclaration(name, line, column)
+            {
+                SourceFile = _sourceFile,
+            };
 
             Consume(TokenType.LParen, "Expected '(' after function name");
 
@@ -1044,7 +1066,15 @@ namespace Contract.Compiler.Parsing
         {
             if (Match(TokenType.IntLiteral))
             {
-                return new LiteralExpression(int.Parse(Previous.Text), Previous.Line, Previous.Column);
+                string intText = Previous.Text;
+                if (int.TryParse(intText, out int intValue))
+                {
+                    return new LiteralExpression(intValue, Previous.Line, Previous.Column);
+                }
+                AddWarning(
+                    $"Integer literal '{intText}' exceeds the int range (max {int.MaxValue}); value clamped to 0",
+                    Previous.Line, Previous.Column);
+                return new LiteralExpression(0, Previous.Line, Previous.Column);
             }
             else if (Match(TokenType.FloatLiteral))
             {
@@ -1149,6 +1179,14 @@ namespace Contract.Compiler.Parsing
                 while (Match(TokenType.Dot))
                 {
                     Consume(TokenType.Identifier, "Expected identifier after '.' in type name");
+                    typeName += "." + Previous.Text;
+                }
+                // Module-qualified type: new Terminal::Terminal() — the module
+                // short name is folded into the dotted path so namespace
+                // imports can resolve it (`Terminal.Terminal` → full name).
+                if (Match(TokenType.DoubleColon))
+                {
+                    Consume(TokenType.Identifier, "Expected type name after '::'");
                     typeName += "." + Previous.Text;
                 }
 

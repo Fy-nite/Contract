@@ -40,6 +40,7 @@ namespace Contract.Compiler.StandardLibrary
         private readonly Dictionary<string, ContractDeclaration> _userContracts = new();
         private readonly Dictionary<string, StructDeclaration> _userStructs = new();
         private readonly List<string> _importedNamespaces = new();
+        private readonly HashSet<string> _usedImports = new();
 
         /// <summary>
         /// Imports a namespace (e.g. "ObjektRT.Stdlib.System") so its modules
@@ -51,6 +52,12 @@ namespace Contract.Compiler.StandardLibrary
             if (trimmed.Length > 0 && !_importedNamespaces.Contains(trimmed))
                 _importedNamespaces.Add(trimmed);
         }
+
+        /// <summary>
+        /// The imported namespaces that actually resolved a short module name
+        /// during this compilation. Lets the analyzer flag unused imports.
+        /// </summary>
+        public IReadOnlyCollection<string> UsedImportedNamespaces => _usedImports;
 
         public void RegisterAssembly(Assembly assembly)
         {
@@ -91,11 +98,16 @@ namespace Contract.Compiler.StandardLibrary
 
             // Imported namespaces take priority over root exact matches, so
             // `import ObjektRT.Stdlib.System; IO.Println(...)` calls the
-            // stdlib IO, not a same-named root module.
+            // stdlib IO, not a same-named root module. Resolution through an
+            // import is recorded so unused imports can be flagged.
             foreach (var ns in _importedNamespaces)
             {
                 string candidate = $"{ns}.{className}";
-                if (_externalBindings.ContainsKey(candidate)) return candidate;
+                if (_externalBindings.ContainsKey(candidate))
+                {
+                    _usedImports.Add(ns);
+                    return candidate;
+                }
             }
 
             if (_externalBindings.ContainsKey(className)) return className;

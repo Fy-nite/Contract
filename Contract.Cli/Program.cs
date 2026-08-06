@@ -128,6 +128,7 @@ namespace Contract.Cli
                             bundleDiags.ReportToConsole();
                             return 1;
                         }
+                        bundleDiags.ReportWarningsToConsole();
                         orbtBytes = compiled;
                     }
 
@@ -183,6 +184,7 @@ namespace Contract.Cli
                     diagnostics.ReportToConsole();
                     return 1;
                 }
+                diagnostics.ReportWarningsToConsole();
                 if (debug)
                 {
                     Console.WriteLine(ir);

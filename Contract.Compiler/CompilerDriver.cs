@@ -13,6 +13,7 @@ namespace Contract.Compiler
         private readonly DiagnosticBag _diagnostics;
         private readonly HashSet<string> _loadedFiles = new();
         private readonly Func<string, string?>? _sourceProvider;
+        private string? _mainFileDir;
 
         /// <summary>
         /// When <paramref name="sourceProvider"/> is set, it is consulted (with the absolute file path)
@@ -27,14 +28,25 @@ namespace Contract.Compiler
 
         public Program Compile(string mainFilePath)
         {
+            _mainFileDir = Path.GetDirectoryName(ImportResolver.NormalizeAbsolutePath(mainFilePath));
             var fullProgram = new Program(1, 1);
             LoadFile(mainFilePath, fullProgram);
             return fullProgram;
         }
 
+        /// <summary>
+        /// Search roots for Python-style namespace imports, after the importing
+        /// file's own directory: the main file's directory, then the CWD.
+        /// </summary>
+        private IEnumerable<string> ExtraSearchRoots()
+        {
+            if (!string.IsNullOrEmpty(_mainFileDir)) yield return _mainFileDir;
+            yield return Environment.CurrentDirectory;
+        }
+
         private void LoadFile(string filePath, Program fullProgram)
         {
-            string absolutePath = Path.GetFullPath(filePath);
+            string absolutePath = ImportResolver.NormalizeAbsolutePath(filePath);
             if (_loadedFiles.Contains(absolutePath)) return;
             _loadedFiles.Add(absolutePath);
 
@@ -70,17 +82,38 @@ namespace Contract.Compiler
                 foreach (var ns in program.NamespaceImports)
                     fullProgram.NamespaceImports.Add(ns);
 
-                // Recursively load imports. A compiled reference (.orbt/.oil/.oir)
-                // is loaded as a DLL-style include; anything else is a .ct source
-                // file import.
-                string directory = Path.GetDirectoryName(absolutePath) ?? "";
+                // Recursively load imports.
+                //
+                // Quoted file imports (`import "path/to/file.ct";`) resolve
+                // relative to this file's directory, like Python's script-dir
+                // lookup. A compiled reference (.orbt/.oil/.oir) is loaded as a
+                // DLL-style include; anything else is a .ct source file import.
                 foreach (var import in program.Imports)
                 {
-                    string importedFilePath = Path.Combine(directory, import);
+                    string? importedFilePath = ImportResolver.ResolveImport(import, absolutePath, ExtraSearchRoots());
+                    if (importedFilePath == null)
+                    {
+                        _diagnostics.AddError($"Imported file not found: {import}", 0, 0);
+                        continue;
+                    }
                     if (CompiledReferenceLoader.IsCompiledReference(importedFilePath))
                         LoadCompiledReference(importedFilePath, fullProgram);
                     else
                         LoadFile(importedFilePath, fullProgram);
+                }
+
+                // Namespace imports (`import ovh.finite.hello.Terminal;`) also
+                // map to files by location (dots → directory separators), like
+                // Python modules. Stdlib-only namespace imports simply have no
+                // file, which is fine — they still register for name resolution.
+                foreach (var ns in program.NamespaceImports)
+                {
+                    string? nsFile = ImportResolver.ResolveNamespace(ns, absolutePath, ExtraSearchRoots());
+                    if (nsFile == null) continue;
+                    if (CompiledReferenceLoader.IsCompiledReference(nsFile))
+                        LoadCompiledReference(nsFile, fullProgram);
+                    else
+                        LoadFile(nsFile, fullProgram);
                 }
             }
             catch (Exception ex)
@@ -96,7 +129,7 @@ namespace Contract.Compiler
         /// </summary>
         private void LoadCompiledReference(string filePath, Program fullProgram)
         {
-            string absolutePath = Path.GetFullPath(filePath);
+            string absolutePath = ImportResolver.NormalizeAbsolutePath(filePath);
             if (_loadedFiles.Contains(absolutePath)) return;
             _loadedFiles.Add(absolutePath);
 

@@ -43,7 +43,7 @@ public static class ContractCompiler
 
         if (diagnostics.HasErrors) return null;
 
-        var analyzer = new SemanticAnalyzer(symbolTable, diagnostics);
+        var analyzer = new SemanticAnalyzer(symbolTable, diagnostics, fileName);
         analyzer.Analyze(program);
         if (diagnostics.HasErrors) return null;
 

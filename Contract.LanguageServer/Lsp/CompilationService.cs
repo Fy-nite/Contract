@@ -83,7 +83,7 @@ public class CompilationService
         foreach (var extModule in files.Values.SelectMany(f => f.Program.ExternalModules))
             Contract.Compiler.CompiledReferenceLoader.Synthesize(extModule, merged);
 
-        var analyzer = new SemanticAnalyzer(symbolTable, diagnostics);
+        var analyzer = new SemanticAnalyzer(symbolTable, diagnostics, doc.Path);
         analyzer.Analyze(merged);
 
         var mainKey = doc.Path != null ? TextUtility.NormalizePath(doc.Path) : doc.Uri;
@@ -113,6 +113,7 @@ public class ProgramLoader
     private readonly DocumentStore _store;
     private readonly DiagnosticBag _diagnostics;
     private readonly Dictionary<string, ParsedFile> _files = new();
+    private string? _mainPath;
 
     public ProgramLoader(DocumentStore store, DiagnosticBag diagnostics)
     {
@@ -122,6 +123,7 @@ public class ProgramLoader
 
     public Dictionary<string, ParsedFile> Load(Document main)
     {
+        _mainPath = main.Path;
         if (main.Path != null)
         {
             LoadPath(main.Path, main.Text); // main doc always comes from memory
@@ -135,26 +137,40 @@ public class ProgramLoader
         return _files;
     }
 
+    /// <summary>
+    /// Search roots for Python-style namespace imports, after the importing
+    /// file's own directory: the main document's directory, then the CWD.
+    /// </summary>
+    private IEnumerable<string> ExtraSearchRoots()
+    {
+        string? mainDir = _mainPath != null
+            ? Path.GetDirectoryName(Contract.Compiler.ImportResolver.NormalizeAbsolutePath(_mainPath))
+            : null;
+        if (!string.IsNullOrEmpty(mainDir)) yield return mainDir;
+        yield return Environment.CurrentDirectory;
+    }
+
     private void LoadPath(string absolutePath, string? inMemorySource)
     {
-        string key = TextUtility.NormalizePath(absolutePath);
+        string normalized = Contract.Compiler.ImportResolver.NormalizeAbsolutePath(absolutePath);
+        string key = TextUtility.NormalizePath(normalized);
         if (_files.ContainsKey(key)) return;
 
         // Compiled module reference (.orbt/.oil/.oir) — parse the module and
         // record it for static linking + synthetic declarations. Not source text.
-        if (inMemorySource == null && Contract.Compiler.CompiledReferenceLoader.IsCompiledReference(absolutePath))
+        if (inMemorySource == null && Contract.Compiler.CompiledReferenceLoader.IsCompiledReference(normalized))
         {
-            if (!File.Exists(absolutePath))
+            if (!File.Exists(normalized))
             {
                 _diagnostics.AddError($"Imported module not found: {absolutePath}", 0, 0);
                 return;
             }
             try
             {
-                var module = Contract.Compiler.CompiledReferenceLoader.ParseModule(absolutePath);
+                var module = Contract.Compiler.CompiledReferenceLoader.ParseModule(normalized);
                 var prog = new Program(1, 1);
                 prog.ExternalModules.Add(module);
-                _files[key] = new ParsedFile { Path = absolutePath, Source = "", Tokens = new List<Token>(), Program = prog };
+                _files[key] = new ParsedFile { Path = normalized, Source = "", Tokens = new List<Token>(), Program = prog };
             }
             catch (Exception ex)
             {
@@ -164,8 +180,8 @@ public class ProgramLoader
         }
 
         string? source = inMemorySource
-            ?? _store.GetSourceByPath(absolutePath)
-            ?? (File.Exists(absolutePath) ? File.ReadAllText(absolutePath) : null);
+            ?? _store.GetSourceByPath(normalized)
+            ?? (File.Exists(normalized) ? File.ReadAllText(normalized) : null);
 
         if (source == null)
         {
@@ -173,13 +189,30 @@ public class ProgramLoader
             return;
         }
 
-        var file = ParseFile(absolutePath, source, absolutePath);
+        var file = ParseFile(normalized, source, normalized);
         _files[key] = file;
 
-        string directory = Path.GetDirectoryName(absolutePath) ?? "";
+        // Quoted file imports resolve relative to this file's directory.
         foreach (var import in file.Program.Imports)
         {
-            LoadPath(Path.Combine(directory, import), null);
+            string? importedFilePath = Contract.Compiler.ImportResolver.ResolveImport(import, normalized, ExtraSearchRoots());
+            if (importedFilePath == null)
+            {
+                _diagnostics.AddError($"Imported file not found: {import}", 0, 0);
+                continue;
+            }
+            LoadPath(importedFilePath, null);
+        }
+
+        // Namespace imports (`import ovh.finite.hello.Terminal;`) also map to
+        // files by location (dots → directory separators), Python-style.
+        // Stdlib-only namespace imports have no file — that's fine, they still
+        // register for name resolution.
+        foreach (var ns in file.Program.NamespaceImports)
+        {
+            string? nsFile = Contract.Compiler.ImportResolver.ResolveNamespace(ns, normalized, ExtraSearchRoots());
+            if (nsFile == null) continue;
+            LoadPath(nsFile, null);
         }
     }
 
