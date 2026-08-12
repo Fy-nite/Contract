@@ -1,0 +1,14 @@
+// Probe: does <NativeBinding> work with built-in stdlib modules like File?
+<NativeBinding("File")>
+Contract FileFacade {
+    static fn ReadAllText(path: string) { }
+    static fn WriteAllText(path: string, contents: string) { }
+    static fn Exists(path: string) { }
+}
+
+Contract Program {
+    static fn Main() {
+        var b = FileFacade.Exists("test.txt");
+        IO.Println(b);
+    }
+}

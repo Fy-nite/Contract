@@ -12,6 +12,12 @@ public static class Convert
     /// <summary>Formats a float as a string using the invariant culture (always '.' as the decimal separator).</summary>
     public static string ToStringF(float value) => value.ToString(global::System.Globalization.CultureInfo.InvariantCulture);
 
+    /// <summary>Formats a double as a string using the invariant culture (always '.' as the decimal separator).</summary>
+    public static string ToStringD(double value) => value.ToString(global::System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>Truncates a double to an integer.</summary>
+    public static int ToInt32D(double value) => (int)value;
+
     /// <summary>Formats a bool as "True" or "False".</summary>
     public static string ToStringB(bool value) => value.ToString();
 

@@ -1,0 +1,17 @@
+// Probe round 2: full write/read round trip through a native-bound stdlib module.
+<NativeBinding("File")>
+Contract FileFacade {
+    static fn ReadAllText(path: string) { }
+    static fn WriteAllText(path: string, contents: string) { }
+    static fn Exists(path: string) { }
+}
+
+Contract Program {
+    static fn Main() {
+        var path = "d:/git/crit/libs/Contract/scratch/NativeBindProbe/out.txt";
+        FileFacade.WriteAllText(path, "hello from native bind");
+        var ok = FileFacade.Exists(path);
+        IO.Println(ok);
+        IO.Println(FileFacade.ReadAllText(path));
+    }
+}

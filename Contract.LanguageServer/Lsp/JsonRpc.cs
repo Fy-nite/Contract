@@ -27,6 +27,10 @@ public sealed class JsonRpcServer
     private readonly Dictionary<string, Func<JsonElement, CancellationToken, Task<object?>>> _requests = new();
     private readonly Dictionary<string, Func<JsonElement, CancellationToken, Task>> _notifications = new();
 
+    // Pending outgoing requests (client role): correlation id -> completion.
+    private readonly Dictionary<string, TaskCompletionSource<JsonElement?>> _pending = new();
+    private int _nextRequestId = 1;
+
     /// <summary>Optional tracer for protocol traffic; writes to stderr, never stdout.</summary>
     public Action<string>? Trace { get; set; }
 
@@ -95,6 +99,59 @@ public sealed class JsonRpcServer
         await WriteFramedAsync(body);
     }
 
+    /// <summary>
+    /// Sends a request (with an id) and awaits the peer's response — the
+    /// client half of JSON-RPC. <typeparamref name="T"/> is the response's
+    /// result type; a JSON-RPC error response throws
+    /// <see cref="JsonRpcException"/>.
+    /// </summary>
+    public async Task<T?> RequestAsync<T>(string method, object? @params, CancellationToken ct = default)
+    {
+        string id = (_nextRequestId++).ToString();
+        var tcs = new TaskCompletionSource<JsonElement?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pending[id] = tcs;
+
+        try
+        {
+            using var ms = new MemoryStream();
+            using (var w = new Utf8JsonWriter(ms))
+            {
+                w.WriteStartObject();
+                w.WriteString("jsonrpc", "2.0");
+                w.WritePropertyName("id");
+                w.WriteRawValue(id, skipInputValidation: true);
+                w.WriteString("method", method);
+                if (@params != null)
+                {
+                    w.WritePropertyName("params");
+                    JsonSerializer.Serialize(w, @params, @params.GetType(), LspJson.Options);
+                }
+                w.WriteEndObject();
+            }
+            var body = ms.ToArray();
+            Trace?.Invoke($"<<< {Encoding.UTF8.GetString(body)}");
+            await WriteFramedAsync(body);
+
+            var response = await tcs.Task.WaitAsync(ct);
+            if (response == null) return default;
+            if (response.Value.TryGetProperty("error", out var errorEl))
+            {
+                var error = errorEl.Deserialize<JsonRpcError>(LspJson.Options);
+                throw new JsonRpcException(error?.Code ?? -32603, error?.Message ?? method, error?.Data);
+            }
+            if (response.Value.TryGetProperty("result", out var resultEl))
+            {
+                if (resultEl.ValueKind == JsonValueKind.Null) return default;
+                return resultEl.Deserialize<T>(LspJson.Options);
+            }
+            return default;
+        }
+        finally
+        {
+            _pending.Remove(id);
+        }
+    }
+
     // ── Internals ────────────────────────────────────────────────────────────
 
     private async Task DispatchAsync(string json, CancellationToken ct)
@@ -122,9 +179,22 @@ public sealed class JsonRpcServer
                 {
                     await notification(prms ?? default, ct);
                 }
-                else if (hasId && method != null)
+                else if (method != null && hasId)
                 {
                     await SendResponseAsync(id!.Value, null, new JsonRpcError(-32601, $"Method not found: {method}"));
+                }
+                else if (method == null && hasId)
+                {
+                    // A response to one of our requests (client role): match by id.
+                    // Clone the element so it outlives this JsonDocument.
+                    var idVal = id!.Value;
+                    var key = idVal.ValueKind == JsonValueKind.String
+                        ? idVal.GetString() ?? ""
+                        : idVal.GetRawText();
+                    if (_pending.TryGetValue(key, out var tcs))
+                    {
+                        tcs.TrySetResult(root.Clone());
+                    }
                 }
                 // Unknown notifications are ignored, per JSON-RPC 2.0.
             }
@@ -239,4 +309,18 @@ public class JsonRpcError
 
     public JsonRpcError() { }
     public JsonRpcError(int code, string message) { Code = code; Message = message; }
+}
+
+/// <summary>Thrown when a JSON-RPC request is answered with an error response.</summary>
+public class JsonRpcException : Exception
+{
+    public int Code { get; }
+    public object? ErrorData { get; }
+
+    public JsonRpcException(int code, string message, object? data = null)
+        : base(message)
+    {
+        Code = code;
+        ErrorData = data;
+    }
 }

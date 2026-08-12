@@ -156,6 +156,15 @@ public class ContractRuntime : IReflectHost, IHostedRuntime
     public T CallMethod<T>(string qualifiedName, params object?[] args)
         => _runtime.CallMethod<T>(qualifiedName, args);
 
+    /// <summary>
+    /// Invokes a delegate value (a lambda passed to a host binding) with the
+    /// given args. Safe to call from host callbacks — the delegate runs on a
+    /// fresh interpreter sharing the module state, so it never disturbs the
+    /// VM's current execution.
+    /// </summary>
+    public object? InvokeDelegate(object? handle, params object?[] args)
+        => _runtime.InvokeDelegate(handle, args);
+
     /// <summary>Finds the qualified name of the static Main entry (e.g. "Program.Main").</summary>
     public static string? FindEntry(ORBTModule module)
     {

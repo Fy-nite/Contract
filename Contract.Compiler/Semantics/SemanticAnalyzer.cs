@@ -738,7 +738,14 @@ namespace Contract.Compiler.Semantics
             }
 
             // Missing return: a non-void function that can fall off the end.
-            if (func.Body != null
+            // Native-bound facade methods are declarations only (empty body,
+            // dispatch to the host binding) — their declared return types come
+            // from the host module, so a missing return is expected, not a bug.
+            bool isNativeFacade = func.ContractName != null
+                && _contractsByName.TryGetValue(func.ContractName, out var declaringContract)
+                && declaringContract.NativeBindingName != null;
+            if (!isNativeFacade
+                && func.Body != null
                 && func.ReturnType is TypeDescriptor.Named retNamed
                 && !string.Equals(retNamed.Name, "void", StringComparison.OrdinalIgnoreCase)
                 && !string.Equals(retNamed.Name, "null", StringComparison.OrdinalIgnoreCase)
