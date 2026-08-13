@@ -1,0 +1,17 @@
+Contract Program {
+    static fn Main() {
+        // Nested lambda literal — a lambda inside a lambda's body. The inner
+        // lambda is synthesized while the outer one is being generated, which
+        // used to crash codegen with "Collection was modified; enumeration
+        // operation may not execute" (Generate iterated program.Functions
+        // while GenerateLambda appended to it).
+        var calls: int = 0;
+        let outer = fun -> {
+            let inner = fun -> { calls += 1; };
+            inner();
+        };
+        outer();
+        outer();
+        IO.Println(calls);  // 2
+    }
+}

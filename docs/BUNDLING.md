@@ -29,6 +29,7 @@ This doc covers both entry points to the same machinery:
 ccl bundle app.ct
 
 # Program that uses a host binding (e.g. the Crituque Ui facade):
+# the program drives startup itself via Host.Run — no --host needed.
 ccl bundle app.ct --bind Crituque.dll
 
 # Self-contained native exe for a platform, no .NET required on the target
@@ -189,22 +190,26 @@ A binding that needs framework setup before any module code runs (a UI
 framework, a device, config loading) implements `IHostedRuntimeSetup`:
 
 ```csharp
-public sealed class UiSetup : IHostedRuntimeSetup
+public sealed class HostRuntimeSetup : IHostedRuntimeSetup
 {
     public void Setup(IHostedRuntime runtime)
     {
-        // e.g. Avalonia: BuildAvaloniaApp().SetupWithoutStarting();
+        // Remember the runtime so the bindings can invoke Contract lambdas.
+        if (runtime is ContractRuntime rt) UiBinding.HostRuntime = rt;
     }
 }
 ```
 
 `BundleDriver` finds the first such type in the binding assemblies and calls
-`Setup(rt)` before `RunModule`, so `new Window()` and friends work in a bundle
-the same way they do in the IDE. Note that a windowed bundle also needs its
-framework's message loop to keep running after `Main` returns — the module's
-`Main` runs, returns, and the process exits, so a binding that creates windows
-should pump its dispatcher inside `Setup` (e.g. run `App.Run` on a
-`Dispatcher` before returning to the module).
+`Setup(rt)` before `RunModule`. Keep it **thin** — a capture, not a bootstrap.
+The convention is that the *Contract program* drives startup through a `Host`
+binding (e.g. Crituque's `Host.Run(fun -> { ... })` boots Avalonia, runs the
+callback on the UI thread, and pumps until the main window closes). That way:
+
+- the bundle host stays a dumb shim (`ccl bundle app.ct --bind Crituque.dll`,
+  no `--host` flag needed), and
+- the program controls its own lifecycle — when the app starts, which window
+  is the main window, when to `Host.Shutdown` — from the language, not C#.
 
 ---
 
@@ -241,6 +246,11 @@ precompiled `.orbt` input.)
   (ReflectionJIT mode compiles at runtime),
 - each `--bind` assembly **and every DLL in its directory** (its transitive
   dependencies, deduplicated by file name),
+- **native assets** from `runtimes/<rid>/native` of the binding directories,
+  copied flat next to the host — a bundle has no `deps.json`, so P/Invoke
+  can't probe `runtimes/...` paths (this is what ships `libSkiaSharp` etc. for
+  a UI binding; framework-dependent gets the current platform's natives,
+  self-contained gets each `--rid`'s before its publish),
 - the embedded `module.orbt` (inside `app.dll`, not a loose file).
 
 Self-contained output is larger (the .NET runtime is inside the exe); for a

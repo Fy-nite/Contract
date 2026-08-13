@@ -256,10 +256,12 @@ public class IRCodeGenerator
         if (program.Functions.Count > 0)
         {
             var globalClass = _builder.Class("Global");
-            foreach (var func in program.Functions)
-            {
-                GenerateFunction(globalClass, func);
-            }
+            // Index loop, not foreach: generating a function synthesizes its
+            // lambdas and appends them to program.Functions (GenerateLambda),
+            // so nested lambdas (a lambda inside a lambda, e.g. inside a
+            // Host.Run callback) grow the list while we walk it.
+            for (int i = 0; i < program.Functions.Count; i++)
+                GenerateFunction(globalClass, program.Functions[i]);
             globalClass.EndClass();
         }
     }

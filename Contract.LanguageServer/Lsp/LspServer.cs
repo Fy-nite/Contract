@@ -54,6 +54,12 @@ public class LspServer
         rpc.OnNotification("textDocument/didClose", DidClose);
     }
 
+    /// <summary>Registers a custom host binding assembly so its
+    /// <c>[ClassBinding]</c> modules (Ui, Host, …) resolve in editor
+    /// diagnostics, completion, hover. Call before the first document opens.</summary>
+    public void RegisterBindingAssembly(System.Reflection.Assembly assembly)
+        => _compiler.RegisterBindingAssembly(assembly);
+
     // ── Lifecycle ────────────────────────────────────────────────────────────
 
     private Task<object?> Initialize(JsonElement _, CancellationToken _2)

@@ -49,11 +49,17 @@ public class CompilationResult
 public class CompilationService
 {
     private readonly DocumentStore _store;
+    private readonly List<System.Reflection.Assembly> _extraBindings = new();
 
     public CompilationService(DocumentStore store)
     {
         _store = store;
     }
+
+    /// <summary>Registers a custom host binding assembly so its
+    /// <c>[ClassBinding]</c> modules resolve in editor diagnostics.</summary>
+    public void RegisterBindingAssembly(System.Reflection.Assembly assembly)
+        => _extraBindings.Add(assembly);
 
     public CompilationResult Compile(Document doc)
     {
@@ -63,6 +69,9 @@ public class CompilationService
         // Contract-specific [ClassBinding] module (registered via attribute).
         symbolTable.RegisterAssembly(typeof(ReflectModule).Assembly);
         StdlibCatalog.RegisterInto(symbolTable);
+        // Custom host bindings the client registered (Crituque's Ui/Host/Window).
+        foreach (var asm in _extraBindings)
+            symbolTable.RegisterAssembly(asm);
 
         var loader = new ProgramLoader(_store, diagnostics);
         var files = loader.Load(doc);

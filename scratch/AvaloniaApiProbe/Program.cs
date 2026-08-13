@@ -1,0 +1,10 @@
+using System.Reflection;
+var loc = typeof(Avalonia.AvaloniaLocator);
+Console.WriteLine("AvaloniaLocator:");
+foreach (var m in loc.GetMembers(BindingFlags.Public | BindingFlags.Static)) Console.WriteLine("  " + m);
+var res = typeof(Avalonia.IAvaloniaDependencyResolver);
+Console.WriteLine("IAvaloniaDependencyResolver interfaces: " + string.Join(", ", res.GetInterfaces().Select(i => i.FullName)));
+Console.WriteLine("Is IServiceProvider: " + typeof(IServiceProvider).IsAssignableFrom(res));
+var sb = typeof(Avalonia.AppBuilder);
+Console.WriteLine("AppBuilder ctor: " + sb.GetConstructors()[0]);
+foreach (var m in sb.GetMethods().Where(m => m.Name.Contains("Service") || m.Name.Contains("Use"))) Console.WriteLine("  " + m);
