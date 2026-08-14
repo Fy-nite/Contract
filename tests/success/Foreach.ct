@@ -1,0 +1,21 @@
+// `for (item : collection)` enumeration over arrays (desugars to an index loop).
+Contract Program {
+    static fn Main() {
+        var words: string[] = String.Split("hello world foo", " ");
+        for (w : words) {
+            IO::Println(w);
+        }
+
+        var nums: int[] = [1, 2, 3];
+        var total: int = 0;
+        for (n : nums) {
+            total += n;
+        }
+        IO::Println(total);
+
+        // foreach over a function result (collection evaluated once).
+        for (c : String.Split("ab", " ")) {
+            IO::Println(c);
+        }
+    }
+}

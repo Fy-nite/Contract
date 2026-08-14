@@ -1,0 +1,12 @@
+// Structs cannot declare type parameters (planned for a later version).
+Contract Program {
+    static fn Main() {
+        var p: Pair<int, int> = Pair.create();
+        IO::Println(p.first);
+    }
+}
+
+struct Pair<T, U> {
+    first: T;
+    second: U;
+}

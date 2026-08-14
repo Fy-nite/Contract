@@ -159,6 +159,95 @@ types are marked with the built-in `@Attribute` annotation. This mirrors the
 runtime's existing `@DllImport` / `@NativeBinding` metadata mechanism, so
 host-side reflection and bindings can consume custom attributes the same way.
 
+### Built-in binding attributes
+
+Three built-in attributes — no user declaration needed — turn a contract into
+a **pure facade**: no fields, no constructors, and every member is an
+empty-bodied `static fn` whose call sites dispatch somewhere outside the
+module. They differ in where the methods land:
+
+| Attribute | Example | Methods dispatch to |
+|---|---|---|
+| `<NativeBinding("Module")>` | `<NativeBinding("File")>` | a registered host binding module (`[ClassBinding]` class or stdlib module) |
+| `<ClrImport("Type")>` | `<ClrImport("System.Math")>` | public static methods on a CLR type, resolved by reflection — **no host wrapper needed** |
+| `<DllImport("lib.dll")>` | `<DllImport("kernel32.dll")>` | native exports of a DLL, marshalled via generated P/Invoke bridges |
+
+#### `<ClrImport("System.Math")>` — link to CLR methods without class bindings
+
+Any public static method on a .NET type becomes callable from Contract.
+Unlike `NativeBinding`, the target type does **not** need a
+`[ClassBinding]`-annotated wrapper class: the compiler emits `Type.Method`
+call targets and the runtime resolves them via reflection. This works for
+BCL types (`System.Math`, `System.Convert`, `System.Environment`, ...) and
+for any type the host process has loaded.
+
+```ct
+<ClrImport("System.Math")>
+Contract ClrMath {
+    static fn Abs(x: double) -> double { }
+    static fn Sqrt(x: double) -> double { }
+    static fn Max(a: double, b: double) -> double { }
+    static fn Pow(x: double, y: double) -> double { }
+}
+
+Contract Program {
+    static fn Main() {
+        IO.Println(ClrMath.Abs(-3.5));      // 3.5
+        IO.Println(ClrMath.Sqrt(16.0));     // 4
+        IO.Println(ClrMath.Max(2.0, 7.0));  // 7
+        IO.Println(ClrMath.Pow(2.0, 10.0)); // 1024
+    }
+}
+```
+
+- The argument is the CLR type's full name. Use an assembly-qualified name
+  (`"System.Diagnostics.Process, System.Diagnostics.Process"`) when the type
+  lives outside the core library.
+- When the type resolves in the compiler process (BCL or `--bind`
+  assemblies), each `static fn` is checked against the real method: it must
+  exist and the declared parameter count must match an overload. An
+  unresolvable type compiles with a warning and is checked at runtime.
+- Method signatures come from the Contract declarations (`int` → `int32`,
+  `double` → `float64`, `string` → `string`, `bool` → `bool`). Overloads are
+  picked by argument types, so `Math.Abs` works with both ints and doubles.
+- Types whose methods are instance-only, or whose assembly isn't loaded by
+  the runtime, fail at call time with a clear error.
+
+#### `<DllImport("user32.dll")>` — P/Invoke a native library
+
+Facade methods map to native exports of the named DLL by name. The
+signatures are emitted into the module metadata and the runtime generates
+the marshalling bridge on first use (strings marshal as `LPWStr`, `int32` →
+`int`, `float64` → `double`, `bool` → `bool`).
+
+```ct
+<DllImport("kernel32.dll")>
+Contract Kernel32 {
+    static fn GetTickCount() -> int { }
+    static fn GetCurrentProcessId() -> int { }
+}
+
+Contract Program {
+    static fn Main() {
+        IO.Println(Kernel32.GetTickCount());         // ms since boot
+        IO.Println(Kernel32.GetCurrentProcessId());  // this process's id
+    }
+}
+```
+
+- P/Invoke bridge generation happens at runtime; Windows DLLs are the
+  primary target. If an export is missing, the error surfaces at the call
+  site (and the bridge generator's source is retained for debugging).
+- Because the compiler can't portably inspect native exports, only the
+  facade shape is checked at compile time — arity/type mismatches appear as
+  runtime errors.
+
+#### `new` on facades
+
+None of the three facade kinds declare constructors, and `NativeBinding`
+maps `new Type()` to the host module's `Create` method. For `ClrImport` and
+`DllImport` there is nothing to construct — keep the facades static-only.
+
 ## Functions
 
 ### Basic Function

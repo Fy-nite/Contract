@@ -1,0 +1,16 @@
+// <DllImport> links a pure facade contract to a native library's exports
+// via P/Invoke. Method signatures are emitted into the module metadata so
+// the runtime can generate the marshalling bridge. Compile-only check.
+
+<DllImport("kernel32.dll")>
+Contract Kernel32 {
+    static fn GetTickCount() -> int { }
+    static fn GetCurrentProcessId() -> int { }
+}
+
+Contract Program {
+    static fn Main() {
+        IO.Println(Kernel32.GetTickCount());
+        IO.Println(Kernel32.GetCurrentProcessId());
+    }
+}

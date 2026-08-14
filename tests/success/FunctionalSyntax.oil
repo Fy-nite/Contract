@@ -1,0 +1,64 @@
+module Program version 1.0.0
+
+class Program {
+    static method Main() -> void {
+        local inc: int32
+        local val: int32
+
+        // #line 3:5 "let inc: Int = fun x ->  {x + 1; IO.Println(Convert.ToString(x));};"
+        newobj Delegate.constructor()
+        // #line 3:5 "let inc: Int = fun x ->  {x + 1; IO.Println(Convert.ToString(x));};"
+        dup
+        // #line 3:5 "let inc: Int = fun x ->  {x + 1; IO.Println(Convert.ToString(x));};"
+        ldstr Global.__lambda_0
+        // #line 3:5 "let inc: Int = fun x ->  {x + 1; IO.Println(Convert.ToString(x));};"
+        stfld Delegate::target
+        // #line 3:5 "let inc: Int = fun x ->  {x + 1; IO.Println(Convert.ToString(x));};"
+        stloc inc
+        // #line 4:20 "let val: Int = 10 |> inc;"
+        ldc.i4 10
+        // #line 4:20 "let val: Int = 10 |> inc;"
+        call Global.__lambda_0(int32) -> int32
+        // #line 4:20 "let val: Int = 10 |> inc;"
+        stloc val
+        // #line 5:16 "IO.Println(val);"
+        ldloc val
+        // #line 5:16 "IO.Println(val);"
+        call IO.Println(object) -> void
+        // #line 5:16 "IO.Println(val);"
+        pop
+        // #line 5:16 "IO.Println(val);"
+        ret
+    }
+}
+
+class Delegate {
+    public field target: string
+    public field closure: object
+}
+
+class Global {
+    static method __lambda_0(x: int32) -> int32 {
+        // #line 3:31 "let inc: Int = fun x ->  {x + 1; IO.Println(Convert.ToString(x));};"
+        ldarg 0
+        // #line 3:35 "let inc: Int = fun x ->  {x + 1; IO.Println(Convert.ToString(x));};"
+        ldc.i4 1
+        // #line 3:35 "let inc: Int = fun x ->  {x + 1; IO.Println(Convert.ToString(x));};"
+        add
+        // #line 3:35 "let inc: Int = fun x ->  {x + 1; IO.Println(Convert.ToString(x));};"
+        pop
+        // #line 3:66 "let inc: Int = fun x ->  {x + 1; IO.Println(Convert.ToString(x));};"
+        ldarg 0
+        // #line 3:66 "let inc: Int = fun x ->  {x + 1; IO.Println(Convert.ToString(x));};"
+        call Convert.ToString(int32) -> string
+        // #line 3:66 "let inc: Int = fun x ->  {x + 1; IO.Println(Convert.ToString(x));};"
+        call IO.Println(object) -> void
+        // #line 3:66 "let inc: Int = fun x ->  {x + 1; IO.Println(Convert.ToString(x));};"
+        pop
+        // #line 3:66 "let inc: Int = fun x ->  {x + 1; IO.Println(Convert.ToString(x));};"
+        ldc.i4 0
+        // #line 3:66 "let inc: Int = fun x ->  {x + 1; IO.Println(Convert.ToString(x));};"
+        ret
+    }
+}
+

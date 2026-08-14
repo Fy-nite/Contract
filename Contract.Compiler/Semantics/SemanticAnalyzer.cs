@@ -24,6 +24,7 @@ namespace Contract.Compiler.Semantics
 
         // ── Dev-time warning tracking ─────────────────────────────────────────
         private readonly string? _mainSourceFile;                       // null when compiling raw source
+        private readonly bool _isExecutable;                            // false → library build (project type "lib")
         private readonly HashSet<string> _usedTypes = new();            // full + short type names referenced
         private readonly HashSet<string> _usedFunctions = new();        // function names that are called
         private readonly HashSet<string> _usedModulePaths = new();      // dotted spines: "IO", "com.lib.Geo"
@@ -36,11 +37,12 @@ namespace Contract.Compiler.Semantics
         private TypeDescriptor? _currentReturnType;                     // the function being analyzed, if any
         private string? _currentSourceFile;                             // the file whose body is being analyzed
 
-        public SemanticAnalyzer(SymbolTable symbolTable, DiagnosticBag diagnostics, string? mainSourceFile = null)
+        public SemanticAnalyzer(SymbolTable symbolTable, DiagnosticBag diagnostics, string? mainSourceFile = null, bool isExecutable = true)
         {
             _symbolTable = symbolTable;
             _diagnostics = diagnostics;
             _mainSourceFile = mainSourceFile;
+            _isExecutable = isExecutable;
         }
 
         public void Analyze(Program program)
@@ -152,10 +154,10 @@ namespace Contract.Compiler.Semantics
             // then validate every attribute application against those types.
             ValidateInheritanceAndAttributes(program);
 
-            // Validate <NativeBinding("Module")> contracts: the module must be
-            // bound, methods must be empty-bodied declarations, and every method
-            // name must exist on the host module.
-            ValidateNativeBindings(program);
+            // Validate <NativeBinding>/<ClrImport>/<DllImport> contracts: pure
+            // facades — no fields, no constructors, empty-bodied methods whose
+            // call sites dispatch to a host module / CLR type / native library.
+            ValidateNativeImports(program);
 
             // Second pass: detailed analysis
             foreach (var contract in program.Contracts)
@@ -175,9 +177,29 @@ namespace Contract.Compiler.Semantics
 
         private void EmitDeadCodeWarnings(Program program)
         {
+            // ── Entry point ─────────────────────────────────────────────────
+            // Computed first: a compilation without any Main is a *library*
+            // build — its contracts are API surface included from other paths,
+            // so the unused-declaration warnings don't apply (compiling a
+            // library file alone would flag "Contract 'X' is never used").
+            bool anyEntry = program.Contracts.Any(c => c.Members.OfType<FunctionDeclaration>()
+                .Any(f => f.Name == "Main" && f.IsStatic));
+            if (!anyEntry && program.Functions.Any(f => f.Name == "Main"))
+                anyEntry = true;
+
+            bool isLibrary = !_isExecutable || !anyEntry;
+            if (isLibrary)
+            {
+                // Library mode: declarations are included from other paths.
+                // Skip the "never used" contract/struct/enum/static-fn and
+                // imported-file warnings; keep intra-function hygiene warnings
+                // (unused locals, unused namespace imports, unused fields).
+            }
+
             // ── Unused contracts / structs / enums ──────────────────────────
             foreach (var contract in program.Contracts)
             {
+                if (isLibrary) break;
                 if (contract.SourceFile == null) continue;              // synthesized from compiled modules
                 if (HasEntryPoint(contract)) continue;                  // the runtime calls Program.Main
                 if (!_usedTypes.Contains(contract.Name)
@@ -189,6 +211,7 @@ namespace Contract.Compiler.Semantics
             }
             foreach (var structDecl in program.Structs)
             {
+                if (isLibrary) break;
                 if (structDecl.SourceFile == null) continue;
                 if (!_usedTypes.Contains(structDecl.Name) && !_usedTypes.Contains(structDecl.FullName))
                 {
@@ -197,6 +220,7 @@ namespace Contract.Compiler.Semantics
             }
             foreach (var enumDecl in program.Enums)
             {
+                if (isLibrary) break;
                 if (enumDecl.SourceFile == null) continue;
                 if (!_usedTypes.Contains(enumDecl.Name) && !_usedTypes.Contains(enumDecl.FullName))
                 {
@@ -207,6 +231,7 @@ namespace Contract.Compiler.Semantics
             // ── Unused functions (top-level + static contract members) ──────
             foreach (var func in program.Functions)
             {
+                if (isLibrary) break;
                 if (func.Name == "Main") continue;
                 if (func.Body == null) continue;                        // native-style declaration
                 if (!_usedFunctions.Contains(func.Name))
@@ -216,6 +241,7 @@ namespace Contract.Compiler.Semantics
             }
             foreach (var contract in program.Contracts)
             {
+                if (isLibrary) break;
                 foreach (var member in contract.Members)
                 {
                     if (member is not FunctionDeclaration func) continue;
@@ -260,7 +286,7 @@ namespace Contract.Compiler.Semantics
             }
 
             // ── Unused file imports: every declaration in the file is dead ──
-            if (_mainSourceFile != null)
+            if (_mainSourceFile != null && !isLibrary)
             {
                 var byFile = new Dictionary<string, (List<object> Decls, bool HasMain)>();
                 void Add(string? file, object decl, bool isMain) { if (file == null) return; if (!byFile.TryGetValue(file, out var e)) { e = (new List<object>(), false); byFile[file] = e; } e.Decls.Add(decl); if (isMain) e.HasMain = true; }
@@ -301,12 +327,8 @@ namespace Contract.Compiler.Semantics
                 }
             }
 
-            // ── Entry point ─────────────────────────────────────────────────
-            bool anyEntry = program.Contracts.Any(c => c.Members.OfType<FunctionDeclaration>()
-                .Any(f => f.Name == "Main" && f.IsStatic));
-            if (!anyEntry && program.Functions.Any(f => f.Name == "Main"))
-                anyEntry = true;
-            if (!anyEntry)
+            // ── Entry point info (executable builds only) ───────────────────
+            if (_isExecutable && !anyEntry)
             {
                 _diagnostics.AddInfo("No static 'Main' entry point found — this module cannot be run directly", 1, 1, _mainSourceFile);
             }
@@ -484,18 +506,22 @@ namespace Contract.Compiler.Semantics
                 // Applying an attribute references its declaring contract.
                 _usedTypes.Add(attr.Name);
 
-                // Built-in attribute: <NativeBinding("ModuleName")> — no user
-                // declaration needed. Only valid on contracts; argument must be
-                // the name of a host binding module.
-                if (attr.Name.Equals("NativeBinding", StringComparison.OrdinalIgnoreCase))
+                // Built-in attributes — no user declaration needed. Only valid
+                // on contracts, each taking exactly one string argument:
+                //   <NativeBinding("ModuleName")>  host [ClassBinding] module
+                //   <ClrImport("System.Math")>     CLR type (no class binding needed)
+                //   <DllImport("user32.dll")>      native P/Invoke library
+                if (attr.Name.Equals("NativeBinding", StringComparison.OrdinalIgnoreCase)
+                    || attr.Name.Equals("ClrImport", StringComparison.OrdinalIgnoreCase)
+                    || attr.Name.Equals("DllImport", StringComparison.OrdinalIgnoreCase))
                 {
                     if (targetKind != "contract")
                     {
-                        _diagnostics.AddError($"NativeBinding attribute is only valid on contracts", attr.Line, attr.Column);
+                        _diagnostics.AddError($"{attr.Name} attribute is only valid on contracts", attr.Line, attr.Column);
                     }
                     else if (attr.Arguments.Count != 1)
                     {
-                        _diagnostics.AddError($"NativeBinding expects exactly 1 argument (the binding module name), got {attr.Arguments.Count}", attr.Line, attr.Column);
+                        _diagnostics.AddError($"{attr.Name} expects exactly 1 argument (the binding target name), got {attr.Arguments.Count}", attr.Line, attr.Column);
                     }
                     continue;
                 }
@@ -531,52 +557,139 @@ namespace Contract.Compiler.Semantics
         /// member function is an empty-bodied declaration that dispatches to
         /// <c>Module.Method</c> at runtime. The module must be a registered
         /// host binding and each declared method must exist on it.
+        ///
+        /// Also validates the two CLR-facing facades:
+        /// <c>&lt;ClrImport("System.Math")&gt;</c> (methods map to public static
+        /// methods on a CLR type, resolved by reflection — no host binding
+        /// class needed) and <c>&lt;DllImport("user32.dll")&gt;</c> (methods
+        /// P/Invoke native exports of the named library).
         /// </summary>
-        private void ValidateNativeBindings(Program program)
+        private void ValidateNativeImports(Program program)
         {
             foreach (var contract in program.Contracts)
             {
                 var attr = contract.Attributes.FirstOrDefault(a =>
-                    a.Name.Equals("NativeBinding", StringComparison.OrdinalIgnoreCase));
+                    a.Name.Equals("NativeBinding", StringComparison.OrdinalIgnoreCase)
+                    || a.Name.Equals("ClrImport", StringComparison.OrdinalIgnoreCase)
+                    || a.Name.Equals("DllImport", StringComparison.OrdinalIgnoreCase));
                 if (attr == null) continue;
 
                 if (attr.Arguments.Count != 1) continue; // arity already reported
 
-                string bindingName = attr.Arguments[0].Trim();
-                if (bindingName.Length >= 2 && bindingName[0] == '"' && bindingName[^1] == '"')
-                    bindingName = bindingName[1..^1];
+                string target = attr.Arguments[0].Trim();
+                if (target.Length >= 2 && target[0] == '"' && target[^1] == '"')
+                    target = target[1..^1];
 
-                if (!_symbolTable.IsBoundModule(bindingName))
+                // ── Shared facade shape checks ────────────────────────────
+                if (contract.Fields.Count > 0)
+                    _diagnostics.AddError($"Native-import contract '{contract.Name}' cannot have fields", contract.Line, contract.Column);
+                if (contract.Constructors.Count > 0)
+                    _diagnostics.AddError($"Native-import contract '{contract.Name}' cannot declare constructors", contract.Line, contract.Column);
+
+                foreach (var member in contract.Members)
                 {
-                    _diagnostics.AddError(
-                        $"NativeBinding module '{bindingName}' is not a registered binding (check bindingAssemblies)",
-                        attr.Line, attr.Column);
+                    if (member is FunctionDeclaration func)
+                    {
+                        if (func.Body != null && func.Body.Statements.Count > 0)
+                            _diagnostics.AddError($"Native-import method '{contract.Name}.{func.Name}' must have an empty body", func.Line, func.Column);
+                    }
+                }
+
+                if (attr.Name.Equals("NativeBinding", StringComparison.OrdinalIgnoreCase))
+                {
+                    ValidateNativeBindingContract(contract, target, attr);
+                }
+                else if (attr.Name.Equals("ClrImport", StringComparison.OrdinalIgnoreCase))
+                {
+                    ValidateClrImportContract(contract, target, attr);
+                }
+                else
+                {
+                    contract.DllImportLibrary = target;
+                }
+            }
+        }
+
+        private void ValidateNativeBindingContract(ContractDeclaration contract, string bindingName, AttributeUsage attr)
+        {
+            if (!_symbolTable.IsBoundModule(bindingName))
+            {
+                _diagnostics.AddError(
+                    $"NativeBinding module '{bindingName}' is not a registered binding (check bindingAssemblies)",
+                    attr.Line, attr.Column);
+                return;
+            }
+
+            contract.NativeBindingName = bindingName;
+
+            // The parser marks non-static members as instance methods only
+            // for contracts with fields; native-bound contracts are pure
+            // facades (no fields), so mark their methods as instance here.
+            foreach (var member in contract.Members)
+            {
+                if (member is FunctionDeclaration f && !f.IsStatic)
+                    f.IsInstance = true;
+            }
+
+            foreach (var member in contract.Members)
+            {
+                if (member is not FunctionDeclaration func) continue;
+                if (!_symbolTable.TryGetMethod(bindingName, func.Name, out _))
+                    _diagnostics.AddError($"Native binding '{bindingName}' has no method named '{func.Name}'", func.Line, func.Column);
+            }
+        }
+
+        private void ValidateClrImportContract(ContractDeclaration contract, string clrTypeName, AttributeUsage attr)
+        {
+            contract.ClrImportType = clrTypeName;
+
+            // The parser marks non-static members as instance methods only
+            // for contracts with fields; these facades have none, so treat
+            // every member as a static declaration (call sites resolve through
+            // the type name).
+            foreach (var member in contract.Members)
+            {
+                if (member is FunctionDeclaration f && !f.IsStatic)
+                    f.IsStatic = true;
+            }
+
+            // Best-effort compile-time check: the CLR type is only resolvable
+            // when it lives in the compiler process (BCL types like
+            // System.Math, System.Convert, ... or --bind assemblies). Types
+            // loaded by the host process are checked at runtime instead.
+            Type? clrType = null;
+            try { clrType = Type.GetType(clrTypeName); }
+            catch (Exception) { /* malformed assembly-qualified name — runtime will report */ }
+
+            if (clrType == null)
+            {
+                _diagnostics.AddWarning(
+                    $"ClrImport type '{clrTypeName}' is not resolvable at compile time — the runtime host must have it loaded (use a BCL type, an assembly-qualified name, or a --bind assembly)",
+                    attr.Line, attr.Column);
+                return;
+            }
+
+            foreach (var member in contract.Members)
+            {
+                if (member is not FunctionDeclaration func) continue;
+
+                var overloads = clrType.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+                    .Where(m => m.Name.Equals(func.Name, StringComparison.Ordinal))
+                    .ToList();
+
+                if (overloads.Count == 0)
+                {
+                    _diagnostics.AddError($"ClrImport type '{clrTypeName}' has no public static method named '{func.Name}'", func.Line, func.Column);
                     continue;
                 }
 
-                contract.NativeBindingName = bindingName;
-
-                // The parser marks non-static members as instance methods only
-                // for contracts with fields; native-bound contracts are pure
-                // facades (no fields), so mark their methods as instance here.
-                foreach (var member in contract.Members)
+                if (!overloads.Any(m => m.GetParameters().Length == func.Parameters.Count))
                 {
-                    if (member is FunctionDeclaration f && !f.IsStatic)
-                        f.IsInstance = true;
-                }
-
-                if (contract.Fields.Count > 0)
-                    _diagnostics.AddError($"Native-bound contract '{contract.Name}' cannot have fields", contract.Line, contract.Column);
-                if (contract.Constructors.Count > 0)
-                    _diagnostics.AddError($"Native-bound contract '{contract.Name}' cannot declare constructors — 'new' maps to '{bindingName}.Create'", contract.Line, contract.Column);
-
-                foreach (var member in contract.Members)
-                {
-                    if (member is not FunctionDeclaration func) continue;
-                    if (func.Body != null && func.Body.Statements.Count > 0)
-                        _diagnostics.AddError($"Native-bound method '{contract.Name}.{func.Name}' must have an empty body", func.Line, func.Column);
-                    if (!_symbolTable.TryGetMethod(bindingName, func.Name, out _))
-                        _diagnostics.AddError($"Native binding '{bindingName}' has no method named '{func.Name}'", func.Line, func.Column);
+                    var arities = string.Join(" or ", overloads.Select(m => m.GetParameters().Length.ToString()).Distinct());
+                    _diagnostics.AddError(
+                        $"ClrImport method '{clrTypeName}.{func.Name}' takes {arities} argument(s), got {func.Parameters.Count}",
+                        func.Line, func.Column);
+                    continue;
                 }
             }
         }
@@ -738,12 +851,15 @@ namespace Contract.Compiler.Semantics
             }
 
             // Missing return: a non-void function that can fall off the end.
-            // Native-bound facade methods are declarations only (empty body,
-            // dispatch to the host binding) — their declared return types come
-            // from the host module, so a missing return is expected, not a bug.
+            // Native-import facade methods are declarations only (empty body,
+            // dispatch to a host binding / CLR type / native library) — their
+            // declared return types come from the target, so a missing return
+            // is expected, not a bug.
             bool isNativeFacade = func.ContractName != null
                 && _contractsByName.TryGetValue(func.ContractName, out var declaringContract)
-                && declaringContract.NativeBindingName != null;
+                && (declaringContract.NativeBindingName != null
+                    || declaringContract.ClrImportType != null
+                    || declaringContract.DllImportLibrary != null);
             if (!isNativeFacade
                 && func.Body != null
                 && func.ReturnType is TypeDescriptor.Named retNamed

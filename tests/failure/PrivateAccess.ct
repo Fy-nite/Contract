@@ -1,0 +1,16 @@
+// A private member must not be reachable from outside its contract.
+Contract Vault {
+    private secret: int;
+
+    private fn hidden() -> int {
+        return 42;
+    }
+}
+
+Contract Program {
+    static fn Main() {
+        var v = new Vault();
+        IO::Println(v.secret);      // error: private field
+        IO::Println(v.hidden());    // error: private method
+    }
+}

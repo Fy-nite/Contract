@@ -1,0 +1,11 @@
+// Cannot instantiate a type parameter — it erases to object at runtime.
+Contract Program {
+    static fn make<T>() -> T {
+        return new T();
+    }
+
+    static fn Main() {
+        var x = make<int>();
+        IO::Println(x);
+    }
+}

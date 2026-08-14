@@ -30,6 +30,18 @@ namespace Contract.Cli
                 return await ServerMain.RunLsp(args.Contains("--trace", StringComparer.OrdinalIgnoreCase));
             }
 
+            if (args.Length > 0 && args[0] == "new")
+            {
+                // Scaffold a project: ccl new [name] [--type exe|lib] [--namespace ns]
+                return NewProject(args.Skip(1).ToArray());
+            }
+
+            if (args.Length > 0 && args[0] == "build")
+            {
+                // Build the project in the current directory: ccl build [--run] [--output path]
+                return BuildProject(args.Skip(1).ToArray());
+            }
+
             var compileOnly = false;
             var debug = false;
             var verbose = false;
@@ -165,6 +177,8 @@ namespace Contract.Cli
                     var module = rt.LoadModuleFileAuto(filePath);
                     if (methodCall != null)
                     {
+                        rt.PrepareModule(module);
+                        rt.LoadModule(module);
                         var result = rt.CallMethod<object?>(methodCall);
                         PrintResult(result);
                     }
@@ -213,6 +227,8 @@ namespace Contract.Cli
                 var runModule = rt.LoadTextModule(ir);
                 if (methodCall != null)
                 {
+                    rt.PrepareModule(runModule);
+                    rt.LoadModule(runModule);
                     var result = rt.CallMethod<object?>(methodCall);
                     PrintResult(result);
                 }
@@ -288,6 +304,8 @@ Usage:
   contract -c <file.ct> [-o out]        Compile only (default output .orbt)
   contract run <file.orbt|oil|oir>      Run a precompiled module
   contract bundle <file> [options]      Compile and wrap in a standalone executable
+  contract new [name] [options]         Scaffold a project (creates contract.ctproj + src/)
+  contract build [options]              Build the project in the current directory
   contract lsp [--trace]                Run the language server (LSP over stdio)
   contract --test                       Run the compiler test suite
 
@@ -307,6 +325,13 @@ Options:
       --version          Print the compiler version
   -h, --help             Show this message
 
+Project commands:
+  contract new myapp [--type exe|lib] [--namespace com.example]
+                         Create myapp/ with contract.ctproj + src/main.ct
+  contract build [--run] [--output path]
+                         Read ./contract.ctproj, compile the main file
+                         (exe → .orbt binary; lib → .oil text module)
+
 Examples:
   contract hello.ct                      Compile + run
   contract -c hello.ct -o hello.orbt     Compile to binary (default)
@@ -318,6 +343,162 @@ Examples:
   contract bundle app.ct --bind myhost.dll
   contract bundle app.ct --rid win-x64 --single-file
 """);
+        }
+
+        /// <summary>Scaffolds a new project: `ccl new [name] [--type exe|lib] [--namespace ns]`.</summary>
+        static int NewProject(string[] args)
+        {
+            string? name = null;
+            string type = "exe";
+            string? ns = null;
+            for (int i = 0; i < args.Length; i++)
+            {
+                switch (args[i])
+                {
+                    case "--type":
+                        if (++i >= args.Length) { Error("--type requires exe|lib"); return 1; }
+                        type = args[i].ToLowerInvariant();
+                        if (type is not ("exe" or "lib")) { Error("--type must be exe or lib"); return 1; }
+                        break;
+                    case "--namespace":
+                        if (++i >= args.Length) { Error("--namespace requires a dotted name"); return 1; }
+                        ns = args[i];
+                        break;
+                    case "-h" or "--help": Help(); return 0;
+                    default:
+                        if (args[i].StartsWith('-')) { Error($"Unknown option: {args[i]}"); return 1; }
+                        name = args[i];
+                        break;
+                }
+            }
+
+            string root = name ?? Path.GetFileName(Directory.GetCurrentDirectory());
+            string fullRoot = Path.GetFullPath(root);
+            if (Directory.Exists(fullRoot) && Directory.EnumerateFileSystemEntries(fullRoot).Any())
+            {
+                Error($"Directory '{root}' already exists and is not empty.");
+                return 1;
+            }
+            Directory.CreateDirectory(Path.Combine(fullRoot, "src"));
+            Directory.CreateDirectory(Path.Combine(fullRoot, "bin"));
+
+            var project = new Contract.Compiler.ContractProject
+            {
+                Name = name ?? Path.GetFileName(fullRoot),
+                Type = type,
+                Namespace = ns,
+            };
+            project.Save(fullRoot);
+
+            // Default namespace: the explicit one, else the project name lowercased.
+            string defaultNs = ns ?? project.Name.ToLowerInvariant();
+            string mainBody = type == "lib"
+                ? $"// Library project — no entry point required.\n" +
+                  $"namespace {defaultNs};\n\n" +
+                  $"Contract Greeter {{\n" +
+                  $"    static fn Greet(who: string) -> string {{\n" +
+                  $"        return \"Hello, \" + who + \"!\";\n" +
+                  $"    }}\n" +
+                  $"}}\n"
+                : $"namespace {defaultNs};\n\n" +
+                  $"Contract Program {{\n" +
+                  $"    static fn Main() {{\n" +
+                  $"        IO.Println(\"Hello from {project.Name}!\");\n" +
+                  $"    }}\n" +
+                  $"}}\n";
+            File.WriteAllText(Path.Combine(fullRoot, "src", "main.ct"), mainBody);
+
+            File.WriteAllText(Path.Combine(fullRoot, "README.md"),
+                $"# {project.Name}\n\nA Contract project (`{project.Type}`).\n\n- `ccl build` to compile\n- `ccl build --run` to compile and run\n");
+            Console.WriteLine($"Created project '{project.Name}' ({project.Type}) at {fullRoot}");
+            Console.WriteLine($"  contract.ctproj  — project settings (edit type/namespace/main)");
+            Console.WriteLine($"  src/main.ct      — source");
+            Console.WriteLine("Next: cd into it and run `ccl build --run`");
+            return 0;
+        }
+
+        /// <summary>Builds the project in the current directory: `ccl build [--run] [--output path]`.</summary>
+        static int BuildProject(string[] args)
+        {
+            bool run = false;
+            string? output = null;
+            for (int i = 0; i < args.Length; i++)
+            {
+                switch (args[i])
+                {
+                    case "--run": run = true; break;
+                    case "-o" or "--output":
+                        if (++i >= args.Length) { Error("--output requires a path"); return 1; }
+                        output = args[i];
+                        break;
+                    default:
+                        if (args[i].StartsWith("--output=")) { output = args[i].Substring("--output=".Length); }
+                        else if (args[i].StartsWith('-')) { Error($"Unknown option: {args[i]}"); return 1; }
+                        break;
+                }
+            }
+
+            var project = Contract.Compiler.ContractProject.Load(Directory.GetCurrentDirectory());
+            if (project == null)
+            {
+                Error($"No project found — '{Contract.Compiler.ContractProject.FileName}' not found in {Directory.GetCurrentDirectory()} (run `ccl new` first).");
+                return 1;
+            }
+            if (project.MainPath == null || !File.Exists(project.MainPath))
+            {
+                Error($"Project main file not found: {project.Main}");
+                return 1;
+            }
+
+            // Library builds (type "lib") don't require a Main entry point; the
+            // analyzer gates the "no Main" info and unused-declaration warnings
+            // on the isExecutable flag.
+            var ir = Contract.Runtime.ContractCompiler.CompileFile(
+                project.MainPath, out var diagnostics,
+                isExecutable: project.IsExecutable);
+            if (ir == null)
+            {
+                diagnostics.ReportToConsole();
+                return 1;
+            }
+            diagnostics.ReportWarningsToConsole();
+
+            string outDir = output != null
+                ? (Path.IsPathRooted(output) ? output : Path.Combine(project.RootPath!, output))
+                : (project.OutputPath ?? Path.Combine(project.RootPath!, "bin"));
+            Directory.CreateDirectory(outDir);
+            string outFile = Path.Combine(outDir,
+                Path.GetFileNameWithoutExtension(project.Main) + (project.IsExecutable ? ".orbt" : ".oil"));
+            if (project.IsExecutable)
+            {
+                var module = ObjectRT.Reader.OilFileReader.ParseString(ir);
+                var bytes = new ObjectRT.Reader.ORBTWriter().WriteModule(module);
+                File.WriteAllBytes(outFile, bytes);
+            }
+            else
+            {
+                File.WriteAllText(outFile, ir);
+            }
+
+            Console.WriteLine($"[{project.Type}] {project.Name} → {outFile}");
+            if (run && project.IsExecutable)
+            {
+                try
+                {
+                    var rt = new Contract.Runtime.ContractRuntime();
+                    rt.RunModule(rt.LoadModuleFileAuto(outFile));
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"error: {ex.Message}");
+                    return 1;
+                }
+            }
+            else if (run)
+            {
+                Console.WriteLine("(library project — nothing to run)");
+            }
+            return 0;
         }
     }
 }

@@ -1,0 +1,82 @@
+// Runtime materialization edge cases: multi-parameter generics, static fields
+// on generic contracts, and generic instantiations used as field types in
+// other contracts. Each concrete instantiation is cloned from the @Generic
+// definition at first use — Box<int>, Box<string>, Pair<int,string>, etc.
+Contract Program {
+    static fn Main() {
+        // Multi-parameter generic contract.
+        var p = new Pair<int, string>(7, "seven");
+        IO::Println(p.first);    // 7
+        IO::Println(p.second);   // seven
+
+        // Static field on a generic contract — one slot per specialization.
+        Box<int>::reset();
+        var b1 = new Box<int>(1);
+        var b2 = new Box<int>(2);
+        IO::Println(b1.get());        // 1
+        IO::Println(b2.get());        // 2
+        Box<int>::bump();
+        Box<int>::bump();
+        IO::Println(Box<int>::count());   // 2 (shared by all Box<int>)
+
+        var s1 = new Box<string>("a");
+        IO::Println(s1.get());        // a
+        Box<string>::bump();
+        IO::Println(Box<string>::count());  // 1 (separate from Box<int>)
+        IO::Println(Box<int>::count());     // 2 (untouched)
+
+        // A generic instantiation as a field type in another contract.
+        var holder = new Holder(99);
+        var hb = holder.box;
+        IO::Println(hb.get());        // 99
+
+        // Materialized types are visible to reflection.
+        IO.Println(Reflect.HasType("Pair<int32, string>"));
+        IO.Println(Reflect.HasType("Holder"));
+    }
+}
+
+Contract Pair<T, U> {
+    public first: T;
+    public second: U;
+
+    constructor(a: T, b: U) {
+        this.first = a;
+        this.second = b;
+    }
+}
+
+Contract Box<T> {
+    public value: T;
+    static count: int;
+
+    constructor(v: T) {
+        this.value = v;
+        Box::reset();
+    }
+
+    fn get() -> T {
+        return this.value;
+    }
+
+    static fn reset() {
+        count = 0;
+    }
+
+    static fn bump() {
+        count = count + 1;
+    }
+
+    static fn count() -> int {
+        return count;
+    }
+}
+
+// Uses a materialized instantiation as a field type.
+Contract Holder {
+    public box: Box<int>;
+
+    constructor(v: int) {
+        this.box = new Box<int>(v);
+    }
+}

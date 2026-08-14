@@ -17,14 +17,14 @@ public static class ContractCompiler
 {
     /// <summary>Compiles a .ct file to ObjektIR text (.oil).</summary>
     /// <returns>The IR text, or null when compilation failed (errors on <paramref name="diagnostics"/>).</returns>
-    public static string? CompileFile(string path, out DiagnosticBag diagnostics, IEnumerable<Assembly>? bindingAssemblies = null)
+    public static string? CompileFile(string path, out DiagnosticBag diagnostics, IEnumerable<Assembly>? bindingAssemblies = null, bool isExecutable = true)
     {
         var source = File.ReadAllText(path);
-        return CompileSource(source, path, out diagnostics, bindingAssemblies);
+        return CompileSource(source, path, out diagnostics, bindingAssemblies, isExecutable);
     }
 
     /// <summary>Compiles a .ct source string to ObjektIR text (.oil).</summary>
-    public static string? CompileSource(string source, string? fileName, out DiagnosticBag diagnostics, IEnumerable<Assembly>? bindingAssemblies = null)
+    public static string? CompileSource(string source, string? fileName, out DiagnosticBag diagnostics, IEnumerable<Assembly>? bindingAssemblies = null, bool isExecutable = true)
     {
         diagnostics = new DiagnosticBag { SourceCode = source };
         var symbolTable = new SymbolTable();
@@ -43,7 +43,10 @@ public static class ContractCompiler
 
         if (diagnostics.HasErrors) return null;
 
-        var analyzer = new SemanticAnalyzer(symbolTable, diagnostics, fileName);
+        // isExecutable=false (project type "lib") suppresses the "No static
+        // Main" info and the unused-declaration warnings — library contracts
+        // are API surface included from other paths.
+        var analyzer = new SemanticAnalyzer(symbolTable, diagnostics, fileName, isExecutable);
         analyzer.Analyze(program);
         if (diagnostics.HasErrors) return null;
 

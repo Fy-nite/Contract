@@ -1,0 +1,29 @@
+// <ClrImport("System.Math")> — link a facade contract to CLR static methods
+// by reflection. No [ClassBinding] wrapper class needed: the compiler emits
+// Type.Method call targets and the runtime resolves them via reflection.
+// Run:  dotnet run --project Contract.Cli -- examples/ClrImportDemo.ct
+
+<ClrImport("System.Math")>
+Contract ClrMath {
+    static fn Abs(x: double) -> double { }
+    static fn Sqrt(x: double) -> double { }
+    static fn Max(a: double, b: double) -> double { }
+    static fn Floor(x: double) -> double { }
+    static fn Pow(x: double, y: double) -> double { }
+}
+
+<ClrImport("System.Convert")>
+Contract Conv {
+    static fn ToInt32(value: string) -> int { }
+}
+
+Contract Program {
+    static fn Main() {
+        IO.Println(ClrMath.Abs(-3.5));      // 3.5
+        IO.Println(ClrMath.Sqrt(16.0));     // 4
+        IO.Println(ClrMath.Max(2.0, 7.0));  // 7
+        IO.Println(ClrMath.Floor(9.99));    // 9
+        IO.Println(ClrMath.Pow(2.0, 10.0)); // 1024
+        IO.Println(Conv.ToInt32("42"));     // 42
+    }
+}

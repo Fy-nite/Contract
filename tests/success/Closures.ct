@@ -1,5 +1,5 @@
 Contract Program {
-    static fn apply(f: (int) -> int, x: int) -> int {
+    static fn apply(f: <Delegate(int) -> int>, x: int) -> int {
         return f(x);
     }
 

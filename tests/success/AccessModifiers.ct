@@ -1,0 +1,28 @@
+// Access modifiers: private fields/methods are only usable inside the
+// declaring contract. Public members remain callable from anywhere.
+Contract Vault {
+    private secret: int;
+    public opened: int;
+
+    private fn hidden() -> int {
+        return 42;
+    }
+
+    public fn peek() -> int {
+        return secret + hidden();
+    }
+
+    public fn store(v: int) {
+        secret = v;
+        opened = v;
+    }
+}
+
+Contract Program {
+    static fn Main() {
+        var v = new Vault();
+        v.store(8);
+        IO::Println(v.peek());      // 8 + 42 = 50
+        IO::Println(v.opened);      // 8 — public field read from outside
+    }
+}

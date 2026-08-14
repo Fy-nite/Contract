@@ -83,6 +83,23 @@ namespace Contract.Compiler.AST
         /// </summary>
         public string? NativeBindingName { get; set; }
 
+        /// <summary>
+        /// When the contract is marked <c>&lt;ClrImport("System.Math")&gt;</c>, the
+        /// CLR type whose public static methods its <c>static fn</c>s map to.
+        /// Unlike <c>NativeBinding</c> no host-side <c>[ClassBinding]</c> wrapper
+        /// is needed: calls emit <c>Type.Method</c> targets and the runtime
+        /// resolves them via CLR reflection.
+        /// </summary>
+        public string? ClrImportType { get; set; }
+
+        /// <summary>
+        /// When the contract is marked <c>&lt;DllImport("user32.dll")&gt;</c>, the
+        /// native library its <c>static fn</c>s P/Invoke. Method signatures are
+        /// emitted into the module metadata so the runtime's DllImportResolver
+        /// can generate the marshalling bridge.
+        /// </summary>
+        public string? DllImportLibrary { get; set; }
+
         public ContractDeclaration(string name, int line, int column) : base(line, column)
         {
             Name = name;
