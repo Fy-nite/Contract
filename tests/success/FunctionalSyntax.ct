@@ -1,6 +1,6 @@
 Contract Program {
-  fn main() {
-    let inc: Int = fun x -> x + 1;
+  static fn Main() {
+    let inc: Int = fun x ->  {x + 1; IO.Println(Convert.ToString(x));};
     let val: Int = 10 |> inc;
     IO.Println(val);
   }

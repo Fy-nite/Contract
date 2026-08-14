@@ -1,0 +1,15 @@
+// Bare field access must only resolve to the *current* contract's fields —
+// reaching into another contract's field without `this` is an error.
+Contract A {
+    secret: int;
+
+    fn set(v: int) {
+        secret = v;   // fine: A's own field
+    }
+}
+
+Contract B {
+    fn main() {
+        secret = 5;   // error: B has no field 'secret'
+    }
+}

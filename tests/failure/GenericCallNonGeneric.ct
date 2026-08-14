@@ -1,0 +1,11 @@
+// Explicit type arguments on a non-generic function is an error.
+Contract Program {
+    static fn Main() {
+        var x = doubleIt<int>(21);
+        IO::Println(x);
+    }
+
+    static fn doubleIt(x: int) -> int {
+        return x * 2;
+    }
+}

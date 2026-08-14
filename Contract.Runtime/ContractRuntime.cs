@@ -124,6 +124,7 @@ public class ContractRuntime : IReflectHost, IHostedRuntime
     /// </summary>
     public ORBTModule LoadModuleFileAuto(string path)
     {
+        DllImportResolver.AddSearchDirectory(Path.GetDirectoryName(path));
         var ext = Path.GetExtension(path).ToLowerInvariant();
         return ext == ".orbt"
             ? OrbtFileReader.ReadFile(path)
@@ -142,14 +143,80 @@ public class ContractRuntime : IReflectHost, IHostedRuntime
         return RunModule(module);
     }
 
+    /// <summary>
+    /// Loads an already-parsed module into the VM (compiles it for execution).
+    /// <see cref="RunModule"/> does load+run in one step; use this with
+    /// <see cref="CallMethod{T}"/> when running an explicit entry point.
+    /// </summary>
+    public void LoadModule(ORBTModule module) => _runtime.LoadModule(module);
+
     /// <summary>Loads and runs a module, then returns the entry method's result.</summary>
     public object? RunModule(ORBTModule module)
     {
+        PrepareModule(module);
         _runtime.LoadModule(module);
         var entry = FindEntry(module);
         if (entry == null)
             throw new InvalidOperationException("No entry point (class with static method Main) found.");
         return _runtime.CallMethod<object?>(entry);
+    }
+
+    /// <summary>
+    /// Prepares a loaded module for execution. Registers CLR types referenced
+    /// by <c>&lt;ClrImport("System.Math")&gt;</c> facades with the runtime's
+    /// reflection resolver (so they link without a host-side
+    /// <c>[ClassBinding]</c> wrapper) and scans <c>&lt;DllImport("x.dll")&gt;</c>
+    /// classes so their P/Invoke bridges are generated on first call. Idempotent —
+    /// call it before <c>CallMethod</c>/<c>RunModule</c> when running a module
+    /// with an explicit entry point.
+    /// </summary>
+    public void PrepareModule(ORBTModule module)
+    {
+        RegisterClrImports(module);
+        _runtime.DllResolver.ScanModule(module, null);
+    }
+
+    /// <summary>
+    /// Scans module metadata for <c>@ClrImport("TypeName")</c> class
+    /// annotations and registers each resolvable CLR type with the
+    /// <see cref="ObjectRT.Runtime.ClrNativeResolver"/>. Call sites emitted
+    /// for <c>&lt;ClrImport&gt;</c> facades target <c>TypeName.Method</c>,
+    /// which the reflection resolver then dispatches.
+    /// </summary>
+    private void RegisterClrImports(ORBTModule module)
+    {
+        foreach (var type in module.Types)
+        {
+            foreach (var attr in type.Attributes)
+            {
+                var attrName = module.Resolve(attr.NameIndex);
+                if (!attrName.Equals("ClrImport", System.StringComparison.OrdinalIgnoreCase)) continue;
+                if (attr.ArgIndices.Count != 1) continue;
+
+                var typeName = module.Resolve(attr.ArgIndices[0]);
+                if (typeName.Length >= 2 && typeName[0] == '"' && typeName[^1] == '"')
+                    typeName = typeName[1..^1];
+
+                System.Type? clrType = null;
+                try { clrType = System.Type.GetType(typeName); }
+                catch (System.Exception) { /* malformed name — reported below */ }
+
+                if (clrType == null)
+                {
+                    Console.Error.WriteLine($"[ClrImport] type '{typeName}' could not be resolved at runtime — no CLR type with that name is loaded (try an assembly-qualified name)");
+                    continue;
+                }
+
+                // Register under the CLR type name (what emitted call sites
+                // target: System.Math.Abs) and under the facade contract's
+                // wire name (so explicit entry points like `-m ClrMath.Abs`
+                // resolve too).
+                _runtime.ClrResolver.RegisterType(typeName, clrType);
+                var className = module.Resolve(type.NameIndex);
+                if (!string.Equals(className, typeName, StringComparison.OrdinalIgnoreCase))
+                    _runtime.ClrResolver.RegisterType(className, clrType);
+            }
+        }
     }
 
     /// <summary>Calls an arbitrary module method by qualified name.</summary>

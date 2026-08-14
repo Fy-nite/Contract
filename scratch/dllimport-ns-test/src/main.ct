@@ -1,0 +1,13 @@
+namespace Test;
+
+<DllImport("kernel32.dll")>
+Contract Kernel32 {
+    static fn GetTickCount() -> int { }
+}
+
+Contract Program {
+    static fn Main() {
+        var ticks = Kernel32.GetTickCount();
+        IO.Println(ticks);
+    }
+}

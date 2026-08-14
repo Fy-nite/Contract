@@ -1,0 +1,85 @@
+// User-defined generic contracts and functions (runtime materialization).
+// A generic contract is emitted as a @Generic definition (body carries the
+// type parameter literally); the VM clones + substitutes on first use, so
+// Box<int> and Box<string> are real, specialized classes at runtime.
+Contract Program {
+    static fn Main() {
+        // Generic contract: ctor takes T, field stores T, instance method returns T.
+        var b = new Box<int>(5);
+        IO::Println(b.get());        // 5
+        var s = new Box<string>("hi");
+        IO::Println(s.get());        // hi
+
+        // Instance field read on a materialized type: b.value → Box<int32>::value.
+        IO::Println(b.value);        // 5
+
+        // Self-call inside the definition (def-name call substitution).
+        IO::Println(b.double());     // 10
+
+        // Generic function: T inferred from the argument (function params
+        // type-erase — a function is a single runtime entity).
+        IO::Println(identity(42));       // 42
+        IO::Println(identity("hey"));    // hey
+        IO::Println(first([1, 2, 3]));   // 1
+        IO::Println(first(["a", "b"]));  // a
+
+        // Generic static method on a generic contract, inference at the call site.
+        IO::Println(Box::wrap(7));       // 7
+        IO::Println(Box.wrap("w"));      // w
+
+        // Explicit annotation with a generic instance type.
+        var nums: Box<int> = new Box<int>(10);
+        IO::Println(nums.get());         // 10
+
+        // Explicit type arguments on a call: first<int>(xs).
+        IO::Println(first<int>([1, 2, 3]));    // 1
+        IO::Println(identity<string>("explicit"));  // explicit
+
+        // Explicit type args + inferred remaining params (contract param T
+        // still inferred from the argument).
+        IO::Println(Box::pair<string>("boxed", "explicit"));   // explicit
+
+        // Materialization proof: the VM lazily cloned Box for each concrete
+        // instantiation at first use, so the specialized classes exist.
+        IO.Println(Reflect.HasType("Box<int32>"));   // true
+        IO.Println(Reflect.HasType("Box<string>"));  // true
+    }
+
+    // Generic function: T inferred from the argument type.
+    static fn identity<T>(x: T) -> T {
+        return x;
+    }
+
+    // Generic function over arrays: T[] erases to object[] on the wire.
+    static fn first<T>(xs: T[]) -> T {
+        return xs[0];
+    }
+}
+
+// Generic contract: T materializes at runtime via @Generic(T).
+Contract Box<T> {
+    public value: T;
+
+    constructor(v: T) {
+        this.value = v;
+    }
+
+    fn get() -> T {
+        return this.value;
+    }
+
+    // Self-call to another method on the same materialized type.
+    fn double() -> int {
+        return this.get() * 2;
+    }
+
+    static fn wrap(v: T) -> T {
+        return v;
+    }
+
+    // A generic FUNCTION on a generic contract: U is explicit at the call site,
+    // contract param T is inferred from the argument.
+    static fn pair<U>(t: T, u: U) -> U {
+        return u;
+    }
+}

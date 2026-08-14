@@ -1,0 +1,11 @@
+// Wrong arity on explicit type arguments: first takes 1 type argument.
+Contract Program {
+    static fn Main() {
+        var x = first<int, string>([1, 2, 3]);
+        IO::Println(x);
+    }
+
+    static fn first<T>(xs: T[]) -> T {
+        return xs[0];
+    }
+}

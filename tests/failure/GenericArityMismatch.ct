@@ -1,0 +1,11 @@
+// Wrong arity: Box takes 1 type argument.
+Contract Program {
+    static fn Main() {
+        var b = new Box<int, string>(5);
+        IO::Println(b);
+    }
+}
+
+Contract Box<T> {
+    public value: T;
+}

@@ -1,0 +1,18 @@
+// <DllImport("kernel32.dll")> — P/Invoke a native library straight from
+// Contract. The facade's method signatures are emitted into the module
+// metadata; the runtime generates the marshalling bridge on first call.
+// Run:  dotnet run --project Contract.Cli -- examples/DllImportDemo.ct
+
+<DllImport("kernel32.dll")>
+Contract Kernel32 {
+    static fn GetTickCount() -> int { }
+    static fn GetCurrentProcessId() -> int { }
+}
+
+Contract Program {
+    static fn Main() {
+        var ticks = Kernel32.GetTickCount();
+        IO.Println(ticks);                      // ms since boot (large number)
+        IO.Println(Kernel32.GetCurrentProcessId());
+    }
+}

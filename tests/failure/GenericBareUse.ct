@@ -1,0 +1,11 @@
+// Using a generic contract without type arguments is an error.
+Contract Program {
+    static fn Main() {
+        var b: Box = new Box(5);
+        IO::Println(b);
+    }
+}
+
+Contract Box<T> {
+    public value: T;
+}

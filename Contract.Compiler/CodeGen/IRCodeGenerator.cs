@@ -64,6 +64,9 @@ public class IRCodeGenerator
     // Contract name → host module name for <NativeBinding("Module")> contracts.
     // Call sites and 'new' rewrite to the host module.
     private readonly Dictionary<string, string> _nativeBindings = new(StringComparer.OrdinalIgnoreCase);
+    // Contract name → CLR type name for <ClrImport("System.Math")> contracts.
+    // Call sites emit Type.Method targets; the runtime resolves via reflection.
+    private readonly Dictionary<string, string> _clrImports = new(StringComparer.OrdinalIgnoreCase);
 
     private const string DelegateClassName = "Delegate";
     private const string DelegateTargetField = "target";
@@ -178,6 +181,8 @@ public class IRCodeGenerator
         {
             if (cls.NativeBindingName != null)
                 _nativeBindings[cls.Name] = cls.NativeBindingName;
+            if (cls.ClrImportType != null)
+                _clrImports[cls.Name] = cls.ClrImportType;
 
             // Contracts are emitted under their fully-qualified wire name
             // (com.example.Foo), matching structs/enums — the VM keys types,
@@ -217,9 +222,13 @@ public class IRCodeGenerator
             {
                 if (member is FunctionDeclaration func)
                 {
-                    // Native-bound methods are declarations only: their call
-                    // sites dispatch to the host module, nothing is emitted here.
-                    if (cls.NativeBindingName == null)
+                    // NativeBinding/ClrImport methods are declarations only:
+                    // their call sites dispatch to the host module / CLR type,
+                    // nothing is emitted here. DllImport methods ARE emitted as
+                    // empty stubs — the runtime needs their signatures in the
+                    // metadata to build the P/Invoke bridge (and LoadModule
+                    // strips their bodies to a single ret anyway).
+                    if (cls.NativeBindingName == null && cls.ClrImportType == null)
                         GenerateFunction(classBuilder, func);
                 }
                 else if (member is StructDeclaration structDecl)
@@ -1628,9 +1637,14 @@ public class IRCodeGenerator
                         ? MapType(staticFunc.ReturnType)
                         : TypeRef.Int32;
                     var paramTypes = staticFunc.Parameters.Select(p => MapType(p.Type)).ToList();
+                    // NativeBinding → host module name; ClrImport → CLR type name
+                    // (resolved by reflection at runtime); else the contract's
+                    // own wire name (a normal module function).
                     string staticTarget = _nativeBindings.TryGetValue(staticFunc.ContractName ?? "", out var statBinding)
                         ? statBinding
-                        : ResolveTypeName(staticFunc.ContractName ?? "Global");
+                        : _clrImports.TryGetValue(staticFunc.ContractName ?? "", out var clrTarget)
+                            ? clrTarget
+                            : ResolveTypeName(staticFunc.ContractName ?? "Global");
                     ib.Call(new MethodReference(new TypeRef(staticTarget), staticFunc.Name, returnType, paramTypes));
                 }
                 else if (call.Callee is IdentifierExpression calleeIdent)
