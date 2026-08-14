@@ -80,4 +80,16 @@ public static class ContractCompiler
         if (text == null) return null;
         return OilFileReader.ParseString(text);
     }
+
+    /// <summary>
+    /// Compiles a .ct source string to an ORBT module object. Pass a
+    /// <paramref name="fileName"/> to resolve <c>import</c>s relative to that
+    /// path; pass null to compile a self-contained inline source.
+    /// </summary>
+    public static ObjectRT.Abstractions.ORBTModule? CompileSourceToModule(string source, string? fileName, out DiagnosticBag diagnostics, IEnumerable<Assembly>? bindingAssemblies = null)
+    {
+        var text = CompileSource(source, fileName, out diagnostics, bindingAssemblies);
+        if (text == null) return null;
+        return OilFileReader.ParseString(text);
+    }
 }
