@@ -1269,6 +1269,19 @@ namespace Contract.Compiler.Semantics
                             $"No constructor of '{newExpr.TypeName}' takes {newExpr.Arguments.Count} argument(s) — the constructor will not run and fields stay at their defaults",
                             newExpr.Line, newExpr.Column);
                     }
+
+                    // Structs: new Color(a, b, ...) assigns fields positionally;
+                    // extra arguments beyond the field count are silently ignored.
+                    if (_program != null)
+                    {
+                        var targetStruct = _program.Structs.FirstOrDefault(s => s.Name == newExpr.TypeName || s.FullName == newExpr.TypeName);
+                        if (targetStruct != null && newExpr.Arguments.Count > targetStruct.Fields.Count)
+                        {
+                            Warn(
+                                $"'{newExpr.TypeName}' has {targetStruct.Fields.Count} field(s), but {newExpr.Arguments.Count} argument(s) were supplied — the extra argument(s) will be ignored",
+                                newExpr.Line, newExpr.Column);
+                        }
+                    }
                     break;
                 case LambdaExpression lambda:
                     // Validate annotated param types and analyze the body so

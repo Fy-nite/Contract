@@ -1,0 +1,12 @@
+struct Color {
+    r: byte;
+    g: byte;
+    b: byte;
+    a: byte;
+}
+
+Contract Program {
+    static fn Main() {
+        IO.Println("hi");
+    }
+}

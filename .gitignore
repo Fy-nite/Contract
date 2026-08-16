@@ -499,3 +499,8 @@ scratch/lsptest/stdout.txt
 scratch/lsptest/stderr.txt
 scratch/lsptest/stdout-ccl.txt
 scratch/lsptest/stderr-ccl.txt
+
+# Struct interop probe artifacts (native dll, OIL text output, bridge emission)
+scratch/StructProbe/*.dll
+scratch/StructProbe/*.oil
+scratch/StructProbe/emit/

@@ -1,0 +1,16 @@
+struct Color {
+    r: byte;
+    g: byte;
+    b: byte;
+    a: byte;
+}
+
+Contract Program {
+    static fn Main() {
+        var c: Color = new Color(255, 0, 128, 255);
+        IO.Println(c.r);
+        IO.Println(c.g);
+        IO.Println(c.b);
+        IO.Println(c.a);
+    }
+}

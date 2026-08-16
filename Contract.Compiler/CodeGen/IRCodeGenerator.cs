@@ -548,6 +548,51 @@ public class IRCodeGenerator
         return ResolveTypeName(name);
     }
 
+    /// <summary>
+    /// Resolves the declaring wire type name of a member-access chain
+    /// (<c>r2.origin.x</c> → the type of <c>x</c>'s owner, <c>Rect</c> then
+    /// <c>Vec3</c>), recursing so nested struct/contract fields resolve instead
+    /// of collapsing to <c>TODO_DYNAMIC_TYPE</c>. Falls back to the old
+    /// behavior (name passthrough / TODO) for unknown receivers.
+    /// </summary>
+    private string ResolveExpressionObjectType(Expression expr)
+    {
+        switch (expr)
+        {
+            case IdentifierExpression id:
+                return ResolveMemberObjectType(id.Name);
+            case MemberExpression mem:
+            {
+                var owner = ResolveExpressionObjectType(mem.Object);
+                return FindFieldDeclaringTypeName(owner, mem.Property) ?? owner;
+            }
+            default:
+                return "TODO_DYNAMIC_TYPE";
+        }
+    }
+
+    /// <summary>The resolved wire type name of a field declared on a contract or
+    /// struct type (short or qualified), or null when the owner isn't known.</summary>
+    private string? FindFieldDeclaringTypeName(string typeName, string fieldName)
+    {
+        if (_program == null || string.IsNullOrEmpty(typeName) || typeName == "TODO_DYNAMIC_TYPE")
+            return null;
+        var contract = _program.Contracts.FirstOrDefault(c => c.Name == typeName || c.FullName == typeName);
+        if (contract != null)
+        {
+            var f = contract.Fields.FirstOrDefault(f => f.Name == fieldName);
+            if (f?.Type is TypeDescriptor.Named n && !n.IsEmpty) return ResolveTypeName(n.Name);
+            return null;
+        }
+        var structDecl = _program.Structs.FirstOrDefault(s => s.Name == typeName || s.FullName == typeName);
+        if (structDecl != null)
+        {
+            var f = structDecl.Fields.FirstOrDefault(f => f.Name == fieldName);
+            if (f?.Type is TypeDescriptor.Named n && !n.IsEmpty) return ResolveTypeName(n.Name);
+        }
+        return null;
+    }
+
     /// <summary>The field reference for 'name' on the current contract.</summary>
     private FieldReference InstanceFieldReference(string name)
     {
@@ -1377,9 +1422,7 @@ public class IRCodeGenerator
                     }
                     else if (bin.Left is MemberExpression memTarget)
                     {
-                        var targetName = memTarget.Object is IdentifierExpression targetId
-                            ? ResolveMemberObjectType(targetId.Name)
-                            : "TODO_DYNAMIC_TYPE";
+                        var targetName = ResolveExpressionObjectType(memTarget.Object);
                         if (IsStaticField(targetName, memTarget.Property))
                         {
                             // Static field write (Config.count = v) — no receiver.
@@ -1468,9 +1511,7 @@ public class IRCodeGenerator
                     }
                     else if (bin.Left is MemberExpression compoundMem)
                     {
-                        var compoundMemObjName = compoundMem.Object is IdentifierExpression compoundMemId
-                            ? ResolveMemberObjectType(compoundMemId.Name)
-                            : "TODO_DYNAMIC_TYPE";
+                        var compoundMemObjName = ResolveExpressionObjectType(compoundMem.Object);
                         var fieldRef = new FieldReference(new TypeRef(compoundMemObjName), compoundMem.Property, FindFieldType(compoundMemObjName, compoundMem.Property));
                         if (IsStaticField(compoundMemObjName, compoundMem.Property))
                         {
@@ -1729,6 +1770,20 @@ public class IRCodeGenerator
                             new List<TypeRef> { TypeRef.Object }.Concat(argTypes).ToList()));
                         ib.Pop();
                     }
+                    else if (_program?.Structs.FirstOrDefault(s => s.Name == newExpr.TypeName || s.FullName == newExpr.TypeName) is StructDeclaration structDecl)
+                    {
+                        // new Color(255, 0, 0, 255) — allocate, then assign
+                        // fields positionally. Stack: [obj] → dup → [obj,obj] →
+                        // push value → [obj,obj,v] → stfld → [obj]; the object
+                        // stays as the expression result.
+                        int n = Math.Min(structDecl.Fields.Count, newExpr.Arguments.Count);
+                        for (int fi = 0; fi < n; fi++)
+                        {
+                            ib.Dup();
+                            GenerateExpression(ib, newExpr.Arguments[fi], paramMap);
+                            ib.Stfld(new FieldReference(new TypeRef(qualifiedNewType), structDecl.Fields[fi].Name, MapType(structDecl.Fields[fi].Type)));
+                        }
+                    }
                 }
                 break;
 
@@ -1746,9 +1801,7 @@ public class IRCodeGenerator
                 
             case MemberExpression mem:
                 {
-                    var memObjName = mem.Object is IdentifierExpression memObjId
-                        ? ResolveMemberObjectType(memObjId.Name)
-                        : "TODO_DYNAMIC_TYPE";
+                    var memObjName = ResolveExpressionObjectType(mem.Object);
                     // Enum member read: Color.Red or com.lib.Direction.North folds
                     // to its zero-based index (try the full dotted path first).
                     var enumIndex = TryGetTypePath(mem, out var typePath)
@@ -1947,6 +2000,14 @@ public class IRCodeGenerator
         "object" => TypeRef.Object,
         "double" => TypeRef.Float64,
         "float" => TypeRef.Float32,
+        // Extended integer widths: the VM stores every integer as I4, but the
+        // wire name keeps the native C width so DllImport signatures and
+        // interop struct fields marshal as their true C types.
+        "byte" => new TypeRef("uint8"),
+        "sbyte" => new TypeRef("int8"),
+        "short" => new TypeRef("int16"),
+        "ushort" => new TypeRef("uint16"),
+        "uint" => new TypeRef("uint32"),
         _ => new TypeRef(ResolveTypeName(type))
     };
 

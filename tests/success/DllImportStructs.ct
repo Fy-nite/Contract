@@ -1,0 +1,53 @@
+// Struct-by-value interop through @DllImport: struct params / returns, nested
+// structs, and the extended integer widths (byte, sbyte, short, ushort, uint).
+// Compile-only check — the marshalling round-trip is covered by the native
+// interop test in libs/Objekt-RT (StructMarshaller + DllImportResolver).
+
+struct Color {
+    r: byte;
+    g: byte;
+    b: byte;
+    a: byte;
+}
+
+struct Vec3 {
+    x: float;
+    y: float;
+    z: float;
+}
+
+struct Rect {
+    origin: Vec3;
+    w: float;
+    h: float;
+}
+
+<DllImport("raylib.dll")>
+Contract Raylib {
+    static fn ColorAlpha(c: Color, alpha: float) -> Color { }
+    static fn Vector3DotProduct(a: Vec3, b: Vec3) -> float { }
+    static fn ColorToInt(c: Color) -> uint { }
+    static fn Vector2Length(x: float, y: float) -> float { }
+}
+
+Contract Program {
+    static fn Main() {
+        var c = new Color(255, 0, 128, 255);
+        IO.Println(c.r);
+        IO.Println(c.a);
+
+        var c2 = Raylib.ColorAlpha(c, 0.5);
+        IO.Println(c2.a);
+
+        var va = new Vec3(1.0, 2.0, 3.0);
+        var vb = new Vec3(4.0, 5.0, 6.0);
+        IO.Println(Raylib.Vector3DotProduct(va, vb));
+
+        IO.Println(Raylib.ColorToInt(c));
+
+        // Nested struct construction + field reads.
+        var r = new Rect(new Vec3(0.5, 0.25, 0.0), 100.0, 200.0);
+        IO.Println(r.origin.x);
+        IO.Println(r.w);
+    }
+}

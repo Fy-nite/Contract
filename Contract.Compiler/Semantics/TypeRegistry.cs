@@ -10,6 +10,10 @@ namespace Contract.Compiler.Semantics
         private readonly HashSet<string> _types = new(StringComparer.OrdinalIgnoreCase)
         {
             "int", "string", "bool", "double", "float", "object", "int64", "long", "null", "void",
+            // Additional integer widths. All behave as int32 in the VM (I4); the
+            // distinct names exist so DllImport signatures and interop struct
+            // fields keep their native C widths (byte -> uint8, etc.).
+            "byte", "sbyte", "short", "ushort", "uint",
             // Built-in base type for attribute declarations (C#-style custom attributes).
             "Attribute"
         };

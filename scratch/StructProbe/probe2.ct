@@ -1,0 +1,64 @@
+// Struct-by-value interop round-trip against a gcc-built native DLL.
+// Exercises: byte/uint/short params and returns, struct params, struct
+// returns, nested structs, float fields.
+
+struct Color {
+    r: byte;
+    g: byte;
+    b: byte;
+    a: byte;
+}
+
+struct Vec3 {
+    x: float;
+    y: float;
+    z: float;
+}
+
+struct Rect {
+    origin: Vec3;
+    w: float;
+    h: float;
+}
+
+<DllImport("native_structs.dll")>
+Contract Native {
+    static fn color_max(c: Color) -> byte { }
+    static fn color_make(r: byte, g: byte, b: byte, a: byte) -> Color { }
+    static fn sum_u(a: uint, b: uint) -> uint { }
+    static fn sum_us(a: ushort, b: ushort) -> ushort { }
+    static fn diff_s(a: short, b: short) -> short { }
+    static fn vec_dot(a: Vec3, b: Vec3) -> float { }
+    static fn rect_width(r: Rect) -> float { }
+    static fn rect_make(x: float, y: float, z: float, w: float, h: float) -> Rect { }
+}
+
+Contract Program {
+    static fn Main() {
+        var c = new Color(255, 0, 128, 255);
+        IO.Println(Native.color_max(c));                 // 255
+        IO.Println(Native.sum_u(2147483647, 1)); // 2147483648 → prints -2147483648 (int32 view of the uint)
+        IO.Println(Native.sum_us(65000, 1000));           // 66000
+        IO.Println(Native.diff_s(10, 42));                // -32
+
+        var c2 = Native.color_make(1, 2, 3, 4);
+        IO.Println(c2.r);
+        IO.Println(c2.g);
+        IO.Println(c2.b);
+        IO.Println(c2.a);
+
+        var va = new Vec3(1.0, 0.0, 0.0);
+        var vb = new Vec3(2.0, 3.0, 4.0);
+        IO.Println(Native.vec_dot(va, vb));              // 2
+
+        var r = new Rect(new Vec3(0.5, 0.25, 0.125), 100.0, 200.0);
+        IO.Println(Native.rect_width(r));                // 100
+
+        var r2 = Native.rect_make(1.0, 2.0, 3.0, 4.0, 5.0);
+        IO.Println(r2.origin.x);                          // 1
+        IO.Println(r2.origin.y);                          // 2
+        IO.Println(r2.origin.z);                          // 3
+        IO.Println(r2.w);                                 // 4
+        IO.Println(r2.h);                                 // 5
+    }
+}

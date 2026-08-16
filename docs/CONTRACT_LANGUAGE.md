@@ -235,6 +235,50 @@ Contract Program {
 }
 ```
 
+**Struct marshalling.** User-defined structs can be passed to and returned from
+native functions **by value**. The compiler records each struct's field types;
+at runtime the VM packs the struct into its C layout (natural alignment, nested
+structs inlined) before the call and unpacks the native result back into a
+struct value. Narrow integer widths are converted at the boundary, so a native
+`uint16` field or return lands in a `ushort`-typed slot and a native `float`
+(32-bit) field converts to/from the language's `float`/`double` cleanly.
+
+```ct
+struct Color {
+    r: byte;
+    g: byte;
+    b: byte;
+    a: byte;
+}
+
+struct Vec3 {
+    x: float;
+    y: float;
+    z: float;
+}
+
+<DllImport("raylib.dll")>
+Contract Raylib {
+    static fn ColorAlpha(c: Color, alpha: float) -> Color { }
+    static fn Vector3DotProduct(a: Vec3, b: Vec3) -> float { }
+}
+
+Contract Program {
+    static fn Main() {
+        var c = new Color(255, 0, 128, 255);
+        var faded = Raylib.ColorAlpha(c, 0.5);   // struct in, struct out
+        IO.Println(faded.a);
+        IO.Println(Raylib.Vector3DotProduct(v1, v2));
+    }
+}
+```
+
+Struct-typed methods must be declared `static` and the struct types must be
+visible to the facade (declared in the same file or a referenced module). The
+C-layout rules are the ones the platform C compiler would use for a struct
+with the same fields in the same order; for byte-exact layout guarantees use
+fixed-width fields (`byte`/`short`/`ushort`/`int`/`uint`/`float`/`double`).
+
 - P/Invoke bridge generation happens at runtime; Windows DLLs are the
   primary target. If an export is missing, the error surfaces at the call
   site (and the bridge generator's source is retained for debugging).
@@ -353,12 +397,26 @@ Inference works from literals, `new` expressions, and other variables. `null` an
 |------|-------------|---------|
 | `int` | 32-bit integer | `int32` |
 | `int64` (or `long`) | 64-bit integer | `int64` |
+| `byte` | Unsigned 8-bit integer (0-255) | `uint8` |
+| `sbyte` | Signed 8-bit integer (-128-127) | `int8` |
+| `short` | Signed 16-bit integer | `int16` |
+| `ushort` | Unsigned 16-bit integer | `uint16` |
+| `uint` | Unsigned 32-bit integer | `uint32` |
 | `string` | Text string | `string` |
 | `bool` | Boolean (`true`/`false`) | `bool` |
 | `double` | 64-bit floating point | `float64` |
 | `float` | 32-bit floating point | `float32` |
 | `object` | Opaque object handle (lists, dicts, ...) | `object` |
 | `void` | No value (return type only) | `void` |
+
+The narrow integer widths (`byte`, `sbyte`, `short`, `ushort`, `uint`) exist
+primarily for native interop. At the VM level they all ride on the 32-bit
+integer slot; conversion happens at the P/Invoke boundary, so they are exact
+where it matters (struct fields, `@DllImport` params and returns). There are no
+unsigned literals: an integer literal that overflows the signed 32-bit range is
+clamped with a warning, so expect results of `uint`-typed calls to appear as
+their signed 32-bit view (e.g. a native `uint` returning `4294967295` reads as
+`-1`).
 
 Type names are **case-insensitive**: `Int`, `String`, and `int` all refer to the same type.
 
@@ -488,6 +546,9 @@ fn sum(xs: List<int>) -> int {
 
 ### Structs
 
+Structs are value-like records. They can be declared at the top level or inside
+a contract:
+
 ```ct
 Contract Data {
     struct Point {
@@ -501,6 +562,27 @@ Contract Data {
     }
 }
 ```
+
+Structs support **positional construction** — the arguments are assigned to
+fields in declaration order, so `new Point(3, 4)` sets `x = 3`, `y = 4` without
+declaring a constructor. A warning is raised if the argument count does not
+match the field count. Nested structs construct recursively:
+
+```ct
+struct Color {
+    r: byte;
+    g: byte;
+    b: byte;
+    a: byte;
+}
+
+var c = new Color(255, 0, 128, 255);
+var r = new Rect(new Vec3(0.5, 0.25, 0.0), 100.0, 200.0);  // nested struct arg
+IO.Println(r.origin.x);                                     // nested field read
+```
+
+Structs marshal **by value** across `@DllImport` boundaries (see below), with C
+natural alignment and the field order you declared.
 
 ### Creating Instances
 

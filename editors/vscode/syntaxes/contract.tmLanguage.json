@@ -45,7 +45,7 @@
     "types": {
       "patterns": [
         {
-          "match": "\\b(int|int64|long|string|bool|double|float|object|void)\\b",
+          "match": "\\b(int|int64|long|byte|sbyte|short|ushort|uint|string|bool|double|float|object|void)\\b",
           "name": "storage.type.contract"
         }
       ]
