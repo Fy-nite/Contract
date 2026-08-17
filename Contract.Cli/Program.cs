@@ -3,7 +3,6 @@ using System.IO;
 using System.Linq;
 using Contract.LanguageServer;
 using Contract.Runtime;
-using ObjectRT.Abstractions;
 using ObjectRT.Runtime;
 
 namespace Contract.Cli
@@ -128,7 +127,7 @@ namespace Contract.Cli
                     byte[] orbtBytes;
                     if (ext is ".orbt" or ".oil" or ".oir")
                     {
-                        orbtBytes = new ObjectRT.Reader.ORBTWriter()
+                        orbtBytes = new ObjektRT.Core.Serialization.ORBTWriter()
                             .WriteModule(rt.LoadModuleFileAuto(filePath));
                     }
                     else
@@ -147,7 +146,7 @@ namespace Contract.Cli
                     // Metadata-driven validation: every module the program
                     // imports must be provided by the stdlib or a --bind
                     // assembly, or the bundle would fail at runtime.
-                    var module = ObjectRT.Reader.OrbtFileReader.ReadBytes(orbtBytes);
+                    var module = ObjektRT.Core.Serialization.OrbtFileReader.ReadBytes(orbtBytes);
                     var required = BundleDriver.RequiredBindingModules(module);
                     if (verbose)
                         Console.Error.WriteLine($"; module imports: {string.Join(", ", required)}");
@@ -215,7 +214,7 @@ namespace Contract.Cli
                     else
                     {
                         var module = rt.LoadTextModule(ir);
-                        var bytes = new ObjectRT.Reader.ORBTWriter().WriteModule(module);
+                        var bytes = new ObjektRT.Core.Serialization.ORBTWriter().WriteModule(module);
                         File.WriteAllBytes(outFile, bytes);
                     }
                     Console.WriteLine(outFile);
@@ -438,7 +437,16 @@ Examples:
                 }
             }
 
-            var project = Contract.Compiler.ContractProject.Load(Directory.GetCurrentDirectory());
+            Contract.Compiler.ContractProject? project;
+            try
+            {
+                project = Contract.Compiler.ContractProject.Load(Directory.GetCurrentDirectory());
+            }
+            catch (FormatException ex)
+            {
+                Error(ex.Message);
+                return 1;
+            }
             if (project == null)
             {
                 Error($"No project found — '{Contract.Compiler.ContractProject.FileName}' not found in {Directory.GetCurrentDirectory()} (run `ccl new` first).");
@@ -471,8 +479,8 @@ Examples:
                 Path.GetFileNameWithoutExtension(project.Main) + (project.IsExecutable ? ".orbt" : ".oil"));
             if (project.IsExecutable)
             {
-                var module = ObjectRT.Reader.OilFileReader.ParseString(ir);
-                var bytes = new ObjectRT.Reader.ORBTWriter().WriteModule(module);
+                var module = ObjektRT.Core.Parsing.OilFileReader.ParseString(ir);
+                var bytes = new ObjektRT.Core.Serialization.ORBTWriter().WriteModule(module);
                 File.WriteAllBytes(outFile, bytes);
             }
             else

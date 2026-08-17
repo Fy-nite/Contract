@@ -1,6 +1,6 @@
 // One-off probe: load a compiled .orbt and dump type/method attributes.
-using ObjectRT.Abstractions;
-using ObjectRT.Reader;
+using ObjektRT.Core.Model;
+using ObjektRT.Core.Serialization;
 
 if (args.Length < 1)
 {

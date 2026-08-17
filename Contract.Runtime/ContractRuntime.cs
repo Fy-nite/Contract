@@ -1,8 +1,10 @@
 using System.Linq;
 using System.Reflection;
 using Contract.Compiler.StandardLibrary;
+using ObjektRT.Core.Model;
+using ObjektRT.Core.Parsing;
+using ObjektRT.Core.Serialization;
 using ObjectRT.Abstractions;
-using ObjectRT.Reader;
 using ObjectRT.Runtime;
 using ObjectRT.Runtime.Reflection;
 

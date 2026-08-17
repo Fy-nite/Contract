@@ -5,7 +5,9 @@ using Contract.Compiler.Diagnostics;
 using Contract.Compiler.Parsing;
 using Contract.Compiler.Semantics;
 using Contract.Compiler.StandardLibrary;
-using ObjectRT.Reader;
+using ObjektRT.Core.Model;
+using ObjektRT.Core.Parsing;
+using ObjektRT.Core.Serialization;
 
 namespace Contract.Runtime;
 
@@ -77,7 +79,7 @@ public static class ContractCompiler
     }
 
     /// <summary>Compiles a .ct file to an ORBT module object.</summary>
-    public static ObjectRT.Abstractions.ORBTModule? CompileFileToModule(string path, out DiagnosticBag diagnostics, IEnumerable<Assembly>? bindingAssemblies = null)
+    public static ObjektRT.Core.Model.ORBTModule? CompileFileToModule(string path, out DiagnosticBag diagnostics, IEnumerable<Assembly>? bindingAssemblies = null)
     {
         var text = CompileFile(path, out diagnostics, bindingAssemblies);
         if (text == null) return null;

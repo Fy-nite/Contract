@@ -55,6 +55,8 @@ namespace Contract.Compiler
             => Path.Combine(projectRoot, FileName);
 
         /// <summary>Loads the project settings from <paramref name="settingsPath"/> (or a directory containing it).</summary>
+        /// <remarks>Throws <see cref="FormatException"/> when the settings file exists but is malformed,
+        /// so callers can distinguish "no project here" from "project file is broken".</remarks>
         public static ContractProject? Load(string settingsPath)
         {
             string full = ImportResolver.NormalizeAbsolutePath(settingsPath);
@@ -62,19 +64,20 @@ namespace Contract.Compiler
                 full = Path.Combine(full, FileName);
             if (!File.Exists(full)) return null;
 
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true, ReadCommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
+            ContractProject? project;
             try
             {
-                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true, ReadCommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
-                var project = JsonSerializer.Deserialize<ContractProject>(File.ReadAllText(full), options);
-                if (project == null) return null;
-                project.SettingsPath = full;
-                project.RootPath = Path.GetDirectoryName(full);
-                return project;
+                project = JsonSerializer.Deserialize<ContractProject>(File.ReadAllText(full), options);
             }
-            catch
+            catch (JsonException ex)
             {
-                return null;
+                throw new FormatException($"Malformed project file '{full}': {ex.Message}", ex);
             }
+            if (project == null) return null;
+            project.SettingsPath = full;
+            project.RootPath = Path.GetDirectoryName(full);
+            return project;
         }
 
         /// <summary>Writes the settings file into <paramref name="rootPath"/>.</summary>

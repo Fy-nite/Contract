@@ -1,6 +1,7 @@
-using ObjectRT.Abstractions;
+using ObjektRT.Core.Model;
+using ObjektRT.Core.Parsing;
+using ObjektRT.Core.Serialization;
 using ObjectRT.Runtime;
-using ObjectRT.Reader;
 using ObjectRT.VM;
 
 // Diagnostic harness:
