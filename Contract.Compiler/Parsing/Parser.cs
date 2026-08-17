@@ -539,7 +539,7 @@ namespace Contract.Compiler.Parsing
             if (Match(TokenType.Less))
             {
                 type += "<";
-                if (!Check(TokenType.Greater))
+                if (!Check(TokenType.Greater) && !Check(TokenType.GreaterGreater))
                 {
                     do
                     {
@@ -549,8 +549,12 @@ namespace Contract.Compiler.Parsing
                             Advance();
                             type += ", ";
                         }
-                    } while (!Check(TokenType.Greater) && !IsAtEnd());
+                    } while (!Check(TokenType.Greater) && !Check(TokenType.GreaterGreater) && !IsAtEnd());
                 }
+                // `List<List<int>>` lexes the close as one `>>` — split it so
+                // the enclosing generic sees its own `>`.
+                if (Check(TokenType.GreaterGreater))
+                    SplitGreaterGreater();
                 Consume(TokenType.Greater, "Expected '>' after generic type arguments");
                 type += ">";
             }
@@ -650,7 +654,9 @@ namespace Contract.Compiler.Parsing
             Expression? initializer = null;
             if (Match(TokenType.Assign))
             {
-                initializer = ParseExpression();
+                // `let double = _ * 2;` — a free `_`/`@` in the initializer is
+                // sugar for `fun _ -> _ * 2`.
+                initializer = ApplyImplicitLambda(ParseExpression(), Previous.Line, Previous.Column);
             }
 
             Consume(TokenType.Semicolon, "Expected ';' after variable declaration");
@@ -851,7 +857,181 @@ namespace Contract.Compiler.Parsing
 
         private Expression ParseExpression()
         {
-            return ParseAssignment();
+            return ParsePipeline();
+        }
+
+        /// <summary>
+        /// Pipeline: the lowest-precedence expression form. `a |> f` passes a
+        /// into f. Pipes lower at parse time into calls (or stay pipes only
+        /// when the RHS is a lambda), so the rest of the compiler never reasons
+        /// about `|>` beyond the lambda case.
+        /// </summary>
+        private Expression ParsePipeline()
+        {
+            var expr = ParsePipeOperand();
+
+            while (Match(TokenType.Pipe))
+            {
+                int line = Previous.Line;
+                int column = Previous.Column;
+                var right = ParsePipeOperand();
+                expr = BuildPipe(expr, right, line, column);
+            }
+
+            return expr;
+        }
+
+        /// <summary>
+        /// A pipe operand: an assignment-level expression, optionally composed
+        /// with `>>`. `f >> g` lowers to `fun x -> g(f(x))`.
+        /// </summary>
+        private Expression ParsePipeOperand()
+        {
+            var expr = ParseAssignment();
+
+            while (Match(TokenType.GreaterGreater))
+            {
+                int line = Previous.Line;
+                int column = Previous.Column;
+                var right = ParseAssignment();
+                expr = Compose(expr, right, line, column);
+            }
+
+            return expr;
+        }
+
+        /// <summary>
+        /// `left |> right` — rewrites the RHS so the piped value lands where
+        /// the user expects:
+        ///   x |> f(a)          → f(x, a)               (value prepended)
+        ///   x |> f(_, a)       → f(x, a)               (bare _ = the value's spot)
+        ///   x |> f(_ * 2)      → f(x, fun _ -> _ * 2)  (compound _ = lambda param)
+        ///   x |> f | x |> A.B  → f(x) / A.B(x)         (synthesized call)
+        ///   x |> expr-with-_   → x |> fun _ -> expr    (implicit lambda)
+        ///   x |> fun a -> ...  → unchanged
+        /// </summary>
+        private Expression BuildPipe(Expression left, Expression right, int line, int column)
+        {
+            if (right is LambdaExpression)
+                return new PipeExpression(left, right, line, column);
+
+            if (right is CallExpression call)
+            {
+                // Bare `_`/`@` args mark where the piped value goes; compound
+                // `_`/`@` args become implicit lambdas.
+                int hole = -1;
+                for (int i = 0; i < call.Arguments.Count; i++)
+                {
+                    var arg = call.Arguments[i];
+                    if (arg is IdentifierExpression holeId && IsImplicitMarker(holeId.Name))
+                    {
+                        if (hole >= 0)
+                        {
+                            AddError("A pipe target can only use '_' as the value's spot once", arg.Line, arg.Column);
+                            break;
+                        }
+                        hole = i;
+                        call.Arguments.RemoveAt(i);
+                        i--;
+                    }
+                    else
+                    {
+                        call.Arguments[i] = ApplyImplicitLambda(arg, arg.Line, arg.Column);
+                    }
+                }
+                call.Arguments.Insert(hole >= 0 ? hole : 0, left);
+                return call;
+            }
+
+            if (right is IdentifierExpression or MemberExpression or ScopedAccessExpression)
+            {
+                // x |> f  /  x |> IO.Println  /  x |> Math::Sqrt  →  f(x) etc.
+                var call2 = new CallExpression(right, line, column);
+                call2.Arguments.Add(left);
+                return call2;
+            }
+
+            return new PipeExpression(left, ApplyImplicitLambda(right, line, column), line, column);
+        }
+
+        /// <summary>f >> g — composition. Lowers to `fun x -> g(f(x))`.</summary>
+        private Expression Compose(Expression left, Expression right, int line, int column)
+        {
+            if (left is LambdaExpression || right is LambdaExpression)
+            {
+                AddError("Composition operands must be named functions (no lambdas in v1)", line, column);
+                return new PipeExpression(left, right, line, column);
+            }
+
+            var x = new IdentifierExpression("__compose_arg", line, column);
+            var inner = new CallExpression(left, line, column);
+            inner.Arguments.Add(x);
+
+            Expression body;
+            if (right is CallExpression rightCall)
+            {
+                rightCall.Arguments.Insert(0, inner);
+                body = rightCall;
+            }
+            else
+            {
+                var outer = new CallExpression(right, line, column);
+                outer.Arguments.Add(inner);
+                body = outer;
+            }
+
+            return new LambdaExpression(new List<string> { "__compose_arg" }, null, body, null, line, column);
+        }
+
+        /// <summary>
+        /// Wraps an expression containing a free `_`/`@` into an implicit
+        /// lambda: `_ * 2` → `fun _ -> _ * 2`. No-op for lambdas and for
+        /// expressions without a marker.
+        /// </summary>
+        private Expression ApplyImplicitLambda(Expression expr, int line, int column)
+        {
+            if (expr is LambdaExpression) return expr;
+            string? marker = FindImplicitMarker(expr);
+            if (marker == null) return expr;
+            return new LambdaExpression(new List<string> { marker }, null, expr, null, line, column);
+        }
+
+        private static bool IsImplicitMarker(string name) => name == "_" || name == "@";
+
+        /// <summary>Finds the first free `_`/`@` identifier in an expression tree.</summary>
+        private static string? FindImplicitMarker(Expression expr)
+        {
+            switch (expr)
+            {
+                case IdentifierExpression id when IsImplicitMarker(id.Name):
+                    return id.Name;
+                case CallExpression c:
+                    foreach (var a in c.Arguments)
+                    {
+                        var m = FindImplicitMarker(a);
+                        if (m != null) return m;
+                    }
+                    return null;
+                case MemberExpression m:
+                    return FindImplicitMarker(m.Object);
+                case BinaryExpression b:
+                    return FindImplicitMarker(b.Left) ?? FindImplicitMarker(b.Right);
+                case UnaryExpression u:
+                    return FindImplicitMarker(u.Operand);
+                case IndexExpression ix:
+                    return FindImplicitMarker(ix.Target) ?? FindImplicitMarker(ix.Index);
+                case PipeExpression p:
+                    return FindImplicitMarker(p.Left) ?? FindImplicitMarker(p.Right);
+                case ArrayLiteralExpression al:
+                    foreach (var e in al.Elements)
+                    {
+                        var m = FindImplicitMarker(e);
+                        if (m != null) return m;
+                    }
+                    return null;
+                default:
+                    return null;
+            }
         }
 
         private Expression ParseAssignment()
@@ -872,7 +1052,7 @@ namespace Contract.Compiler.Parsing
                     _ => "="
                 };
 
-                var value = ParseAssignment();
+                var value = ParsePipeline();
 
                 if (expr is IdentifierExpression || expr is MemberExpression || expr is IndexExpression)
                 {
@@ -1027,10 +1207,27 @@ namespace Contract.Compiler.Parsing
                     Consume(TokenType.RBracket, "Expected ']' after array index");
                     expr = new IndexExpression(expr, index, expr.Line, expr.Column);
                 }
-                else if (Match(TokenType.Pipe))
+                else if (Match(TokenType.DotDot))
                 {
-                    var right = ParsePrimary(); // Pipe to a primary (e.g., function call or identifier)
-                    expr = new PipeExpression(expr, right, expr.Line, expr.Column);
+                    // Range: 1..5 — unrolled to an array literal at parse time.
+                    // (v1 requires integer-literal bounds.)
+                    int line = Previous.Line;
+                    int column = Previous.Column;
+                    var end = ParseOr();
+                    if (expr is LiteralExpression { Value: int startVal }
+                        && end is LiteralExpression { Value: int endVal })
+                    {
+                        var arr = new ArrayLiteralExpression(line, column);
+                        int step = startVal <= endVal ? 1 : -1;
+                        for (int v = startVal; v != endVal + step; v += step)
+                            arr.Elements.Add(new LiteralExpression(v, line, column));
+                        expr = arr;
+                    }
+                    else
+                    {
+                        AddError("Range bounds must be integer literals (v1)", line, column);
+                        expr = new ArrayLiteralExpression(line, column);
+                    }
                 }
                 else
                 {
@@ -1313,6 +1510,20 @@ namespace Contract.Compiler.Parsing
         {
             if (!IsAtEnd()) _current++;
             return Previous;
+        }
+
+        /// <summary>
+        /// Splits the current `>>` token in place into two `>` tokens, so a
+        /// nested generic close (`List&lt;List&lt;int&gt;&gt;`) parses even though
+        /// the lexer merges the two closes. The second `>` is inserted so the
+        /// enclosing generic level consumes it as its own close.
+        /// </summary>
+        private void SplitGreaterGreater()
+        {
+            if (Current.Type != TokenType.GreaterGreater) return;
+            var tok = Current;
+            _tokens[_current] = new Token(TokenType.Greater, ">", tok.Line, tok.Column, 1);
+            _tokens.Insert(_current + 1, new Token(TokenType.Greater, ">", tok.Line, tok.Column + 1, 1));
         }
 
         private Token Consume(TokenType type, string message)

@@ -488,30 +488,42 @@ public class IRCodeGenerator
         _thisArgIndex = savedThisIndex;
     }
 
-    /// <summary>True when 'name' resolves to a (non-static) field of the current instance.</summary>
+    /// <summary>True when 'name' resolves to a (non-static) field of the current
+    /// instance or one of its bases (params/locals shadow fields).</summary>
     private bool IsInstanceField(string name)
-        => _thisArgIndex != null
-           && _currentContractName != null
-           && !_variableTypes.ContainsKey(name)   // params/locals shadow fields
-           && _program?.Contracts.Any(c => c.Name == _currentContractName && c.Fields.Any(f => f.Name == name && !f.IsStatic)) == true;
+    {
+        if (_thisArgIndex == null || _currentContractName == null) return false;
+        if (_variableTypes.ContainsKey(name)) return false;
+        var contract = FindContract(_currentContractName);
+        return contract != null && HasFieldIncludingBase(contract, name, staticOnly: false);
+    }
 
-    /// <summary>True when 'name' is a static field of the current contract (shared state).</summary>
+    /// <summary>True when 'name' is a static field of the current contract or one
+    /// of its bases (shared state; params/locals shadow fields).</summary>
     private bool IsStaticField(string name)
-        => _currentContractName != null
-           && !_variableTypes.ContainsKey(name)   // params/locals shadow fields
-           && _program?.Contracts.Any(c => c.Name == _currentContractName && c.Fields.Any(f => f.Name == name && f.IsStatic)) == true;
+    {
+        if (_currentContractName == null) return false;
+        if (_variableTypes.ContainsKey(name)) return false;
+        var contract = FindContract(_currentContractName);
+        return contract != null && HasFieldIncludingBase(contract, name, staticOnly: true);
+    }
 
-    /// <summary>True when 'contractName.fieldName' is a static field (short or qualified).</summary>
+    /// <summary>True when 'contractName.fieldName' is a static field (short or
+    /// qualified, walking the base chain).</summary>
     private bool IsStaticField(string contractName, string fieldName)
-        => _program?.Contracts.Any(c => (c.Name == contractName || c.FullName == contractName) && c.Fields.Any(f => f.Name == fieldName && f.IsStatic)) == true;
+    {
+        var contract = FindContract(contractName);
+        return contract != null && HasFieldIncludingBase(contract, fieldName, staticOnly: true);
+    }
 
-    /// <summary>The static field reference for 'name' on the current contract.</summary>
+    /// <summary>The static field reference for 'name' on the current contract,
+    /// keyed by its DECLARING type so inherited statics resolve.</summary>
     private FieldReference StaticFieldReference(string name)
     {
-        var fieldType = _program?.Contracts
-            .FirstOrDefault(c => c.Name == _currentContractName)?.Fields
-            .FirstOrDefault(f => f.Name == name)?.Type ?? new TypeDescriptor.Named("int");
-        return new FieldReference(new TypeRef(ResolveTypeName(_currentContractName ?? "TODO")), name, MapType(fieldType));
+        var declaring = FieldDeclaringTypeName(_currentContractName ?? "", name, staticOnly: true)
+            ?? ResolveTypeName(_currentContractName ?? "TODO");
+        var fieldType = FindFieldType(declaring, name);
+        return new FieldReference(new TypeRef(declaring), name, fieldType);
     }
 
     /// <summary>The zero-based index of an enum member, or -1 when not an enum member.</summary>
@@ -583,15 +595,19 @@ public class IRCodeGenerator
     }
 
     /// <summary>The resolved wire type name of a field declared on a contract or
-    /// struct type (short or qualified), or null when the owner isn't known.</summary>
+    /// struct type (short or qualified), walking the base chain for contracts.
+    /// Returns the field's TYPE (for nested member chains), or null when the
+    /// owner isn't known.</summary>
     private string? FindFieldDeclaringTypeName(string typeName, string fieldName)
     {
         if (_program == null || string.IsNullOrEmpty(typeName) || typeName == "TODO_DYNAMIC_TYPE")
             return null;
-        var contract = _program.Contracts.FirstOrDefault(c => c.Name == typeName || c.FullName == typeName);
+        var contract = FindContract(typeName);
         if (contract != null)
         {
-            var f = contract.Fields.FirstOrDefault(f => f.Name == fieldName);
+            var declaring = FindFieldDeclaringContract(contract, fieldName, staticOnly: false)
+                ?? FindFieldDeclaringContract(contract, fieldName, staticOnly: true);
+            var f = declaring?.Fields.FirstOrDefault(f => f.Name == fieldName);
             if (f?.Type is TypeDescriptor.Named n && !n.IsEmpty) return ResolveTypeName(n.Name);
             return null;
         }
@@ -618,24 +634,81 @@ public class IRCodeGenerator
         return null;
     }
 
-    /// <summary>The field reference for 'name' on the current contract.</summary>
-    private FieldReference InstanceFieldReference(string name)
+    // ── Inheritance (base-chain resolution) ────────────────────────
+
+    /// <summary>Finds a contract by short or qualified name.</summary>
+    private ContractDeclaration? FindContract(string name)
     {
-        var fieldType = _program?.Contracts
-            .FirstOrDefault(c => c.Name == _currentContractName)?.Fields
-            .FirstOrDefault(f => f.Name == name)?.Type ?? new TypeDescriptor.Named("int");
-        return new FieldReference(new TypeRef(ResolveTypeName(_currentContractName ?? "TODO")), name, MapType(fieldType));
+        if (_program == null || string.IsNullOrEmpty(name)) return null;
+        return _program.Contracts.FirstOrDefault(c => c.Name == name || c.FullName == name);
     }
 
-    /// <summary>Looks up a field's type on the given contract/struct type name (short or qualified).</summary>
+    /// <summary>The direct base contract of <paramref name="c"/>, or null.</summary>
+    private ContractDeclaration? BaseContract(ContractDeclaration c)
+        => c.BaseTypeName != null ? FindContract(c.BaseTypeName) : null;
+
+    /// <summary>True when <paramref name="contract"/> or any base declares a field
+    /// named <paramref name="fieldName"/> with the given static-ness.</summary>
+    private bool HasFieldIncludingBase(ContractDeclaration contract, string fieldName, bool staticOnly)
+    {
+        for (var c = contract; c != null; c = BaseContract(c))
+            if (c.Fields.Any(f => f.Name == fieldName && f.IsStatic == staticOnly)) return true;
+        return false;
+    }
+
+    /// <summary>The contract that declares a field (most-derived first), or null.</summary>
+    private ContractDeclaration? FindFieldDeclaringContract(ContractDeclaration contract, string fieldName, bool staticOnly)
+    {
+        for (var c = contract; c != null; c = BaseContract(c))
+        {
+            var f = c.Fields.FirstOrDefault(f => f.Name == fieldName && f.IsStatic == staticOnly);
+            if (f != null) return c;
+        }
+        return null;
+    }
+
+    /// <summary>The resolved wire name of the contract declaring a field on
+    /// <paramref name="typeName"/> (walking bases), or null when unknown.</summary>
+    private string? FieldDeclaringTypeName(string typeName, string fieldName, bool staticOnly)
+    {
+        var contract = FindContract(typeName);
+        var declaring = contract != null ? FindFieldDeclaringContract(contract, fieldName, staticOnly) : null;
+        return declaring != null ? ResolveTypeName(declaring.Name) : null;
+    }
+
+    /// <summary>Finds a member function on a contract or its bases (most-derived first).</summary>
+    private FunctionDeclaration? FindMethodIncludingBase(ContractDeclaration contract, string name, bool instanceOnly)
+    {
+        for (var c = contract; c != null; c = BaseContract(c))
+        {
+            var m = c.Members.OfType<FunctionDeclaration>()
+                .FirstOrDefault(f => f.Name == name && (!instanceOnly || f.IsInstance));
+            if (m != null) return m;
+        }
+        return null;
+    }
+
+    /// <summary>The field reference for 'name' on the current instance, keyed by
+    /// its DECLARING type so inherited fields resolve (Animal.name, not Dog.name).</summary>
+    private FieldReference InstanceFieldReference(string name)
+    {
+        var declaring = FieldDeclaringTypeName(_currentContractName ?? "", name, staticOnly: false)
+            ?? ResolveTypeName(_currentContractName ?? "TODO");
+        return new FieldReference(new TypeRef(declaring), name, FindFieldType(declaring, name));
+    }
+
+    /// <summary>Looks up a field's type on the given contract/struct type name
+    /// (short or qualified), walking the base chain for contracts.</summary>
     private TypeRef FindFieldType(string typeName, string fieldName)
     {
         if (_program != null)
         {
-            var contract = _program.Contracts.FirstOrDefault(c => c.Name == typeName || c.FullName == typeName);
+            var contract = FindContract(typeName);
             if (contract != null)
             {
-                var f = contract.Fields.FirstOrDefault(f => f.Name == fieldName);
+                var declaring = FindFieldDeclaringContract(contract, fieldName, staticOnly: false)
+                    ?? FindFieldDeclaringContract(contract, fieldName, staticOnly: true);
+                var f = declaring?.Fields.FirstOrDefault(f => f.Name == fieldName);
                 if (f != null) return MapType(f.Type);
             }
             var structDecl = FindStruct(typeName);
@@ -1451,23 +1524,26 @@ public class IRCodeGenerator
                         if (IsStaticField(targetName, memTarget.Property))
                         {
                             // Static field write (Config.count = v) — no receiver.
+                            var staticDecl = FieldDeclaringTypeName(targetName, memTarget.Property, staticOnly: true) ?? targetName;
                             GenerateExpression(ib, bin.Right, paramMap);
                             ib.Dup();
-                            ib.Stsfld(new FieldReference(new TypeRef(targetName), memTarget.Property, FindFieldType(targetName, memTarget.Property)));
+                            ib.Stsfld(new FieldReference(new TypeRef(staticDecl), memTarget.Property, FindFieldType(staticDecl, memTarget.Property)));
                         }
                         else
                         {
+                            var instDecl = FieldDeclaringTypeName(targetName, memTarget.Property, staticOnly: false) ?? targetName;
                             GenerateExpression(ib, memTarget.Object, paramMap);
                             ib.Dup();   // keep the object for the store (stfld pops value, object)
                             GenerateExpression(ib, bin.Right, paramMap);
-                            ib.Stfld(new FieldReference(new TypeRef(targetName), memTarget.Property, FindFieldType(targetName, memTarget.Property)));
+                            ib.Stfld(new FieldReference(new TypeRef(instDecl), memTarget.Property, FindFieldType(instDecl, memTarget.Property)));
                         }
                         return;
                     }
                     else if (bin.Left is ScopedAccessExpression scopedWrite && IsStaticField(scopedWrite.Module, scopedWrite.Member))
                     {
                         // Static field write via Contract::field = v.
-                        var scopedTarget = ResolveTypeName(scopedWrite.Module);
+                        var scopedTarget = FieldDeclaringTypeName(scopedWrite.Module, scopedWrite.Member, staticOnly: true)
+                            ?? ResolveTypeName(scopedWrite.Module);
                         GenerateExpression(ib, bin.Right, paramMap);
                         ib.Dup();
                         ib.Stsfld(new FieldReference(new TypeRef(scopedTarget), scopedWrite.Member, FindFieldType(scopedTarget, scopedWrite.Member)));
@@ -1537,7 +1613,9 @@ public class IRCodeGenerator
                     else if (bin.Left is MemberExpression compoundMem)
                     {
                         var compoundMemObjName = ResolveExpressionObjectType(compoundMem.Object);
-                        var fieldRef = new FieldReference(new TypeRef(compoundMemObjName), compoundMem.Property, FindFieldType(compoundMemObjName, compoundMem.Property));
+                        var compoundDecl = FieldDeclaringTypeName(compoundMemObjName, compoundMem.Property, staticOnly: false)
+                            ?? compoundMemObjName;
+                        var fieldRef = new FieldReference(new TypeRef(compoundDecl), compoundMem.Property, FindFieldType(compoundDecl, compoundMem.Property));
                         if (IsStaticField(compoundMemObjName, compoundMem.Property))
                         {
                             // Static member compound (Config.count += v) — no receiver.
@@ -1561,7 +1639,8 @@ public class IRCodeGenerator
                     else if (bin.Left is ScopedAccessExpression compoundScoped && IsStaticField(compoundScoped.Module, compoundScoped.Member))
                     {
                         // Static field compound via Contract::field += v.
-                        var scopedTarget2 = ResolveTypeName(compoundScoped.Module);
+                        var scopedTarget2 = FieldDeclaringTypeName(compoundScoped.Module, compoundScoped.Member, staticOnly: true)
+                            ?? ResolveTypeName(compoundScoped.Module);
                         var sref2 = new FieldReference(new TypeRef(scopedTarget2), compoundScoped.Member, FindFieldType(scopedTarget2, compoundScoped.Member));
                         ib.Ldsfld(sref2);
                         GenerateExpression(ib, bin.Right, paramMap);
@@ -1840,7 +1919,9 @@ public class IRCodeGenerator
                     if (IsStaticField(memObjName, mem.Property))
                     {
                         // Static field read (Config.count) — no receiver to push.
-                        ib.Ldsfld(new FieldReference(new TypeRef(memObjName), mem.Property, FindFieldType(memObjName, mem.Property)));
+                        // Key by the DECLARING type so inherited statics resolve.
+                        var staticDecl = FieldDeclaringTypeName(memObjName, mem.Property, staticOnly: true) ?? memObjName;
+                        ib.Ldsfld(new FieldReference(new TypeRef(staticDecl), mem.Property, FindFieldType(staticDecl, mem.Property)));
                         break;
                     }
                     GenerateExpression(ib, mem.Object, paramMap);
@@ -1851,8 +1932,10 @@ public class IRCodeGenerator
                     }
                     else
                     {
-                        var ftype = FindFieldType(memObjName, mem.Property);
-                        ib.Ldfld(new FieldReference(new TypeRef(memObjName), mem.Property, ftype));
+                        // Key by the DECLARING type (Animal.name, not Dog.name).
+                        var instDecl = FieldDeclaringTypeName(memObjName, mem.Property, staticOnly: false) ?? memObjName;
+                        var ftype = FindFieldType(instDecl, mem.Property);
+                        ib.Ldfld(new FieldReference(new TypeRef(instDecl), mem.Property, ftype));
                     }
                 }
                 break;
@@ -1916,10 +1999,12 @@ public class IRCodeGenerator
 
             case ScopedAccessExpression scopedExpr:
                 // Contract::field — a static field read (contract static methods
-                // are resolved through the call path, not here).
+                // are resolved through the call path, not here). Key by the
+                // DECLARING type so inherited statics (Dog::count → Animal::count) resolve.
                 if (IsStaticField(scopedExpr.Module, scopedExpr.Member))
                 {
-                    var scopedTarget = ResolveTypeName(scopedExpr.Module);
+                    var scopedTarget = FieldDeclaringTypeName(scopedExpr.Module, scopedExpr.Member, staticOnly: true)
+                        ?? ResolveTypeName(scopedExpr.Module);
                     ib.Ldsfld(new FieldReference(new TypeRef(scopedTarget), scopedExpr.Member, FindFieldType(scopedTarget, scopedExpr.Member)));
                 }
                 else

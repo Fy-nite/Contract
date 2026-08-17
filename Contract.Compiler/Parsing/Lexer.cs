@@ -19,6 +19,7 @@ namespace Contract.Compiler.Parsing
         Semicolon, Colon, DoubleColon, Comma, Dot, Plus, Minus, Star, Slash, Percent,
         Less, LessEqual, Greater, GreaterEqual, EqualEqual, Bang, BangEqual, Assign, Arrow, Pipe,
         PlusEqual, MinusEqual, StarEqual, SlashEqual, PercentEqual, AndAnd, OrOr,
+        DotDot, GreaterGreater,
         
         // Special
         EOF
@@ -111,7 +112,7 @@ namespace Contract.Compiler.Parsing
 
                 char c = _source[_position];
 
-                if (char.IsLetter(c) || c == '_')
+                if (char.IsLetter(c) || c == '_' || c == '@')
                 {
                     yield return ReadIdentifier();
                 }
@@ -320,7 +321,18 @@ namespace Contract.Compiler.Parsing
                     }
                     break;
                 case ',': type = TokenType.Comma; break;
-                case '.': type = TokenType.Dot; break;
+                case '.':
+                    if (_position + 1 < _source.Length && _source[_position + 1] == '.')
+                    {
+                        // Range operator: 1..5
+                        type = TokenType.DotDot;
+                        length = 2;
+                    }
+                    else
+                    {
+                        type = TokenType.Dot;
+                    }
+                    break;
                 case '+':
                     if (_position + 1 < _source.Length && _source[_position + 1] == '=')
                     {
@@ -426,7 +438,13 @@ namespace Contract.Compiler.Parsing
                     }
                     break;
                 case '>':
-                    if (_position + 1 < _source.Length && _source[_position + 1] == '=')
+                    if (_position + 1 < _source.Length && _source[_position + 1] == '>')
+                    {
+                        // Composition operator: f >> g
+                        type = TokenType.GreaterGreater;
+                        length = 2;
+                    }
+                    else if (_position + 1 < _source.Length && _source[_position + 1] == '=')
                     {
                         type = TokenType.GreaterEqual;
                         length = 2;

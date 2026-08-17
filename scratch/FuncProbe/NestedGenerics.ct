@@ -1,0 +1,10 @@
+// Nested generics in type annotations must survive the `>>` lexer change.
+// (`new List<...>()` is a separate pre-existing gap — construct via factory.)
+Contract Program {
+    static fn Main() {
+        var nested: List<List<int>> = List.Create();
+        var d: Dict<string, List<int>> = Dict.Create();
+        IO.Println(nested);
+        IO.Println(d);
+    }
+}

@@ -1,0 +1,27 @@
+// Verify chapter 6's new functional examples.
+Contract Program {
+    static fn halve(x: int) -> int { return x / 2; }
+    static fn double(x: int) -> int { return x * 2; }
+    static fn addOne(x: int) -> int { return x + 1; }
+    static fn Add(a: int, b: int) -> int { return a + b; }
+
+    static fn Main() {
+        // Composition exercise solution
+        let result = 100 |> halve |> halve;
+        IO.Println(result);          // 25
+
+        let halveTwice = halve >> halve;
+        IO.Println(4 |> halveTwice); // 1
+
+        let direct = 100 |> _ / 2 |> _ / 2;
+        IO.Println(direct);          // 25
+
+        // Hole at a non-first position
+        let stamp = "5" |> String.Concat("x", _);
+        IO.Println(stamp);           // x5
+
+        // Prepending without a hole
+        let added = 3 |> Add(4);
+        IO.Println(added);           // 7
+    }
+}

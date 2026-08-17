@@ -1120,19 +1120,27 @@ namespace Contract.Compiler.Semantics
                     else if (_symbolTable.IsUserContract(scoped.Module))
                     {
                         // Static members: Contract::Method() or Contract::field.
+                        // Inherited statics resolve through the base chain, and
+                        // instance methods reached this way are an error.
                         bool isStaticField = FindContractStaticField(scoped.Module, scoped.Member) != null;
                         if (isStaticField)
                         {
                             _readFields.Add((scoped.Module, scoped.Member));
                         }
-                        else if (!_symbolTable.TryGetMethod(scoped.Module, scoped.Member, out var cm)
-                            || (cm is FunctionDeclaration cf && !cf.IsStatic))
+                        else
                         {
-                            _diagnostics.AddError($"Member '{scoped.Member}' not found in contract '{scoped.Module}'", scoped.Line, scoped.Column);
-                        }
-                        else if (cm is FunctionDeclaration scopedFn)
-                        {
-                            _usedFunctions.Add(scopedFn.Name);
+                            var scopedContract = FindContract(scoped.Module);
+                            var cm = scopedContract != null
+                                ? FindMethodIncludingBase(scopedContract, scoped.Member, instanceOnly: false)
+                                : null;
+                            if (cm == null || !cm.IsStatic)
+                            {
+                                _diagnostics.AddError($"Member '{scoped.Member}' not found in contract '{scoped.Module}'", scoped.Line, scoped.Column);
+                            }
+                            else
+                            {
+                                _usedFunctions.Add(cm.Name);
+                            }
                         }
                     }
                     else
@@ -1191,19 +1199,11 @@ namespace Contract.Compiler.Semantics
                     AnalyzeExpression(indexExpr.Index);
                     break;
                 case PipeExpression pipe:
-                    // x |> f / x |> fun -> ... — analyze both sides so variables
-                    // and functions used through the pipe count as used.
+                    // Parse-time lowering turns `|>` into plain calls except
+                    // when the RHS is a lambda; analyze both sides regardless
+                    // so variables and functions used through the pipe count.
                     AnalyzeExpression(pipe.Left);
-                    if (pipe.Right is IdentifierExpression pipeTarget && !IsVariableDefined(pipeTarget.Name))
-                    {
-                        // Piping into a named static/top-level function: a call.
-                        _usedFunctions.Add(pipeTarget.Name);
-                        AnalyzeExpression(pipeTarget);
-                    }
-                    else
-                    {
-                        AnalyzeExpression(pipe.Right);
-                    }
+                    AnalyzeExpression(pipe.Right);
                     break;
                 case IdentifierExpression id:
                     if (id.Name == "this") break; // instance context
@@ -1212,7 +1212,12 @@ namespace Contract.Compiler.Semantics
                     if (IsVariableDefined(id.Name))
                         _fnReadNames.Add(id.Name);
                     else if (IsContractField(id.Name))
-                        _readFields.Add((_currentContractName ?? "", id.Name));
+                    {
+                        // Record against the DECLARING contract (an inherited
+                        // field read via a derived `this` belongs to the base).
+                        string owner = DeclaringContractName(_currentContractName ?? "", id.Name, staticOnly: false);
+                        _readFields.Add((owner, id.Name));
+                    }
 
                     if (!IsVariableDefined(id.Name)
                         && !_definedFunctions.Contains(id.Name)
@@ -1433,6 +1438,60 @@ namespace Contract.Compiler.Semantics
             return _program.Contracts.FirstOrDefault(c => c.Name == name || c.FullName == name);
         }
 
+        // ── Inheritance (base-chain resolution) ────────────────────────
+
+        /// <summary>The direct base contract of <paramref name="contract"/>, or null.</summary>
+        private ContractDeclaration? BaseContract(ContractDeclaration contract)
+            => contract.BaseTypeName != null ? FindContract(contract.BaseTypeName) : null;
+
+        /// <summary>True when <paramref name="derived"/> is <paramref name="baseContract"/> or derives from it.</summary>
+        private bool IsDerivedFrom(ContractDeclaration derived, ContractDeclaration baseContract)
+        {
+            for (var c = derived; c != null; c = BaseContract(c))
+                if (ReferenceEquals(c, baseContract)) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Finds a member function on a contract or any of its bases (most-derived
+        /// first, so an override hides the base declaration). When
+        /// <paramref name="instanceOnly"/> is true, static functions are skipped.
+        /// </summary>
+        private FunctionDeclaration? FindMethodIncludingBase(ContractDeclaration contract, string name, bool instanceOnly)
+        {
+            for (var c = contract; c != null; c = BaseContract(c))
+            {
+                var m = c.Members.OfType<FunctionDeclaration>()
+                    .FirstOrDefault(f => f.Name == name && (!instanceOnly || f.IsInstance));
+                if (m != null) return m;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The contract that declares <paramref name="fieldName"/> (walking the
+        /// base chain most-derived first), or null when no contract in the chain
+        /// declares it. <paramref name="staticOnly"/> restricts to static fields.
+        /// </summary>
+        private ContractDeclaration? FindFieldDeclaringContract(ContractDeclaration contract, string fieldName, bool staticOnly)
+        {
+            for (var c = contract; c != null; c = BaseContract(c))
+            {
+                var f = c.Fields.FirstOrDefault(f => f.Name == fieldName && f.IsStatic == staticOnly);
+                if (f != null) return c;
+            }
+            return null;
+        }
+
+        /// <summary>The declaring contract's name for a field, or the original name when unknown.</summary>
+        private string DeclaringContractName(string contractName, string fieldName, bool staticOnly)
+        {
+            var contract = FindContract(contractName);
+            return contract != null && FindFieldDeclaringContract(contract, fieldName, staticOnly) is { } decl
+                ? decl.Name
+                : contractName;
+        }
+
         // ── Type-name resolution (namespaces & imports) ──────────────
 
         private void AddShortIndex(string shortName, string fullName)
@@ -1496,22 +1555,27 @@ namespace Contract.Compiler.Semantics
         /// <summary>
         /// True when a bare call to <paramref name="name"/> targets an instance
         /// method that has no implicit receiver here: we're not inside an
-        /// instance method, or the method belongs to a different contract.
+        /// instance method, or the method belongs to neither the current contract
+        /// nor its bases (a derived method can call an inherited method bare —
+        /// `this` is the implicit receiver).
         /// </summary>
         private bool IsInvalidBareInstanceCall(string name)
         {
             var target = FindFunctionDecl(name);
             if (target is not { IsInstance: true }) return false;
-            // Inside an instance method of the same contract a bare call
-            // implicitly passes `this` (the codegen pushes it as the receiver).
-            return !(_currentIsInstance && target.ContractName == _currentContractName);
+            if (!_currentIsInstance || _currentContractName == null) return true;   // no implicit this
+            var current = FindContract(_currentContractName);
+            if (current == null) return true;
+            // Valid when the method is declared on the current contract or any base.
+            return FindMethodIncludingBase(current, name, instanceOnly: true) == null;
         }
 
-        /// <summary>Type of a static field on a contract, or null when it isn't one.</summary>
+        /// <summary>Type of a static field on a contract (or its bases), or null when it isn't one.</summary>
         private TypeDescriptor? FindContractStaticField(string contractName, string fieldName)
         {
             var contract = FindContract(contractName);
-            return contract?.Fields.FirstOrDefault(f => f.Name == fieldName && f.IsStatic)?.Type;
+            var declaring = contract != null ? FindFieldDeclaringContract(contract, fieldName, staticOnly: true) : null;
+            return declaring?.Fields.FirstOrDefault(f => f.Name == fieldName && f.IsStatic)?.Type;
         }
 
         /// <summary>Type of a bare static field access, or null when no contract declares it.</summary>
@@ -1529,7 +1593,8 @@ namespace Contract.Compiler.Semantics
         /// <summary>
         /// Type of a field read where <paramref name="ownerName"/> is either a
         /// contract name (static field) or a variable of a contract type (instance
-        /// field). Returns null when it isn't a known field.
+        /// field). Walks the base chain so inherited fields resolve. Returns null
+        /// when it isn't a known field.
         /// </summary>
         private TypeDescriptor? FindFieldType(string ownerName, string fieldName)
         {
@@ -1538,15 +1603,20 @@ namespace Contract.Compiler.Semantics
             var contract = FindContract(ownerName);
             if (contract != null)
             {
-                var field = contract.Fields.FirstOrDefault(f => f.Name == fieldName);
-                if (field != null) return field.Type;
+                var declaring = FindFieldDeclaringContract(contract, fieldName, staticOnly: false);
+                if (declaring != null)
+                    return declaring.Fields.First(f => f.Name == fieldName).Type;
             }
 
             if (FindVariableType(ownerName) is TypeDescriptor.Named n)
             {
                 var owner = FindContract(n.Name);
-                var field2 = owner?.Fields.FirstOrDefault(f => f.Name == fieldName);
-                if (field2 != null) return field2.Type;
+                if (owner != null)
+                {
+                    var declaring = FindFieldDeclaringContract(owner, fieldName, staticOnly: false);
+                    if (declaring != null)
+                        return declaring.Fields.First(f => f.Name == fieldName).Type;
+                }
             }
 
             return null;
@@ -1725,6 +1795,18 @@ namespace Contract.Compiler.Semantics
                         return;
                     }
 
+                    // Inherited static: Dog.species() where species lives on
+                    // Animal (the dotted form of Dog::species()).
+                    if (FindContract(moduleName) is { } staticOwnerContract
+                        && FindMethodIncludingBase(staticOwnerContract, methodName, instanceOnly: false) is { IsStatic: true } inheritedStaticDot)
+                    {
+                        call.Symbol = inheritedStaticDot;
+                        _usedFunctions.Add(inheritedStaticDot.Name);
+                        _usedTypes.Add(moduleName);
+                        _usedTypes.Add(staticOwnerContract.FullName);
+                        return;
+                    }
+
                     if (moduleName.Contains('.'))
                     {
                         // A dotted chain that isn't a bound module — nothing else to try.
@@ -1737,16 +1819,16 @@ namespace Contract.Compiler.Semantics
                     string className = moduleName;
 
                     // User-contract instance method call: c.method() where c is a
-                    // variable whose type is a contract with that method.
+                    // variable whose type is a contract with that method. Walks
+                    // the base chain so inherited methods resolve (Dog.speak()
+                    // finds Animal.speak).
                     if (IsVariableDefined(className))
                     {
                         var varType = FindVariableType(className);
                         if (varType is TypeDescriptor.Named n
                             && _contractsByName.TryGetValue(n.Name, out var contract))
                         {
-                            var member = contract.Members
-                                .OfType<FunctionDeclaration>()
-                                .FirstOrDefault(f => f.Name == methodName && f.IsInstance);
+                            var member = FindMethodIncludingBase(contract, methodName, instanceOnly: true);
                             if (member != null)
                             {
                                 call.Symbol = member;
@@ -1773,6 +1855,17 @@ namespace Contract.Compiler.Semantics
                         _usedFunctions.Add(scopedFn.Name);
                         _usedTypes.Add(scoped.Module);
                     }
+                    return;
+                }
+                // Inherited static: Dog::Speak() where Speak lives on Animal.
+                // (The undefined-module/member case is reported here too so the
+                // symbol links and call.Symbol is set for the codegen.)
+                if (FindContract(scoped.Module) is { } scopedContract
+                    && FindMethodIncludingBase(scopedContract, scoped.Member, instanceOnly: false) is { IsStatic: true } inheritedStatic)
+                {
+                    call.Symbol = inheritedStatic;
+                    _usedFunctions.Add(inheritedStatic.Name);
+                    _usedTypes.Add(scoped.Module);
                     return;
                 }
                 // (The undefined-module/member case is already reported by

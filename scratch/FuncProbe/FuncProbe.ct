@@ -1,0 +1,53 @@
+// Functional syntax probe: pipes into modules, ranges, implicit _ lambdas, >> composition.
+Contract Program {
+    static fn double(x: int) -> int { return x * 2; }
+    static fn addOne(x: int) -> int { return x + 1; }
+
+    static fn Main() {
+        // #1: pipe into a module member
+        let upper: string = "hello" |> String.ToUpper;
+        IO.Println(upper);                       // HELLO
+
+        // #1b: pipe into a contract static
+        let dbl: int = 21 |> double;
+        IO.Println(dbl);                         // 42
+
+        // #4: implicit lambda — compound _ expression
+        let inc = _ + 1;
+        IO.Println(10 |> inc);                   // 11
+
+        // #4b: implicit lambda in a pipe RHS
+        let sq: int = 7 |> _ * _;
+        IO.Println(sq);                          // 49
+
+        // #4c: hole substitution in a call
+        let padded = "hi" |> String.Concat(_, "!");
+        IO.Println(padded);                      // hi!
+
+        // #2: ranges
+        let nums = 1..5;
+        IO.Println(nums.Length);                 // 5
+        IO.Println(nums[0]);                     // 1
+        IO.Println(nums[4]);                     // 5
+
+        // #2b: descending range
+        let rev = 3..1;
+        IO.Println(rev[0]);                      // 3
+        IO.Println(rev[2]);                      // 1
+
+        // #5: composition
+        let dblThenInc = double >> addOne;
+        IO.Println(4 |> dblThenInc);             // 9
+
+        // #5b: composition with a module member on the right
+        let toUpper = String.ToUpper >> String.Length;
+        IO.Println(toUpper("hey"));              // 3
+
+        // Showcase: range + pipe + implicit lambda
+        var total: int = 0;
+        for (var i: int = 0; i < 10; i = i + 1) {
+            total += (1..10)[i];
+        }
+        IO.Println(total);                       // 55
+    }
+}

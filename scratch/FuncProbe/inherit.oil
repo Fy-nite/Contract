@@ -1,0 +1,143 @@
+module Animal version 1.0.0
+
+class Animal {
+    public field name: string
+    public static field kind: int32
+
+    constructor(this: object, n: string) {
+        // #line 6:9 "this.name = n;"
+        ldarg 0
+        // #line 6:9 "this.name = n;"
+        dup
+        // #line 6:21 "this.name = n;"
+        ldarg 1
+        // #line 6:21 "this.name = n;"
+        stfld Animal::name
+        // #line 6:21 "this.name = n;"
+        pop
+        // #line 6:21 "this.name = n;"
+        ret
+    }
+
+    method describe(this: object) -> string {
+        // #line 10:16 "return this.name;"
+        ldarg 0
+        // #line 10:16 "return this.name;"
+        ldfld Animal::name
+        // #line 10:16 "return this.name;"
+        ret
+    }
+
+    static method species() -> string {
+        // #line 13:44 "static fn species() -> string { return "animal"; }"
+        ldstr "animal"
+        // #line 13:44 "static fn species() -> string { return "animal"; }"
+        ret
+    }
+}
+
+class Dog : Animal {
+    public field breed: string
+
+    constructor(this: object) {
+        // #line 20:9 "this.breed = "lab";"
+        ldarg 0
+        // #line 20:9 "this.breed = "lab";"
+        dup
+        // #line 20:22 "this.breed = "lab";"
+        ldstr "lab"
+        // #line 20:22 "this.breed = "lab";"
+        stfld Dog::breed
+        // #line 20:22 "this.breed = "lab";"
+        pop
+        // #line 20:22 "this.breed = "lab";"
+        ret
+    }
+
+    method bark(this: object) -> string {
+        // #line 24:16 "return "woof";"
+        ldstr "woof"
+        // #line 24:16 "return "woof";"
+        ret
+    }
+}
+
+class Program {
+    static method Main() -> void {
+        local d: Dog
+
+        // #line 30:22 "var d: Dog = new Dog();"
+        newobj Dog.constructor()
+        // #line 30:22 "var d: Dog = new Dog();"
+        dup
+        // #line 30:22 "var d: Dog = new Dog();"
+        call Dog..ctor(object) -> void
+        // #line 30:22 "var d: Dog = new Dog();"
+        pop
+        // #line 30:22 "var d: Dog = new Dog();"
+        stloc d
+        // #line 31:9 "d.name = "rex";"
+        ldloc d
+        // #line 31:9 "d.name = "rex";"
+        dup
+        // #line 31:18 "d.name = "rex";"
+        ldstr "rex"
+        // #line 31:18 "d.name = "rex";"
+        stfld Animal::name
+        // #line 31:18 "d.name = "rex";"
+        pop
+        // #line 32:20 "IO.Println(d.name);"
+        ldloc d
+        // #line 32:20 "IO.Println(d.name);"
+        ldfld Animal::name
+        // #line 32:20 "IO.Println(d.name);"
+        call IO.Println(object) -> void
+        // #line 32:20 "IO.Println(d.name);"
+        pop
+        // #line 33:20 "IO.Println(d.describe());"
+        ldloc d
+        // #line 33:20 "IO.Println(d.describe());"
+        call Animal.describe() -> string
+        // #line 33:20 "IO.Println(d.describe());"
+        call IO.Println(object) -> void
+        // #line 33:20 "IO.Println(d.describe());"
+        pop
+        // #line 34:20 "IO.Println(d.bark());"
+        ldloc d
+        // #line 34:20 "IO.Println(d.bark());"
+        call Dog.bark() -> string
+        // #line 34:20 "IO.Println(d.bark());"
+        call IO.Println(object) -> void
+        // #line 34:20 "IO.Println(d.bark());"
+        pop
+        // #line 35:20 "IO.Println(Dog.species());"
+        call Animal.species() -> string
+        // #line 35:20 "IO.Println(Dog.species());"
+        call IO.Println(object) -> void
+        // #line 35:20 "IO.Println(Dog.species());"
+        pop
+        // #line 36:20 "IO.Println(Dog.kind);"
+        ldsfld Animal::kind
+        // #line 36:20 "IO.Println(Dog.kind);"
+        call IO.Println(object) -> void
+        // #line 36:20 "IO.Println(Dog.kind);"
+        pop
+        // #line 37:20 "Dog.kind = 5;"
+        ldc.i4 5
+        // #line 37:20 "Dog.kind = 5;"
+        dup
+        // #line 37:20 "Dog.kind = 5;"
+        stsfld Animal::kind
+        // #line 37:20 "Dog.kind = 5;"
+        pop
+        // #line 38:20 "IO.Println(Dog.kind);"
+        ldsfld Animal::kind
+        // #line 38:20 "IO.Println(Dog.kind);"
+        call IO.Println(object) -> void
+        // #line 38:20 "IO.Println(Dog.kind);"
+        pop
+        // #line 38:20 "IO.Println(Dog.kind);"
+        ret
+    }
+}
+

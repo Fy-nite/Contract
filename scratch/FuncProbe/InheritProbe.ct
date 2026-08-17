@@ -1,0 +1,47 @@
+Contract Animal {
+    name: string;
+    constructor(n: string) {
+        this.name = n;
+    }
+    fn describe() -> string {
+        return this.name;
+    }
+}
+
+Contract Dog : Animal {
+    breed: string;
+    constructor() {
+        this.breed = "lab";
+    }
+    fn bark() -> string {
+        return "woof";
+    }
+}
+
+Contract Puppy : Dog {
+    age: int;
+    constructor() {
+        this.age = 1;
+    }
+}
+
+Contract Program {
+    static fn Main() {
+        // Field-layout collision test: write BOTH fields, then read both.
+        var d: Dog = new Dog();
+        d.name = "rex";
+        d.breed = "collie";
+        IO.Println(d.name);      // rex
+        IO.Println(d.breed);     // collie
+        IO.Println(d.describe()); // rex (base method reads inherited field)
+
+        // 3-level chain: Puppy inherits name (Animal) + breed (Dog) + age (own).
+        var p: Puppy = new Puppy();
+        p.name = "fido";
+        IO.Println(p.describe()); // fido (Animal.describe on a Puppy)
+        IO.Println(p.age);        // 1
+        p.breed = "poodle";
+        IO.Println(p.breed);      // poodle
+        IO.Println(p.name);       // fido (still intact after breed write)
+    }
+}
