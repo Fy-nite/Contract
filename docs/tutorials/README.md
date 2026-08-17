@@ -48,7 +48,7 @@ IO.Println(1 + 2);  // 3
 
 ## Prerequisites
 
-- The .NET 9 SDK (`dotnet --version`)
+- The .NET 10 SDK (`dotnet --version`)
 - The repo cloned, with the compiler built: `dotnet build .\Contract.Compiler\Contract.Compiler.csproj`
 
 ## Compiling and running

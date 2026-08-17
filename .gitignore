@@ -504,3 +504,5 @@ scratch/lsptest/stderr-ccl.txt
 scratch/StructProbe/*.dll
 scratch/StructProbe/*.oil
 scratch/StructProbe/emit/
+.sourcedive/sourcedive.db
+.sourcedive/sourcedive.db.writer.lock
