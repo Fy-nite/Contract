@@ -1,4 +1,10 @@
-# Tutorial 7: Arrays and Logic
+# Chapter 7: Arrays and Logic
+
+> **You'll learn:**
+>
+> - declaring arrays with literals and `new Type[size]`,
+> - reading, writing, and iterating elements,
+> - the logical operators `&&`, `||`, `!`.
 
 Arrays store a fixed number of values of one type. Combine them with the
 logical operators for real programs.
@@ -68,7 +74,8 @@ var allowed: bool = isAdult && hasId;
 var notAdult: bool = !isAdult;
 ```
 
-> Note: in v1, `&&` and `||` always evaluate both sides — they don't short-circuit.
+> **Warning** — in v1, `&&` and `||` always evaluate both sides — they don't
+> short-circuit. `false && riskyCall()` still calls `riskyCall()`.
 
 ## Type inference
 
@@ -78,6 +85,12 @@ Array types are inferred from literals and `new Type[size]`:
 let nums = [1, 2, 3];      // nums: int[]
 let sizes = new int[8];    // sizes: int[]
 ```
+
+## Summary
+
+- Arrays: `type[]`, literals `[...]`, or `new Type[size]` (zero-filled).
+- `arr[i]` to read/write; `.Length` for the count.
+- `&&` / `||` / `!` combine booleans — but **no short-circuit** in v1.
 
 ## Exercise
 

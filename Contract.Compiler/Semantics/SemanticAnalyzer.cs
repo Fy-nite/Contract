@@ -106,7 +106,9 @@ namespace Contract.Compiler.Semantics
                 }
             }
             
-            // Register structs defined inside contracts
+            // Register structs defined inside contracts (short + qualified name,
+            // mirroring top-level structs and nested enums — otherwise
+            // `new Raylib.Color(...)` fails with "Unknown type").
             foreach (var contract in program.Contracts)
             {
                 foreach (var member in contract.Members)
@@ -114,6 +116,8 @@ namespace Contract.Compiler.Semantics
                     if (member is StructDeclaration structDecl)
                     {
                         _typeRegistry.RegisterCustomType(structDecl.Name);
+                        if (structDecl.FullName != structDecl.Name)
+                            _typeRegistry.RegisterCustomType(structDecl.FullName);
                     }
                 }
             }
@@ -1274,7 +1278,7 @@ namespace Contract.Compiler.Semantics
                     // extra arguments beyond the field count are silently ignored.
                     if (_program != null)
                     {
-                        var targetStruct = _program.Structs.FirstOrDefault(s => s.Name == newExpr.TypeName || s.FullName == newExpr.TypeName);
+                        var targetStruct = FindStruct(newExpr.TypeName);
                         if (targetStruct != null && newExpr.Arguments.Count > targetStruct.Fields.Count)
                         {
                             Warn(
@@ -1401,6 +1405,19 @@ namespace Contract.Compiler.Semantics
             return null;
         }
 
+        /// <summary>Finds a struct by short or namespace-qualified name (top-level or nested in a contract).</summary>
+        private StructDeclaration? FindStruct(string name)
+        {
+            var topLevel = _program?.Structs.FirstOrDefault(s => s.Name == name || s.FullName == name);
+            if (topLevel != null) return topLevel;
+            foreach (var contract in _program?.Contracts ?? Enumerable.Empty<ContractDeclaration>())
+            {
+                var nested = contract.Members.OfType<StructDeclaration>().FirstOrDefault(s => s.Name == name || s.FullName == name);
+                if (nested != null) return nested;
+            }
+            return null;
+        }
+
         private bool IsEnumType(string name) => FindEnum(name) != null;
 
         private bool IsEnumMember(string enumName, string member) =>
@@ -1453,6 +1470,11 @@ namespace Contract.Compiler.Semantics
                 CurrentContractNamespace(),
                 UniqueShortMatch,
                 importIndex => _usedNamespaceImports.Add(importIndex));
+
+            // The registry accepts any case; the emitted wire name must match
+            // the declared type exactly, so canonicalize (Raylib.color → Raylib.Color).
+            string? canonical = _typeRegistry.CanonicalName(resolved);
+            if (canonical != null) resolved = canonical;
 
             _usedTypes.Add(name);
             if (resolved != name) _usedTypes.Add(resolved);
@@ -1866,7 +1888,7 @@ namespace Contract.Compiler.Semantics
         private bool IsUserType(string name)
         {
             if (FindContract(name) != null) return true;
-            if (_program?.Structs.Any(s => s.Name == name || s.FullName == name) == true) return true;
+            if (FindStruct(name) != null) return true;
             return FindEnum(name) != null;
         }
 

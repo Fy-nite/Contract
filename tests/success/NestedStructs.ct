@@ -1,0 +1,32 @@
+// Nested structs (declared inside a contract) must be constructible by their
+// qualified name — short, dotted, and case-insensitively — and their fields
+// must be assignable positionally via `new Type(args)`.
+namespace Demo;
+
+Contract Shapes {
+    public struct Point {
+        x: int;
+        y: int;
+    }
+}
+
+Contract Program {
+    static fn Main() {
+        // Qualified name: namespace + struct name (contract name is not part
+        // of the wire name — this mirrors the raylib-ct pattern where the
+        // namespace and contract share a name).
+        let p = new Demo.Point(30, 40);
+        IO.Println(p.x);
+        IO.Println(p.y);
+
+        // Case-insensitive type names (the registry is case-insensitive).
+        let q = new Demo.point(7, 9);
+        IO.Println(q.x);
+        IO.Println(q.y);
+
+        // Short name resolves through the current contract's namespace.
+        let r = new Point(5, 6);
+        IO.Println(r.x);
+        IO.Println(r.y);
+    }
+}

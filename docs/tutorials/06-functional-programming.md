@@ -1,4 +1,10 @@
-# Tutorial 6: Functional Programming
+# Chapter 6: Functional Programming
+
+> **You'll learn:**
+>
+> - anonymous functions with `fun`,
+> - the pipe operator `|>` and why it reads better than nesting,
+> - how lambdas and pipes compose.
 
 Contract has lambdas and a pipe operator for a functional style.
 
@@ -63,6 +69,14 @@ Pipes read left-to-right, matching how you'd describe the data flow:
 let a = square(addOne(3));      // 16, inside-out
 let b = 3 |> addOne |> square;  // 16, left-to-right
 ```
+
+> **Tip** — reach for `|>` whenever you chain more than one transform. It
+> reads in the order the work happens.
+
+## Summary
+
+- `fun x -> expr` is an anonymous single-expression function.
+- `a |> f` calls `f(a)`; chains read left-to-right.
 
 ## Exercise
 

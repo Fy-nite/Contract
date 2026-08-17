@@ -1,4 +1,10 @@
-# Tutorial 2: Variables and Types
+# Chapter 2: Variables and Types
+
+> **You'll learn:**
+>
+> - the difference between `let` and `var`,
+> - Contract's built-in types and their literals,
+> - when type inference kicks in — and when it can't.
 
 Contract is statically typed. Every value has a type, and the compiler checks
 that you use types consistently.
@@ -34,6 +40,10 @@ the compiler can't figure it out on its own (see Type Inference below).
 Type names are case-insensitive — `int`, `Int`, and `INT` all mean the same
 thing.
 
+> **Note** — Contract also has `byte`, `sbyte`, `short`, `ushort`, `uint`, and
+> `int64`/`long`. They all compute as 32-bit integers in the VM, but they keep
+> their native C widths at interop boundaries — see [Chapter 5](05-structs-and-types.md).
+
 ## Type inference
 
 You can leave the type off when the initializer makes it obvious:
@@ -51,6 +61,12 @@ If the compiler can't infer (e.g. `let x = null;`), add the annotation:
 ```ct
 let x: string = null;
 ```
+
+## Summary
+
+- `let` is immutable, `var` is mutable.
+- Built-ins: `int`, `double`, `float`, `bool`, `string` (+ integer widths).
+- Inference works from literals and `new`; annotate when it can't.
 
 ## Exercise
 

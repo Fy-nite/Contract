@@ -279,6 +279,16 @@ C-layout rules are the ones the platform C compiler would use for a struct
 with the same fields in the same order; for byte-exact layout guarantees use
 fixed-width fields (`byte`/`short`/`ushort`/`int`/`uint`/`float`/`double`).
 
+> **⚠️ Match the native layout exactly.** The bridge passes the struct by value
+> with exactly the fields you declare — it cannot know the C side's layout. If
+> the native struct has fields you omit (e.g. raylib's `Color` is
+> `r, g, b, a` — four bytes — but you declare only `r, g, b`), the native
+> function reads the missing bytes from uninitialized stack/register space,
+> producing garbage alpha or scrambled colors. Declare **every** field the
+> native struct has, in the same order, with the same widths. When in doubt,
+> check the header: `typedef struct Color { unsigned char r, g, b, a; } Color;`
+> means four `byte` fields, not three.
+
 - P/Invoke bridge generation happens at runtime; Windows DLLs are the
   primary target. If an export is missing, the error surfaces at the call
   site (and the bridge generator's source is retained for debugging).

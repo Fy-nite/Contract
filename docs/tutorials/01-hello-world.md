@@ -1,4 +1,10 @@
-# Tutorial 1: Hello, World!
+# Chapter 1: Hello, World!
+
+> **You'll learn:**
+>
+> - what a `Contract` block is and where execution starts,
+> - how to print text with `IO`,
+> - how to read input and join strings.
 
 The classic first program. Create a file called `hello.ct`:
 
@@ -27,6 +33,10 @@ You'll see `Bytecode written to: .\hello.oir`.
 - **`IO.Println(...)`** — a call into the `IO` standard library module that
   prints a line of text.
 
+> **Note** — the entry point is exactly `static fn Main()`. A lowercase
+> `fn main()` is *not* an entry point; your program will compile but run
+> nothing.
+
 ## Making it a conversation
 
 The `IO` module also has `IO.Print` (no newline) and `IO.Readln` (read a line):
@@ -40,6 +50,15 @@ Contract Program {
     }
 }
 ```
+
+`+` on strings concatenates them (see [Chapter 8](08-standard-library.md) for
+more string tools).
+
+## Summary
+
+- Every program is a `Contract` containing `static fn Main()`.
+- `IO.Println` / `IO.Print` write text; `IO.Readln` reads a line.
+- `+` joins strings.
 
 ## Exercise
 

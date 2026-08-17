@@ -1,0 +1,21 @@
+// Verify the chapter 5 native-interop example compiles.
+namespace Raylib;
+
+<DllImport("raylib")>
+Contract Raylib {
+    public struct Color {
+        r: byte;
+        g: byte;
+        b: byte;
+        a: byte;
+    }
+
+    static fn DrawText(text: string, posX: int, posY: int, fontSize: int, color: Color) -> void {}
+}
+
+Contract Program {
+    static fn Main() {
+        let Yellow = new Raylib.Color(255, 255, 0, 255);
+        Raylib.DrawText("hello", 10, 10, 20, Yellow);
+    }
+}

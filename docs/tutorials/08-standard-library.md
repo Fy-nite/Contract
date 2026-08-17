@@ -1,4 +1,10 @@
-# Tutorial 8: The Standard Library
+# Chapter 8: The Standard Library
+
+> **You'll learn:**
+>
+> - the `String`, `Math`, `Convert`, and `Random` modules,
+> - string concatenation with `+`,
+> - `switch` on strings.
 
 Contract ships with several built-in modules you can call without any imports.
 
@@ -74,6 +80,15 @@ Contract Program {
     }
 }
 ```
+
+> **Tip** — combine `String.ToLower` / `String.Trim` with a string switch to
+> build robust command parsers.
+
+## Summary
+
+- `String`: `ToUpper`/`ToLower`, `Length`, `Substring`, `StartsWith`, `Replace`, `Trim`.
+- `Math`, `Convert`, `Random` cover everyday numeric work.
+- `+` concatenates strings; `switch` matches string values.
 
 ## Exercise
 

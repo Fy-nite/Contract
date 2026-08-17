@@ -1,0 +1,25 @@
+namespace Demo;
+
+Contract Animal {
+    static fn Speak() -> void {}
+    fn Move() -> void {}
+    name: string;
+}
+
+Contract Dog : Animal {
+    static fn Bark() -> void {}
+    fn Fetch() -> void {}
+    breed: string;
+}
+
+Contract Program {
+    static fn Main() {
+        Demo.Animal::Speak();
+        Demo.Dog::Bark();
+        var d = new Dog();
+        d.Fetch();
+        d.Move();
+        d.name = "rex";
+        d.breed = "lab";
+    }
+}

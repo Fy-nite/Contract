@@ -143,6 +143,17 @@ public class IRCodeGenerator
         foreach (var s in program.Structs) AddTypeIndex(s.Name, s.FullName);
         foreach (var e in program.Enums) AddTypeIndex(e.Name, e.FullName);
 
+        // Nested structs/enums are emitted under their own wire names too, so
+        // short-name and dotted resolution finds them (Color → Raylib.Color).
+        foreach (var c in program.Contracts)
+        {
+            foreach (var m in c.Members)
+            {
+                if (m is StructDeclaration ns) AddTypeIndex(ns.Name, ns.FullName);
+                else if (m is EnumDeclaration ne) AddTypeIndex(ne.Name, ne.FullName);
+            }
+        }
+
         // Top-level structs.
         foreach (var structDecl in program.Structs)
         {
@@ -584,11 +595,25 @@ public class IRCodeGenerator
             if (f?.Type is TypeDescriptor.Named n && !n.IsEmpty) return ResolveTypeName(n.Name);
             return null;
         }
-        var structDecl = _program.Structs.FirstOrDefault(s => s.Name == typeName || s.FullName == typeName);
+        var structDecl = FindStruct(typeName);
         if (structDecl != null)
         {
             var f = structDecl.Fields.FirstOrDefault(f => f.Name == fieldName);
             if (f?.Type is TypeDescriptor.Named n && !n.IsEmpty) return ResolveTypeName(n.Name);
+        }
+        return null;
+    }
+
+    /// <summary>Finds a struct declaration by short or qualified name (top-level or nested in a contract).</summary>
+    private StructDeclaration? FindStruct(string name)
+    {
+        if (_program == null) return null;
+        var topLevel = _program.Structs.FirstOrDefault(s => s.Name == name || s.FullName == name);
+        if (topLevel != null) return topLevel;
+        foreach (var contract in _program.Contracts)
+        {
+            var nested = contract.Members.OfType<StructDeclaration>().FirstOrDefault(s => s.Name == name || s.FullName == name);
+            if (nested != null) return nested;
         }
         return null;
     }
@@ -613,7 +638,7 @@ public class IRCodeGenerator
                 var f = contract.Fields.FirstOrDefault(f => f.Name == fieldName);
                 if (f != null) return MapType(f.Type);
             }
-            var structDecl = _program.Structs.FirstOrDefault(s => s.Name == typeName || s.FullName == typeName);
+            var structDecl = FindStruct(typeName);
             if (structDecl != null)
             {
                 var f = structDecl.Fields.FirstOrDefault(f => f.Name == fieldName);
@@ -1770,7 +1795,7 @@ public class IRCodeGenerator
                             new List<TypeRef> { TypeRef.Object }.Concat(argTypes).ToList()));
                         ib.Pop();
                     }
-                    else if (_program?.Structs.FirstOrDefault(s => s.Name == newExpr.TypeName || s.FullName == newExpr.TypeName) is StructDeclaration structDecl)
+                    else if (FindStruct(newExpr.TypeName) is StructDeclaration structDecl)
                     {
                         // new Color(255, 0, 0, 255) — allocate, then assign
                         // fields positionally. Stack: [obj] → dup → [obj,obj] →
@@ -2032,12 +2057,22 @@ public class IRCodeGenerator
     /// then a unique short-name match. Falls back to the name unchanged.
     /// </summary>
     private string ResolveTypeName(string name)
-        => TypeNameResolver.Resolve(
+    {
+        string resolved = TypeNameResolver.Resolve(
             name,
             _program?.NamespaceImports ?? (IReadOnlyList<string>)Array.Empty<string>(),
             HasType,
             CurrentContractNamespace(),
             UniqueShortMatch);
+
+        // The analyzer's registry is case-insensitive; the emitted wire names
+        // must match the declared types exactly, so canonicalize case
+        // (Raylib.color → Raylib.Color).
+        foreach (var t in _qualifiedTypeNames)
+            if (string.Equals(t, resolved, StringComparison.OrdinalIgnoreCase))
+                return t;
+        return resolved;
+    }
 
     /// <summary>The namespace of the contract currently being generated, if any.</summary>
     private string? CurrentContractNamespace()

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\libs\Objekt-RT\src\ObjectRT.Runtime\ObjectRT.Runtime.csproj" />
+    <ProjectReference Include="..\..\libs\Objekt-RT\src\ObjectRT.VM\ObjectRT.VM.csproj" />
+    <ProjectReference Include="..\..\libs\ObjektRT.Core\ObjektRT.Core.csproj" />
+    <ProjectReference Include="..\..\libs\ObjektRT.Stdlib\ObjektRT.Stdlib.csproj" />
+  </ItemGroup>
+</Project>

@@ -39,6 +39,20 @@ namespace Contract.Compiler.Semantics
         }
 
         /// <summary>
+        /// Returns the registered (canonical) spelling of a type name, matching
+        /// case-insensitively. The registry accepts any case, but the emitted
+        /// wire name must match the declared type exactly, so callers
+        /// canonicalize (<c>Raylib.color</c> → <c>Raylib.Color</c>) before codegen.
+        /// </summary>
+        public string? CanonicalName(string name)
+        {
+            foreach (var t in _types)
+                if (string.Equals(t, name, StringComparison.OrdinalIgnoreCase))
+                    return t;
+            return null;
+        }
+
+        /// <summary>
         /// Validates a type descriptor. Arrays are valid when their element is valid;
         /// function types are valid when every parameter and the return type are valid;
         /// generic instances are valid when the unbound name is a known generic and

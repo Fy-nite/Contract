@@ -1,0 +1,16 @@
+// Verify the chapter 3 fizzbuzz exercise solution compiles.
+Contract Program {
+    static fn Main() {
+        for (var i: int = 1; i <= 10; i = i + 1) {
+            if (i % 3 == 0 && i % 5 == 0) {
+                IO.Println("fizzbuzz");
+            } else if (i % 3 == 0) {
+                IO.Println("fizz");
+            } else if (i % 5 == 0) {
+                IO.Println("buzz");
+            } else {
+                IO.Println(i);
+            }
+        }
+    }
+}

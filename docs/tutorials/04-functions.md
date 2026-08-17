@@ -1,4 +1,10 @@
-# Tutorial 4: Functions
+# Chapter 4: Functions
+
+> **You'll learn:**
+>
+> - how to define and call functions,
+> - return types and what happens when you forget a `return`,
+> - parameters and access modifiers.
 
 Functions bundle a piece of logic under a name so you can call it repeatedly.
 
@@ -53,6 +59,9 @@ and `int` for other functions. If a function with a return type falls off the
 end without a `return`, it implicitly returns the zero value for that type
 (`0`, `0.0`, `false`, or `null`).
 
+> **Note** — falling off the end of a non-`void` function compiles but can
+> mask bugs. If you wrote `-> int`, make sure every path returns.
+
 ## Parameters
 
 Parameters are `name: type` pairs separated by commas:
@@ -85,6 +94,16 @@ Contract Math {
     }
 }
 ```
+
+> **Tip** — `static fn` is how you reach a function *without* an instance
+> (`Math.twice(5)`); a plain `fn` is an instance method that needs a
+> receiver (see [Chapter 5](05-structs-and-types.md)).
+
+## Summary
+
+- Functions: `fn name(params) -> ret { ... }`.
+- Unreachable `return` → implicit zero value; annotate every path.
+- `static fn` for no-instance calls, `private`/`public` for visibility.
 
 ## Exercise
 

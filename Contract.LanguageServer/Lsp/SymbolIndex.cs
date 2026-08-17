@@ -25,6 +25,10 @@ public enum SymbolCategory
 public class SymbolInfo
 {
     public required string Name { get; init; }
+    /// <summary>Namespace-qualified wire name (com.example.Foo), or the short name when unnamed.</summary>
+    public string? FullName { get; init; }
+    /// <summary>Base type name for contracts (single inheritance), or null.</summary>
+    public string? BaseTypeName { get; init; }
     public required SymbolCategory Category { get; init; }
     public required string Uri { get; init; }
     public int Line { get; init; }      // 1-based name-token position
@@ -108,6 +112,8 @@ public class SymbolIndex
         var sym = new SymbolInfo
         {
             Name = c.Name,
+            FullName = c.FullName,
+            BaseTypeName = c.BaseTypeName,
             Category = SymbolCategory.Contract,
             Uri = uri,
             Line = nameTok.Line,
@@ -149,6 +155,7 @@ public class SymbolIndex
         var sym = new SymbolInfo
         {
             Name = e.Name,
+            FullName = e.FullName,
             Category = SymbolCategory.Enum,
             Uri = uri,
             Line = nameTok.Line,
@@ -198,6 +205,7 @@ public class SymbolIndex
         var sym = new SymbolInfo
         {
             Name = s.Name,
+            FullName = s.FullName,
             Category = SymbolCategory.Struct,
             Uri = uri,
             Line = nameTok.Line,
@@ -416,9 +424,31 @@ public class SymbolIndex
         => _functions.FirstOrDefault(f => f.Name == name);
 
     private SymbolInfo? FindType(string name)
-        => _contracts.FirstOrDefault(c => c.Name == name)
-           ?? _structs.FirstOrDefault(s => s.Name == name)
-           ?? _enums.FirstOrDefault(e => e.Name == name);
+        => _contracts.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase)
+                                          || string.Equals(c.FullName, name, StringComparison.OrdinalIgnoreCase))
+           ?? _structs.FirstOrDefault(s => string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase)
+                                           || string.Equals(s.FullName, name, StringComparison.OrdinalIgnoreCase))
+           ?? _enums.FirstOrDefault(e => string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase)
+                                         || string.Equals(e.FullName, name, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>All members of a type, most-derived first, including inherited
+    /// base members (deduped by name so an override hides the base declaration).</summary>
+    private IEnumerable<SymbolInfo> TypeMembersIncludingBase(SymbolInfo typeSym)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var current = typeSym;
+        while (current != null)
+        {
+            foreach (var child in current.Children)
+                if (seen.Add(child.Name))
+                    yield return child;
+            current = current.BaseTypeName != null ? FindType(current.BaseTypeName) : null;
+        }
+    }
+
+    /// <summary>The first member (own or inherited) of a type with the given name.</summary>
+    private SymbolInfo? FindMemberIncludingBase(SymbolInfo typeSym, string memberName)
+        => TypeMembersIncludingBase(typeSym).FirstOrDefault(c => c.Name == memberName);
 
     private SymbolInfo? FindContainingFunction(Position pos)
         => _functions.FirstOrDefault(f => f.ContainerRange.Contains(pos));
@@ -477,6 +507,10 @@ public class SymbolIndex
                     if (fn != null) return new ResolvedTarget { Symbol = fn };
                 }
             }
+            // Inherited member on a user type: Dog::Speak resolves to Animal.Speak.
+            var typeSym = FindType(module);
+            var hit = typeSym != null ? FindMemberIncludingBase(typeSym, token.Text) : null;
+            if (hit != null) return new ResolvedTarget { Symbol = hit };
             return null;
         }
 
@@ -534,7 +568,7 @@ public class SymbolIndex
                 var owner = fn?.Parent;
                 while (owner != null && owner.Category is not (SymbolCategory.Contract or SymbolCategory.Struct))
                     owner = owner.Parent;
-                var hit = owner?.Children.FirstOrDefault(c => c.Name == memberName);
+                var hit = owner != null ? FindMemberIncludingBase(owner, memberName) : null;
                 return hit != null ? new ResolvedTarget { Symbol = hit } : null;
             }
 
@@ -555,12 +589,13 @@ public class SymbolIndex
             if (result.SymbolTable.IsBoundModule(fullPath))
                 return new ResolvedTarget { HoverText = ModuleHoverText(result, memberName, fullPath) };
 
-            // Known base type → search that struct/contract first
+            // Known base type → search that struct/contract first (including
+            // inherited base members)
             var local = FindLocal(basePos, baseName);
             if (local?.VarType is TypeDescriptor.Named named && !named.IsEmpty)
             {
                 var typeSym = FindType(named.Name);
-                var hit = typeSym?.Children.FirstOrDefault(c => c.Name == memberName);
+                var hit = typeSym != null ? FindMemberIncludingBase(typeSym, memberName) : null;
                 if (hit != null) return new ResolvedTarget { Symbol = hit };
             }
         }
@@ -727,20 +762,16 @@ public class SymbolIndex
             if (before.Type == TokenType.DoubleColon && bi >= 1)
             {
                 if (TryGetDottedBase(tokens, bi, out var module) && module.Length > 0)
-                {
                     AddModuleMembers(result, module, items);
-                    return new CompletionList { Items = items };
-                }
+                return new CompletionList { Items = items };
             }
 
             // Member access: base.member
             if (before.Type == TokenType.Dot && bi >= 1)
             {
                 if (TryGetDottedBase(tokens, bi, out var dottedBase) && dottedBase.Length > 0)
-                {
                     AddMembers(result, dottedBase, new Position(before.Line - 1, before.Column - 1), items);
-                    return new CompletionList { Items = items };
-                }
+                return new CompletionList { Items = items };
             }
 
             // Types after 'new' or ':'
@@ -748,6 +779,32 @@ public class SymbolIndex
             {
                 AddTypes(result, items);
                 return new CompletionList { Items = items };
+            }
+        }
+
+        // The word being typed may itself be a known type or module — the user
+        // has typed `Raylib` and wants to call one of its members. Offer that
+        // type's members (including inherited) instead of the keyword soup.
+        Token? typedWord = at != null && at.Type == TokenType.Identifier ? at
+            : (before != null && before.Type == TokenType.Identifier ? before : null);
+        if (typedWord != null)
+        {
+            int wi = tokens.IndexOf(typedWord);
+            if (TryGetDottedPathEndingAt(tokens, wi, out var typedPath) && typedPath.Length > 0)
+            {
+                var typedType = FindType(typedPath);
+                if (typedType != null)
+                {
+                    foreach (var child in TypeMembersIncludingBase(typedType))
+                        items.Add(SymbolCompletion(child));
+                    return new CompletionList { Items = items };
+                }
+                if (result.SymbolTable.IsBoundModule(typedPath))
+                {
+                    foreach (var m in result.SymbolTable.GetExternalMethods(typedPath))
+                        items.Add(ExternalCompletion(m));
+                    return new CompletionList { Items = items };
+                }
             }
         }
 
@@ -872,7 +929,7 @@ public class SymbolIndex
         }
         var typeSym = FindType(module);
         if (typeSym == null) return;
-        foreach (var child in typeSym.Children)
+        foreach (var child in TypeMembersIncludingBase(typeSym))
             items.Add(SymbolCompletion(child));
     }
 
@@ -885,7 +942,7 @@ public class SymbolIndex
             while (owner != null && owner.Category is not (SymbolCategory.Contract or SymbolCategory.Struct))
                 owner = owner.Parent;
             if (owner != null)
-                foreach (var child in owner.Children) items.Add(SymbolCompletion(child));
+                foreach (var child in TypeMembersIncludingBase(owner)) items.Add(SymbolCompletion(child));
             return;
         }
 
@@ -898,10 +955,11 @@ public class SymbolIndex
 
         // User-defined type (contract/struct/enum): offer its members — e.g.
         // `Util.` → [total, Bump, Total], `Status.` → [Idle, Busy, Done].
+        // Inherited base members are included (Dog. → Bark + Animal's members).
         var typeMemberSym = FindType(baseName);
         if (typeMemberSym != null)
         {
-            foreach (var child in typeMemberSym.Children) items.Add(SymbolCompletion(child));
+            foreach (var child in TypeMembersIncludingBase(typeMemberSym)) items.Add(SymbolCompletion(child));
             return;
         }
 
@@ -924,22 +982,20 @@ public class SymbolIndex
             return;
         }
 
+        // Local variable of a known type: d. → Dog's members + inherited.
         var local = FindLocal(basePos, baseName);
         if (local?.VarType is TypeDescriptor.Named named && !named.IsEmpty)
         {
             var typeSym = FindType(named.Name);
             if (typeSym != null)
             {
-                foreach (var child in typeSym.Children) items.Add(SymbolCompletion(child));
+                foreach (var child in TypeMembersIncludingBase(typeSym)) items.Add(SymbolCompletion(child));
                 return;
             }
         }
 
-        // Fallback: all struct/contract members by name.
-        foreach (var s in _structs)
-            foreach (var child in s.Children) items.Add(SymbolCompletion(child));
-        foreach (var c in _contracts)
-            foreach (var child in c.Children) items.Add(SymbolCompletion(child));
+        // Nothing resolved — an unknown base like `foo.` shouldn't dump every
+        // contract's members, so offer nothing.
     }
 
     /// <summary>
@@ -954,6 +1010,25 @@ public class SymbolIndex
         var segments = new Stack<string>();
         segments.Push(tokens[dotIndex - 1].Text);
         int i = dotIndex - 2;
+        while (i >= 1 && tokens[i].Type == TokenType.Dot && tokens[i - 1].Type == TokenType.Identifier)
+        {
+            segments.Push(tokens[i - 1].Text);
+            i -= 2;
+        }
+        path = string.Join(".", segments);
+        return true;
+    }
+
+    /// <summary>Walks back from an identifier token collecting the dotted path
+    /// ending at it: A.B.C → "A.B.C". Returns false when the spine is not pure
+    /// identifiers and dots.</summary>
+    private static bool TryGetDottedPathEndingAt(IReadOnlyList<Token> tokens, int idIndex, out string path)
+    {
+        path = "";
+        if (idIndex < 0 || idIndex >= tokens.Count || tokens[idIndex].Type != TokenType.Identifier) return false;
+        var segments = new Stack<string>();
+        segments.Push(tokens[idIndex].Text);
+        int i = idIndex - 1;
         while (i >= 1 && tokens[i].Type == TokenType.Dot && tokens[i - 1].Type == TokenType.Identifier)
         {
             segments.Push(tokens[i - 1].Text);
