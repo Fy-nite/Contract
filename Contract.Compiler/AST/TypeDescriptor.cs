@@ -142,6 +142,44 @@ public abstract class TypeDescriptor
     }
 
     /// <summary>
+    /// A tuple type, e.g. <c>(bool, object)</c> — the return type of a function
+    /// that produces multiple values. On the wire a tuple is an <c>object[]</c>
+    /// (the language's array handle), so no VM changes are needed: the callee
+    /// returns an array and the caller destructures it.
+    /// </summary>
+    public sealed class Tuple : TypeDescriptor, IEquatable<Tuple>
+    {
+        public IReadOnlyList<TypeDescriptor> Elements { get; }
+
+        public Tuple(IReadOnlyList<TypeDescriptor> elements)
+        {
+            Elements = elements;
+        }
+
+        public override string ToString() => $"({string.Join(", ", Elements)})";
+
+        public bool Equals(Tuple? other)
+        {
+            if (other is null) return false;
+            if (Elements.Count != other.Elements.Count) return false;
+            for (int i = 0; i < Elements.Count; i++)
+            {
+                if (!Elements[i].Equals(other.Elements[i])) return false;
+            }
+            return true;
+        }
+
+        public override bool Equals(object? obj) => Equals(obj as Tuple);
+
+        public override int GetHashCode()
+        {
+            var h = new HashCode();
+            foreach (var e in Elements) h.Add(e);
+            return h.ToHashCode();
+        }
+    }
+
+    /// <summary>
     /// Parses a type string into a descriptor. Supports simple names ("int", "Person"),
     /// array suffixes ("int[]", "int[][]"), and function types ("(int, bool) -> string").
     /// </summary>
@@ -173,6 +211,22 @@ public abstract class TypeDescriptor
                     }
                 }
                 return new Function(parameters, Parse(returnPart));
+            }
+
+            // Tuple type: "(T1, T2)" with no arrow — a multi-value return type.
+            if (close > 0)
+            {
+                var elementPart = s.Substring(1, close - 1);
+                var elements = new List<TypeDescriptor>();
+                if (!string.IsNullOrWhiteSpace(elementPart))
+                {
+                    foreach (var raw in SplitTopLevel(elementPart))
+                    {
+                        var t = raw.Trim();
+                        if (t.Length > 0) elements.Add(Parse(t));
+                    }
+                }
+                return new Tuple(elements);
             }
         }
 

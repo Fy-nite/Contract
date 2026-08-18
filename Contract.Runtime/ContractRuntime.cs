@@ -71,6 +71,17 @@ public class ContractRuntime : IReflectHost, IHostedRuntime
         RegisterBinding("Array", typeof(ObjektRT.Stdlib.Generics.Array));
         RegisterBinding("List", typeof(ObjektRT.Stdlib.Generics.List));
         RegisterBinding("Dict", typeof(ObjektRT.Stdlib.Generics.Dict));
+        // Phase 2 additions
+        RegisterBinding("Json", typeof(ObjektRT.Stdlib.System.Json));
+        RegisterBinding("Path", typeof(ObjektRT.Stdlib.System.Path));
+        RegisterBinding("Directory", typeof(ObjektRT.Stdlib.System.Directory));
+        RegisterBinding("Process", typeof(ObjektRT.Stdlib.System.Process));
+        RegisterBinding("Guid", typeof(ObjektRT.Stdlib.System.Guid));
+        RegisterBinding("Base64", typeof(ObjektRT.Stdlib.System.Base64));
+        RegisterBinding("Console", typeof(ObjektRT.Stdlib.System.Console));
+        RegisterBinding("Stack", typeof(ObjektRT.Stdlib.Generics.Stack));
+        RegisterBinding("Queue", typeof(ObjektRT.Stdlib.Generics.Queue));
+        RegisterBinding("HashSet", typeof(ObjektRT.Stdlib.Generics.HashSet));
 
         // Fully-qualified names — the official stdlib surface:
         // ObjektRT.Stdlib.System.IO.Println, ...
@@ -88,6 +99,17 @@ public class ContractRuntime : IReflectHost, IHostedRuntime
         RegisterBinding("ObjektRT.Stdlib.Generics.Array", typeof(ObjektRT.Stdlib.Generics.Array));
         RegisterBinding("ObjektRT.Stdlib.Generics.List", typeof(ObjektRT.Stdlib.Generics.List));
         RegisterBinding("ObjektRT.Stdlib.Generics.Dict", typeof(ObjektRT.Stdlib.Generics.Dict));
+        // Phase 2 additions (fully-qualified)
+        RegisterBinding("ObjektRT.Stdlib.System.Json", typeof(ObjektRT.Stdlib.System.Json));
+        RegisterBinding("ObjektRT.Stdlib.System.Path", typeof(ObjektRT.Stdlib.System.Path));
+        RegisterBinding("ObjektRT.Stdlib.System.Directory", typeof(ObjektRT.Stdlib.System.Directory));
+        RegisterBinding("ObjektRT.Stdlib.System.Process", typeof(ObjektRT.Stdlib.System.Process));
+        RegisterBinding("ObjektRT.Stdlib.System.Guid", typeof(ObjektRT.Stdlib.System.Guid));
+        RegisterBinding("ObjektRT.Stdlib.System.Base64", typeof(ObjektRT.Stdlib.System.Base64));
+        RegisterBinding("ObjektRT.Stdlib.System.Console", typeof(ObjektRT.Stdlib.System.Console));
+        RegisterBinding("ObjektRT.Stdlib.Generics.Stack", typeof(ObjektRT.Stdlib.Generics.Stack));
+        RegisterBinding("ObjektRT.Stdlib.Generics.Queue", typeof(ObjektRT.Stdlib.Generics.Queue));
+        RegisterBinding("ObjektRT.Stdlib.Generics.HashSet", typeof(ObjektRT.Stdlib.Generics.HashSet));
 
         // In-language reflection bridge (Contract-specific host).
         RegisterBinding("Reflect", typeof(Contract.Compiler.StandardLibrary.ReflectModule));

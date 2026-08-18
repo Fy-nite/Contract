@@ -30,6 +30,17 @@ public static class StdlibCatalog
         ("Array", typeof(ObjektRT.Stdlib.Generics.Array)),
         ("List", typeof(ObjektRT.Stdlib.Generics.List)),
         ("Dict", typeof(ObjektRT.Stdlib.Generics.Dict)),
+        // Phase 2 additions
+        ("Json", typeof(ObjektRT.Stdlib.System.Json)),
+        ("Path", typeof(ObjektRT.Stdlib.System.Path)),
+        ("Directory", typeof(ObjektRT.Stdlib.System.Directory)),
+        ("Process", typeof(ObjektRT.Stdlib.System.Process)),
+        ("Guid", typeof(ObjektRT.Stdlib.System.Guid)),
+        ("Base64", typeof(ObjektRT.Stdlib.System.Base64)),
+        ("Console", typeof(ObjektRT.Stdlib.System.Console)),
+        ("Stack", typeof(ObjektRT.Stdlib.Generics.Stack)),
+        ("Queue", typeof(ObjektRT.Stdlib.Generics.Queue)),
+        ("HashSet", typeof(ObjektRT.Stdlib.Generics.HashSet)),
     };
 
     public static void RegisterInto(SymbolTable table)

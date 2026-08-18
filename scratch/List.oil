@@ -1,0 +1,211 @@
+module ValueList version 1.0.0
+
+@Generic(T)
+class ValueList {
+    public field items: T[]
+    public field count: int32
+
+    constructor(this: object) {
+        // #line 8:9 "this.items = new T[64];"
+        ldarg 0
+        // #line 8:9 "this.items = new T[64];"
+        dup
+        // #line 8:28 "this.items = new T[64];"
+        ldc.i4 64
+        // #line 8:28 "this.items = new T[64];"
+        newarr T
+        // #line 8:28 "this.items = new T[64];"
+        stfld ValueList::items
+        // #line 8:28 "this.items = new T[64];"
+        pop
+        // #line 9:9 "this.count = 0;"
+        ldarg 0
+        // #line 9:9 "this.count = 0;"
+        dup
+        // #line 9:22 "this.count = 0;"
+        ldc.i4 0
+        // #line 9:22 "this.count = 0;"
+        stfld ValueList::count
+        // #line 9:22 "this.count = 0;"
+        pop
+        // #line 9:22 "this.count = 0;"
+        ret
+    }
+
+    method Get(this: object, index: int32) -> T {
+        // #line 13:16 "return this.items[index];"
+        ldarg 0
+        // #line 13:16 "return this.items[index];"
+        ldfld ValueList::items
+        // #line 13:27 "return this.items[index];"
+        ldarg 1
+        // #line 13:27 "return this.items[index];"
+        ldelem
+        // #line 13:27 "return this.items[index];"
+        ret
+    }
+
+    method Set(this: object, index: int32, value: T) -> int32 {
+        // #line 17:9 "this.items[index] = value;"
+        ldarg 0
+        // #line 17:9 "this.items[index] = value;"
+        ldfld ValueList::items
+        // #line 17:9 "this.items[index] = value;"
+        dup
+        // #line 17:20 "this.items[index] = value;"
+        ldarg 1
+        // #line 17:29 "this.items[index] = value;"
+        ldarg 2
+        // #line 17:29 "this.items[index] = value;"
+        stelem
+        // #line 17:29 "this.items[index] = value;"
+        pop
+        // #line 17:29 "this.items[index] = value;"
+        ldc.i4 0
+        // #line 17:29 "this.items[index] = value;"
+        ret
+    }
+
+    method Add(this: object, value: T) -> int32 {
+        // #line 21:9 "this.items[this.count] = value;"
+        ldarg 0
+        // #line 21:9 "this.items[this.count] = value;"
+        ldfld ValueList::items
+        // #line 21:9 "this.items[this.count] = value;"
+        dup
+        // #line 21:20 "this.items[this.count] = value;"
+        ldarg 0
+        // #line 21:20 "this.items[this.count] = value;"
+        ldfld ValueList::count
+        // #line 21:34 "this.items[this.count] = value;"
+        ldarg 1
+        // #line 21:34 "this.items[this.count] = value;"
+        stelem
+        // #line 21:34 "this.items[this.count] = value;"
+        pop
+        // #line 22:9 "this.count = this.count + 1;"
+        ldarg 0
+        // #line 22:9 "this.count = this.count + 1;"
+        dup
+        // #line 22:22 "this.count = this.count + 1;"
+        ldarg 0
+        // #line 22:22 "this.count = this.count + 1;"
+        ldfld ValueList::count
+        // #line 22:35 "this.count = this.count + 1;"
+        ldc.i4 1
+        // #line 22:35 "this.count = this.count + 1;"
+        add
+        // #line 22:35 "this.count = this.count + 1;"
+        stfld ValueList::count
+        // #line 22:35 "this.count = this.count + 1;"
+        pop
+        // #line 22:35 "this.count = this.count + 1;"
+        ldc.i4 0
+        // #line 22:35 "this.count = this.count + 1;"
+        ret
+    }
+
+    method Count(this: object) -> int32 {
+        // #line 26:16 "return this.count;"
+        ldarg 0
+        // #line 26:16 "return this.count;"
+        ldfld ValueList::count
+        // #line 26:16 "return this.count;"
+        ret
+    }
+
+    method RemoveAt(this: object, index: int32) -> int32 {
+        local i: int32
+
+        // #line 30:22 "for (var i = index; i < this.count - 1; i = i + 1) {"
+        ldarg 1
+        // #line 30:22 "for (var i = index; i < this.count - 1; i = i + 1) {"
+        stloc i
+        // #line 30:29 "for (var i = index; i < this.count - 1; i = i + 1) {"
+        ldloc i
+        // #line 30:33 "for (var i = index; i < this.count - 1; i = i + 1) {"
+        ldarg 0
+        // #line 30:33 "for (var i = index; i < this.count - 1; i = i + 1) {"
+        ldfld ValueList::count
+        // #line 30:46 "for (var i = index; i < this.count - 1; i = i + 1) {"
+        ldc.i4 1
+        // #line 30:46 "for (var i = index; i < this.count - 1; i = i + 1) {"
+        sub
+        // #line 30:46 "for (var i = index; i < this.count - 1; i = i + 1) {"
+        clt
+        // #line 30:46 "for (var i = index; i < this.count - 1; i = i + 1) {"
+        while (stack) {
+            // #line 30:46 "for (var i = index; i < this.count - 1; i = i + 1) {"
+            pop
+            // #line 31:13 "this.items[i] = this.items[i + 1];"
+            ldarg 0
+            // #line 31:13 "this.items[i] = this.items[i + 1];"
+            ldfld ValueList::items
+            // #line 31:13 "this.items[i] = this.items[i + 1];"
+            dup
+            // #line 31:24 "this.items[i] = this.items[i + 1];"
+            ldloc i
+            // #line 31:29 "this.items[i] = this.items[i + 1];"
+            ldarg 0
+            // #line 31:29 "this.items[i] = this.items[i + 1];"
+            ldfld ValueList::items
+            // #line 31:40 "this.items[i] = this.items[i + 1];"
+            ldloc i
+            // #line 31:44 "this.items[i] = this.items[i + 1];"
+            ldc.i4 1
+            // #line 31:44 "this.items[i] = this.items[i + 1];"
+            add
+            // #line 31:44 "this.items[i] = this.items[i + 1];"
+            ldelem
+            // #line 31:44 "this.items[i] = this.items[i + 1];"
+            stelem
+            // #line 31:44 "this.items[i] = this.items[i + 1];"
+            pop
+            // #line 30:53 "for (var i = index; i < this.count - 1; i = i + 1) {"
+            ldloc i
+            // #line 30:57 "for (var i = index; i < this.count - 1; i = i + 1) {"
+            ldc.i4 1
+            // #line 30:57 "for (var i = index; i < this.count - 1; i = i + 1) {"
+            add
+            // #line 30:57 "for (var i = index; i < this.count - 1; i = i + 1) {"
+            dup
+            // #line 30:57 "for (var i = index; i < this.count - 1; i = i + 1) {"
+            stloc i
+            // #line 30:29 "for (var i = index; i < this.count - 1; i = i + 1) {"
+            ldloc i
+            // #line 30:33 "for (var i = index; i < this.count - 1; i = i + 1) {"
+            ldarg 0
+            // #line 30:33 "for (var i = index; i < this.count - 1; i = i + 1) {"
+            ldfld ValueList::count
+            // #line 30:46 "for (var i = index; i < this.count - 1; i = i + 1) {"
+            ldc.i4 1
+            // #line 30:46 "for (var i = index; i < this.count - 1; i = i + 1) {"
+            sub
+            // #line 30:46 "for (var i = index; i < this.count - 1; i = i + 1) {"
+            clt
+        }
+        // #line 30:46 "for (var i = index; i < this.count - 1; i = i + 1) {"
+        pop
+        // #line 33:9 "this.count = this.count - 1;"
+        ldarg 0
+        // #line 33:9 "this.count = this.count - 1;"
+        dup
+        // #line 33:22 "this.count = this.count - 1;"
+        ldarg 0
+        // #line 33:22 "this.count = this.count - 1;"
+        ldfld ValueList::count
+        // #line 33:35 "this.count = this.count - 1;"
+        ldc.i4 1
+        // #line 33:35 "this.count = this.count - 1;"
+        sub
+        // #line 33:35 "this.count = this.count - 1;"
+        stfld ValueList::count
+        // #line 33:35 "this.count = this.count - 1;"
+        pop
+        // #line 33:35 "this.count = this.count - 1;"
+        ldc.i4 0
+        // #line 33:35 "this.count = this.count - 1;"
+        ret
+    }
+}
+

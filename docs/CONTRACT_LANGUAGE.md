@@ -1333,6 +1333,24 @@ var concat: string = String.Concat("a", "b"); // "ab"
 var parts: string[] = String.Split("a,b,c", ","); // ["a", "b", "c"]
 ```
 
+Additional String helpers:
+
+```ct
+var contains: bool = String.Contains("hello", "ell");   // true
+var empty: bool = String.IsNullOrEmpty("");             // true
+var ws: bool = String.IsNullOrWhitespace("   ");        // true
+var joined: string = String.Join("-", ["a", "b", "c"]); // "a-b-c"
+var padded: string = String.PadLeft("7", 3);            // "  7"
+var paddedR: string = String.PadRight("7", 3);          // "7  "
+var trimmedS: string = String.TrimStart("  hi");        // "hi"
+var trimmedE: string = String.TrimEnd("hi  ");          // "hi"
+var last: int = String.LastIndexOf("a-b-a", "a");       // 4
+var repeated: string = String.Repeat("ab", 3);          // "ababab"
+var cmp: int = String.Compare("a", "b");                // negative
+var ch: string = String.CharAt("hello", 1);             // "e"
+var from: int = String.IndexOfFrom("hello", "l", 3);    // 3
+```
+
 ### Math Module
 
 ```ct
@@ -1346,6 +1364,32 @@ Also available: `Math.AbsF`, `Math.MinF`, `Math.MaxF`, `Math.Pow`, `Math.Floor`,
 `Math.Ceiling`, `Math.Round`, `Math.Sin`, `Math.Cos`, `Math.Tan`, `Math.Log`,
 `Math.Log10`, `Math.Exp`.
 
+Additional Math helpers (double-based, so they work with the language's
+default `double` literals; `Clamp` and `Sign` are overloaded for both `int`
+and `double`):
+
+```ct
+var clamped: int = Math.Clamp(15, 0, 10);        // 10 (int overload)
+var clampedD: double = Math.Clamp(1.5, 0.0, 1.0); // 1.0 (double overload)
+var clamped01: double = Math.Clamp01(1.5);       // 1.0
+var sign: int = Math.Sign(-5);                   // -1 (int overload)
+var signD: int = Math.Sign(-2.5);                // -1 (double overload)
+var trunc: int = Math.Truncate(3.7);             // 3
+var lerp: double = Math.Lerp(0.0, 10.0, 0.5);    // 5.0
+var rad: double = Math.DegToRad(180.0);          // ~3.14
+var deg: double = Math.RadToDeg(3.14159);        // ~180
+var atan2: double = Math.Atan2(1.0, 1.0);        // ~0.785
+var asin: double = Math.Asin(1.0);               // ~1.57
+var acos: double = Math.Acos(1.0);               // 0
+var atan: double = Math.Atan(1.0);               // ~0.785
+var log2: double = Math.Log2(8.0);               // 3
+var logb: double = Math.LogBase(8.0, 2.0);       // 3
+var nan: bool = Math.IsNaN(0.0 / 0.0);           // true
+var inf: bool = Math.IsInfinity(1.0 / 0.0);      // true
+var pi: double = Math.PI();                      // 3.14159...
+var e: double = Math.E();                        // 2.71828...
+```
+
 ### Convert Module
 
 ```ct
@@ -1358,11 +1402,37 @@ var b: bool = Convert.ToBool("true");
 Also available: `Convert.ToStringF`, `Convert.ToStringB`, `Convert.ToInt32F`,
 `Convert.ToFloat32I`.
 
+Additional Convert helpers:
+
+```ct
+var big: long = Convert.ToInt64("1234567890123");  // 1234567890123
+var bigS: string = Convert.ToStringL(1234567890123);
+var d: double = Convert.ToDouble("3.5");           // 3.5
+var hex: string = Convert.ToHexString(255);        // "FF"
+var fromHex: int = Convert.FromHexString("FF");    // 255
+var ok: bool = Convert.TryToInt32("42");           // true
+var okF: bool = Convert.TryToFloat32("3.5");       // true
+var okD: bool = Convert.TryToDouble("3.5");        // true
+var okB: bool = Convert.TryToBool("true");         // true
+```
+
 ### Random Module
 
 ```ct
 var n: int = Random.NextInt(100);   // 0..99
 var f: float = Random.NextFloat();  // 0.0..1.0
+```
+
+Additional Random helpers:
+
+```ct
+var r: int = Random.NextIntRange(5, 10);   // 5..9
+var rf: float = Random.NextFloatRange(0.0, 1.0);
+var rd: double = Random.NextDouble();      // 0.0..1.0
+var b: bool = Random.NextBool();           // true or false
+var pick: object = Random.Choice(["a", "b", "c"]);
+var pickS: string = Random.ChoiceString(["a", "b", "c"]);
+var inc: int = Random.NextIntInclusive(10); // 0..10
 ```
 
 ### List, Dict, Array, and object types
@@ -1401,6 +1471,138 @@ code these are usually written with their generic forms — see
 `ContainsKey(dict, key)`, `Remove(dict, key)`, `Keys(dict)`, `Count(dict)`.
 
 `Array` methods: `Length(arr)`, `Get(arr, index)`, `Set(arr, index, value)`.
+
+Additional collection helpers:
+
+```ct
+// List
+List.Contains(list, item);   // true when present
+List.Remove(list, item);     // removes first occurrence; returns true when present
+List.IndexOf(list, item);    // index or -1
+List.Insert(list, index, item);
+List.Clear(list);
+List.Sort(list);             // in place
+List.Reverse(list);          // in place
+var arr = List.ToArray(list);
+
+// Dict
+var vals = Dict.Values(dict);  // array of values
+Dict.Clear(dict);
+
+// Array
+Array.Contains(arr, value);    // true when present
+Array.IndexOf(arr, value);     // index or -1
+Array.Reverse(arr);            // in place
+Array.Sort(arr);               // in place
+Array.Copy(src, srcIdx, dst, dstIdx, count);
+Array.Fill(arr, value);
+Array.Sum(arr);  Array.Min(arr);  Array.Max(arr);  Array.Average(arr);
+```
+
+### Stack, Queue, HashSet
+
+```ct
+// Stack (LIFO)
+var st = Stack.Create();
+Stack.Push(st, 1);
+Stack.Push(st, 2);
+IO.Println(Stack.Pop(st));     // 2
+IO.Println(Stack.Peek(st));    // 1
+IO.Println(Stack.Count(st));   // 1
+Stack.Contains(st, 1);         // true
+Stack.Clear(st);
+
+// Queue (FIFO)
+var q = Queue.Create();
+Queue.Enqueue(q, 1);
+Queue.Enqueue(q, 2);
+IO.Println(Queue.Dequeue(q));  // 1
+IO.Println(Queue.Peek(q));     // 2
+IO.Println(Queue.Count(q));    // 1
+Queue.Contains(q, 2);          // true
+Queue.Clear(q);
+
+// HashSet (unique elements)
+var hs = HashSet.Create();
+HashSet.Add(hs, "x");          // true (newly added)
+HashSet.Contains(hs, "x");     // true
+HashSet.Remove(hs, "x");       // true
+IO.Println(HashSet.Count(hs)); // 0
+var elems = HashSet.ToArray(hs);
+```
+
+### JSON
+
+`Json.Parse` turns a JSON string into a `Dict`/`List` handle (or a scalar), and
+`Json.Serialize` turns a value back into a JSON string. JSON objects become
+`Dict` handles, arrays become `List` handles, and scalars become
+string / int / double / bool / null.
+
+```ct
+var obj = Json.Parse("{\"name\":\"Ada\",\"age\":36}");
+IO.Println(Dict.Get(obj, "name"));   // Ada
+IO.Println(Dict.Get(obj, "age"));    // 36
+IO.Println(Json.Serialize(obj));     // {"name":"Ada","age":36}
+
+var list = Json.Parse("[1, 2, 3]");
+IO.Println(List.Count(list));        // 3
+```
+
+### Path and Directory
+
+```ct
+// Path
+Path.Combine("a", "b");                 // "a/b" (platform separator)
+Path.GetFileName("/a/b/file.txt");      // "file.txt"
+Path.GetFileNameWithoutExtension("a.txt"); // "a"
+Path.GetExtension("file.txt");          // ".txt"
+Path.GetDirectoryName("/a/b/file.txt"); // "/a/b"
+Path.GetFullPath("rel");                // absolute path
+Path.IsPathRooted("/a");                // true
+Path.ChangeExtension("a.txt", "md");    // "a.md"
+
+// Directory
+Directory.Exists("dir");                // true when present
+Directory.Create("dir");
+Directory.Delete("dir", true);          // recursive
+Directory.GetFiles("dir");              // string[] of file paths
+Directory.GetDirectories("dir");        // string[] of subdirectory paths
+Directory.GetCurrentDirectory();
+Directory.SetCurrentDirectory("dir");
+Directory.Move("src", "dst");
+```
+
+### Process
+
+```ct
+var out = Process.Run("echo", "hello");      // "hello" (stdout, trimmed)
+var code = Process.RunExitCode("cmd", "/c exit 3");  // 3
+var err = Process.RunError("cmd", "/c echo oops 1>&2"); // "oops"
+```
+
+### Guid, Base64, Console
+
+```ct
+// Guid
+var id = Guid.New();                 // "xxxxxxxx-xxxx-..."
+var idN = Guid.NewN();               // no dashes
+Guid.IsValid(id);                    // true
+
+// Base64
+var enc = Base64.Encode("hi");       // "aGk="
+Base64.Decode(enc);                  // "hi"
+Base64.IsValid(enc);                 // true
+
+// Console (colors, cursor, keys)
+Console.SetForeground("red");
+Console.SetBackground("black");
+Console.ResetColor();
+Console.Clear();
+Console.SetCursorPosition(0, 0);
+var key = Console.ReadKey();         // single character as a string
+Console.KeyAvailable();              // true when a key is waiting
+Console.Write("x");  Console.WriteLine("y");
+```
 
 ### File, Environment, GC, Debug, Time, Thread
 

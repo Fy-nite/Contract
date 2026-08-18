@@ -67,6 +67,15 @@ public class IRCodeGenerator
     // Contract name → CLR type name for <ClrImport("System.Math")> contracts.
     // Call sites emit Type.Method targets; the runtime resolves via reflection.
     private readonly Dictionary<string, string> _clrImports = new(StringComparer.OrdinalIgnoreCase);
+    // In-scope generic type parameters for the contract/function being generated.
+    // Contract params map to their literal name (the VM substitutes during
+    // materialization); function params erase to object.
+    private HashSet<string> _currentTypeParams = new();
+    // Function-level type parameters (fn identity<T>) — these ERASE to object
+    // (a function is a single runtime entity).
+    private HashSet<string> _currentFnTypeParams = new();
+    // Contract name (short + full) → its type parameters, for call-site erasure.
+    private readonly Dictionary<string, HashSet<string>> _contractTypeParams = new(StringComparer.OrdinalIgnoreCase);
 
     private const string DelegateClassName = "Delegate";
     private const string DelegateTargetField = "target";
@@ -139,9 +148,24 @@ public class IRCodeGenerator
         // short-name → qualified resolution (namespaces).
         _qualifiedTypeNames.Clear();
         _shortToFull.Clear();
+        _contractTypeParams.Clear();
         foreach (var c in program.Contracts) AddTypeIndex(c.Name, c.FullName);
         foreach (var s in program.Structs) AddTypeIndex(s.Name, s.FullName);
         foreach (var e in program.Enums) AddTypeIndex(e.Name, e.FullName);
+
+        // Record every generic contract's type parameters up front so call
+        // sites (including Program.Main in the Global class) can resolve the
+        // materialized names regardless of generation order.
+        foreach (var c in program.Contracts)
+        {
+            if (c.IsGeneric)
+            {
+                var paramsSet = new HashSet<string>(c.TypeParameters);
+                _contractTypeParams[c.Name] = paramsSet;
+                if (c.FullName != c.Name)
+                    _contractTypeParams[c.FullName] = paramsSet;
+            }
+        }
 
         // Nested structs/enums are emitted under their own wire names too, so
         // short-name and dotted resolution finds them (Color → Raylib.Color).
@@ -195,6 +219,15 @@ public class IRCodeGenerator
             if (cls.ClrImportType != null)
                 _clrImports[cls.Name] = cls.ClrImportType;
 
+            // Record the contract's type parameters for call-site erasure.
+            if (cls.IsGeneric)
+            {
+                var paramsSet = new HashSet<string>(cls.TypeParameters);
+                _contractTypeParams[cls.Name] = paramsSet;
+                if (cls.FullName != cls.Name)
+                    _contractTypeParams[cls.FullName] = paramsSet;
+            }
+
             // Contracts are emitted under their fully-qualified wire name
             // (com.example.Foo), matching structs/enums — the VM keys types,
             // fields, and methods by these exact names.
@@ -211,13 +244,22 @@ public class IRCodeGenerator
             {
                 classBuilder.Attribute("Attribute");
             }
+            // Generic contracts are emitted as @Generic(T, ...) definitions —
+            // the VM clones + substitutes them per concrete instantiation.
+            if (cls.IsGeneric)
+            {
+                classBuilder.Attribute("Generic", cls.TypeParameters.ToArray());
+            }
             if (cls.BaseTypeName != null)
             {
                 classBuilder.Extends(ResolveTypeName(cls.BaseTypeName));
             }
 
             // Instance fields: emitted as class fields (static ones carry the
-            // static flag in the wire metadata).
+            // static flag in the wire metadata). Contract type params are in
+            // scope so field types like `value: T` emit literally as T.
+            var savedTypeParams = _currentTypeParams;
+            _currentTypeParams = new HashSet<string>(cls.TypeParameters);
             foreach (var field in cls.Fields)
             {
                 var fieldBuilder = classBuilder.Field(field.Name, MapType(field.Type));
@@ -269,6 +311,7 @@ public class IRCodeGenerator
                     enumBuilder.EndClass();
                 }
             }
+            _currentTypeParams = savedTypeParams;
 
             classBuilder.EndClass();
         }
@@ -291,6 +334,15 @@ public class IRCodeGenerator
         _lastIsReturn = false;
         _functionTypedParams = new();
         _functionTypedLocals = new();
+        // Function type params erase to object; the enclosing contract's params
+        // stay literal (the VM substitutes them during materialization).
+        var savedFnTypeParams = _currentFnTypeParams;
+        var savedTypeParams = _currentTypeParams;
+        _currentFnTypeParams = new HashSet<string>(func.TypeParameters);
+        if (func.ContractName != null && _contractTypeParams.TryGetValue(func.ContractName, out var contractParams))
+            _currentTypeParams = new HashSet<string>(contractParams);
+        else
+            _currentTypeParams = new HashSet<string>();
         foreach (var p in func.Parameters)
         {
             if (p.Type is TypeDescriptor.Function fnType)
@@ -486,6 +538,8 @@ public class IRCodeGenerator
         _closureIsArg = savedClosureIsArg;
         _closureLocalName = savedClosureLocal;
         _thisArgIndex = savedThisIndex;
+        _currentFnTypeParams = savedFnTypeParams;
+        _currentTypeParams = savedTypeParams;
     }
 
     /// <summary>True when 'name' resolves to a (non-static) field of the current
@@ -566,8 +620,14 @@ public class IRCodeGenerator
     {
         if (name == "this" && _currentContractName != null)
             return ResolveTypeName(_currentContractName);
-        if (_variableTypes.TryGetValue(name, out var t) && t is TypeDescriptor.Named n && !n.IsEmpty)
-            return ResolveTypeName(n.Name);
+        if (_variableTypes.TryGetValue(name, out var t))
+        {
+            if (t is TypeDescriptor.Named n && !n.IsEmpty)
+                return ResolveTypeName(n.Name);
+            // b: Box<int> — the field's declaring type is the materialized name.
+            if (t is TypeDescriptor.GenericInstance g && IsUserGenericContract(g.Name))
+                return MaterializedContractName(g);
+        }
         return ResolveTypeName(name);
     }
 
@@ -589,9 +649,24 @@ public class IRCodeGenerator
                 var owner = ResolveExpressionObjectType(mem.Object);
                 return FindFieldDeclaringTypeName(owner, mem.Property) ?? owner;
             }
-            default:
-                return "TODO_DYNAMIC_TYPE";
+            case CallExpression call:
+                // e.g. eval(...).atomVal or list.Get(i).atomVal — the call's
+                // return type determines the field's declaring type.
+                if (call.Symbol is FunctionDeclaration fd && fd.ReturnType is TypeDescriptor.Named ret && !ret.IsEmpty)
+                    return ResolveTypeName(ret.Name);
+                if (call.Symbol is ExternalMethod em)
+                {
+                    var retType = em.Info.ReturnType;
+                    if (retType == typeof(string)) return "string";
+                    if (retType == typeof(int)) return "int";
+                    if (retType == typeof(bool)) return "bool";
+                    if (retType == typeof(double)) return "double";
+                    if (retType == typeof(object)) return "object";
+                    return retType.Name;
+                }
+                break;
         }
+        return "TODO_DYNAMIC_TYPE";
     }
 
     /// <summary>The resolved wire type name of a field declared on a contract or
@@ -668,12 +743,79 @@ public class IRCodeGenerator
     }
 
     /// <summary>The resolved wire name of the contract declaring a field on
-    /// <paramref name="typeName"/> (walking bases), or null when unknown.</summary>
+    /// <paramref name="typeName"/> (walking bases), or null when unknown.
+    /// For a materialized generic (<c>Box&lt;int32&gt;</c>) the declaring type
+    /// is the materialized name itself.</summary>
     private string? FieldDeclaringTypeName(string typeName, string fieldName, bool staticOnly)
     {
-        var contract = FindContract(typeName);
-        var declaring = contract != null ? FindFieldDeclaringContract(contract, fieldName, staticOnly) : null;
-        return declaring != null ? ResolveTypeName(declaring.Name) : null;
+        if (TrySplitMaterializedName(typeName, out var baseName, out _))
+        {
+            var contract = FindContract(baseName);
+            var declaring = contract != null ? FindFieldDeclaringContract(contract, fieldName, staticOnly) : null;
+            return declaring != null ? typeName : null;
+        }
+        var contract2 = FindContract(typeName);
+        var declaring2 = contract2 != null ? FindFieldDeclaringContract(contract2, fieldName, staticOnly) : null;
+        return declaring2 != null ? ResolveTypeName(declaring2.Name) : null;
+    }
+
+    /// <summary>
+    /// Splits a materialized generic wire name (<c>Box&lt;int32&gt;</c>) into its
+    /// base contract name and concrete type arguments. Returns false for
+    /// non-generic names.
+    /// </summary>
+    private static bool TrySplitMaterializedName(string name, out string baseName, out List<TypeDescriptor> args)
+    {
+        baseName = name;
+        args = new List<TypeDescriptor>();
+        int lt = name.IndexOf('<');
+        if (lt <= 0 || !name.EndsWith(">", StringComparison.Ordinal)) return false;
+        baseName = name[..lt];
+        var inner = name[(lt + 1)..^1];
+        foreach (var part in inner.Split(','))
+        {
+            var t = part.Trim();
+            if (t.Length > 0) args.Add(TypeDescriptor.Parse(t));
+        }
+        return true;
+    }
+
+    /// <summary>Substitutes type parameters in a descriptor using <paramref name="map"/>.</summary>
+    private static TypeDescriptor SubstituteTypeParams(TypeDescriptor type, IReadOnlyDictionary<string, TypeDescriptor> map)
+    {
+        switch (type)
+        {
+            case TypeDescriptor.Named n:
+                return map.TryGetValue(n.Name, out var mapped) ? mapped : type;
+            case TypeDescriptor.ArrayOf a:
+                return new TypeDescriptor.ArrayOf(SubstituteTypeParams(a.Element, map));
+            case TypeDescriptor.Function f:
+                return new TypeDescriptor.Function(
+                    f.Parameters.Select(p => SubstituteTypeParams(p, map)).ToList(),
+                    SubstituteTypeParams(f.Return, map));
+            case TypeDescriptor.GenericInstance g:
+                return new TypeDescriptor.GenericInstance(
+                    g.Name,
+                    g.Arguments.Select(a => SubstituteTypeParams(a, map)).ToList());
+            default:
+                return type;
+        }
+    }
+
+    /// <summary>The type-parameter map for a materialized generic name
+    /// (<c>Box&lt;int32&gt;</c> → <c>{ T → int32 }</c>), or null when not generic.</summary>
+    private Dictionary<string, TypeDescriptor>? MaterializedTypeParamMap(string typeName)
+    {
+        if (!TrySplitMaterializedName(typeName, out var baseName, out var args)) return null;
+        if (!_contractTypeParams.TryGetValue(baseName, out var paramsSet)) return null;
+        var map = new Dictionary<string, TypeDescriptor>();
+        int i = 0;
+        foreach (var p in paramsSet)
+        {
+            if (i < args.Count) map[p] = args[i];
+            i++;
+        }
+        return map;
     }
 
     /// <summary>Finds a member function on a contract or its bases (most-derived first).</summary>
@@ -698,18 +840,26 @@ public class IRCodeGenerator
     }
 
     /// <summary>Looks up a field's type on the given contract/struct type name
-    /// (short or qualified), walking the base chain for contracts.</summary>
+    /// (short or qualified), walking the base chain for contracts. For a
+    /// materialized generic (<c>Box&lt;int32&gt;</c>) the field's type params are
+    /// substituted to the concrete args.</summary>
     private TypeRef FindFieldType(string typeName, string fieldName)
     {
         if (_program != null)
         {
-            var contract = FindContract(typeName);
+            var typeParamMap = MaterializedTypeParamMap(typeName);
+            var lookupName = typeParamMap != null ? (TrySplitMaterializedName(typeName, out var bn, out _) ? bn : typeName) : typeName;
+            var contract = FindContract(lookupName);
             if (contract != null)
             {
                 var declaring = FindFieldDeclaringContract(contract, fieldName, staticOnly: false)
                     ?? FindFieldDeclaringContract(contract, fieldName, staticOnly: true);
                 var f = declaring?.Fields.FirstOrDefault(f => f.Name == fieldName);
-                if (f != null) return MapType(f.Type);
+                if (f != null)
+                {
+                    var fieldType = typeParamMap != null ? SubstituteTypeParams(f.Type, typeParamMap) : f.Type;
+                    return MapType(fieldType);
+                }
             }
             var structDecl = FindStruct(typeName);
             if (structDecl != null)
@@ -1241,6 +1391,27 @@ public class IRCodeGenerator
                 break;
 
             case Contract.Compiler.AST.VariableDeclaration v:
+                // Destructuring: var (a, b) = f(); — call f (returns object[]),
+                // then bind each name to arr[i].
+                if (v.Names.Count > 0)
+                {
+                    if (v.Initializer != null)
+                        GenerateExpression(ib, v.Initializer, paramMap);
+                    for (int i = 0; i < v.Names.Count; i++)
+                    {
+                        var name = v.Names[i];
+                        _variableTypes[name] = new TypeDescriptor.Named("object");
+                        _lambdaBodyLocals?.Add(name);
+                        ib.Local(name, TypeRef.Object);
+                        ib.Dup();
+                        ib.LdcI4(i);
+                        ib.Ldelem();
+                        ib.Stloc(name);
+                    }
+                    ib.Pop();   // discard the array reference
+                    break;
+                }
+
                 _variableTypes[v.Name] = v.Type;
                 _lambdaBodyLocals?.Add(v.Name);
                 if (v.Type is TypeDescriptor.Function fnLocalType)
@@ -1354,7 +1525,13 @@ public class IRCodeGenerator
                 _loopContinueEmitters.Push(body =>
                 {
                     if (forStmt.Update != null)
+                    {
                         GenerateExpression(body, forStmt.Update, paramMap);
+                        // The update is a statement; its expression value must
+                        // not leak onto the stack (it would accumulate across
+                        // iterations and unbalance the loop).
+                        body.Pop();
+                    }
                     if (forStmt.Condition != null)
                         GenerateExpression(body, forStmt.Condition, paramMap);
                     else
@@ -1365,7 +1542,10 @@ public class IRCodeGenerator
                     body.Pop();
                     GenerateStatement(body, forStmt.Body, paramMap);
                     if (forStmt.Update != null)
+                    {
                         GenerateExpression(body, forStmt.Update, paramMap);
+                        body.Pop();
+                    }
                     if (forStmt.Condition != null)
                         GenerateExpression(body, forStmt.Condition, paramMap);
                     else
@@ -1441,6 +1621,14 @@ public class IRCodeGenerator
                 GenerateExpression(ib, unaryExpr.Operand, paramMap);
                 if (unaryExpr.Operator == "-") ib.Neg();
                 else if (unaryExpr.Operator == "!") ib.Not();
+                break;
+
+            case TernaryExpression ternary:
+                // cond ? then : else — evaluate cond, branch, both arms leave a value.
+                GenerateExpression(ib, ternary.Condition, paramMap);
+                ib.If("stack",
+                    then => GenerateExpression(then, ternary.ThenBranch, paramMap),
+                    els => GenerateExpression(els, ternary.ElseBranch, paramMap));
                 break;
 
             case IdentifierExpression id:
@@ -1760,12 +1948,26 @@ public class IRCodeGenerator
                         ? MapType(instanceFunc.ReturnType)
                         : TypeRef.Int32;
                     var paramTypes = instanceFunc.Parameters.Select(p => MapType(p.Type)).ToList();
+                    // Prepend 'this' parameter type so the VM can match the
+                    // full method signature (this + params).
+                    paramTypes.Insert(0, TypeRef.Object);
                     // Native-bound contracts dispatch to the host module with the
                     // receiver (an external object handle) as argument 0.
-                    string instanceTarget = _nativeBindings.TryGetValue(instanceFunc.ContractName ?? "", out var instBinding)
+                    bool isNativeBinding = _nativeBindings.TryGetValue(instanceFunc.ContractName ?? "", out var instBinding);
+                    string instanceTarget = isNativeBinding
                         ? instBinding
                         : ResolveTypeName(instanceFunc.ContractName ?? "TODO");
-                    if (instanceTarget != instanceFunc.ContractName)
+                    // Generic contract instance: b.get() where b: Box<int> — the
+                    // target is the materialized name (Box<int32>).
+                    if (call.Callee is MemberExpression recvMem
+                        && recvMem.Object is IdentifierExpression recvId
+                        && _variableTypes.TryGetValue(recvId.Name, out var recvType)
+                        && recvType is TypeDescriptor.GenericInstance recvGen
+                        && IsUserGenericContract(recvGen.Name))
+                    {
+                        instanceTarget = MaterializedContractName(recvGen);
+                    }
+                    if (isNativeBinding)
                     {
                         // The VM pops args in reverse, so the receiver (pushed
                         // last) lands at the END of the native call's argument
@@ -1784,12 +1986,15 @@ public class IRCodeGenerator
                     var paramTypes = staticFunc.Parameters.Select(p => MapType(p.Type)).ToList();
                     // NativeBinding → host module name; ClrImport → CLR type name
                     // (resolved by reflection at runtime); else the contract's
-                    // own wire name (a normal module function).
+                    // own wire name (a normal module function). Generic statics
+                    // (Box::wrap(7)) target the materialized name (Box<int32>).
                     string staticTarget = _nativeBindings.TryGetValue(staticFunc.ContractName ?? "", out var statBinding)
                         ? statBinding
                         : _clrImports.TryGetValue(staticFunc.ContractName ?? "", out var clrTarget)
                             ? clrTarget
-                            : ResolveTypeName(staticFunc.ContractName ?? "Global");
+                            : staticFunc.TypeArguments.Count > 0
+                                ? MaterializedContractName(staticFunc.ContractName ?? "", staticFunc.TypeArguments)
+                                : ResolveTypeName(staticFunc.ContractName ?? "Global");
                     ib.Call(new MethodReference(new TypeRef(staticTarget), staticFunc.Name, returnType, paramTypes));
                 }
                 else if (call.Callee is IdentifierExpression calleeIdent)
@@ -1857,7 +2062,15 @@ public class IRCodeGenerator
                     // only allocates; the ctor (this + params, named ".ctor") is
                     // invoked explicitly. Stack: [obj] → [obj,obj] → [obj,obj,args...]
                     // → call pops in reverse into locals → ret pushes nil → pop.
-                    var qualifiedNewType = ResolveTypeName(newExpr.TypeName);
+                    // Generic instantiation (new Box<int>(5)) allocates the
+                    // materialized name (Box<int32>) and substitutes the ctor's
+                    // type params.
+                    var typeParamMap = newExpr.TypeArguments.Count > 0
+                        ? BuildTypeParamMap(newExpr.TypeName, newExpr.TypeArguments)
+                        : null;
+                    var qualifiedNewType = typeParamMap != null
+                        ? MaterializedContractName(newExpr.TypeName, newExpr.TypeArguments)
+                        : ResolveTypeName(newExpr.TypeName);
                     ib.Newobj(new TypeRef(qualifiedNewType));
                     var contract = _program?.Contracts.FirstOrDefault(c => c.Name == newExpr.TypeName || c.FullName == newExpr.TypeName);
                     var ctor = contract?.Constructors.FirstOrDefault(c => c.Parameters.Count == newExpr.Arguments.Count);
@@ -1866,7 +2079,10 @@ public class IRCodeGenerator
                         ib.Dup();   // the receiver — pushed FIRST (it is param 0)
                         foreach (var arg in newExpr.Arguments)
                             GenerateExpression(ib, arg, paramMap);
-                        var argTypes = ctor.Parameters.Select(p => MapType(p.Type)).ToList();
+                        var argTypes = ctor.Parameters
+                            .Select(p => typeParamMap != null ? SubstituteTypeParams(p.Type, typeParamMap) : p.Type)
+                            .Select(MapType)
+                            .ToList();
                         ib.Call(new MethodReference(
                             new TypeRef(qualifiedNewType),
                             ".ctor",
@@ -1899,6 +2115,20 @@ public class IRCodeGenerator
                     ib.Dup();
                     ib.LdcI4(elemIdx);
                     GenerateExpression(ib, arrLit.Elements[elemIdx], paramMap);
+                    ib.Stelem();
+                }
+                break;
+
+            case TupleLiteralExpression tupleLit:
+                // A tuple (a, b, c) lowers to an object[] — the multi-value
+                // return representation. Build the array like an array literal.
+                ib.LdcI4(tupleLit.Elements.Count);
+                ib.Newarr(TypeRef.Object);
+                for (int elemIdx = 0; elemIdx < tupleLit.Elements.Count; elemIdx++)
+                {
+                    ib.Dup();
+                    ib.LdcI4(elemIdx);
+                    GenerateExpression(ib, tupleLit.Elements[elemIdx], paramMap);
                     ib.Stelem();
                 }
                 break;
@@ -2023,18 +2253,62 @@ public class IRCodeGenerator
     private TypeRef MapType(TypeDescriptor type) => type switch
     {
         TypeDescriptor.Named n => MapNamedType(n.Name),
-        TypeDescriptor.ArrayOf a => new TypeRef($"{a.Element}[]"),
+        TypeDescriptor.ArrayOf a => new TypeRef($"{MapType(a.Element).Name}[]"),
         // Function types are represented as object handles in the wire model
         // (a delegate IS an object).
         TypeDescriptor.Function => TypeRef.Object,
+        // A tuple return type (bool, object) is an object[] on the wire.
+        TypeDescriptor.Tuple => new TypeRef("object[]"),
         // Delegate<T> is the typed delegate wrapper — it materialises as the
         // runtime's Delegate class.
         TypeDescriptor.GenericInstance g when TryGetDelegateFunctionType(g, out _) => new TypeRef(DelegateClassName),
+        // User generic contracts (Box<int>) materialize to their concrete name
+        // (Box<int32>); stdlib generics (List/Dict) stay erased object handles.
+        TypeDescriptor.GenericInstance g when IsUserGenericContract(g.Name) => new TypeRef(MaterializedContractName(g)),
         // Generic instances are type-erased: the runtime sees the object-backed
         // collection class (List/Dict), so the wire type is object.
         TypeDescriptor.GenericInstance => TypeRef.Object,
         _ => TypeRef.Int32
     };
+
+    /// <summary>True when <paramref name="name"/> is a user-declared generic contract.</summary>
+    private bool IsUserGenericContract(string name)
+        => _contractTypeParams.ContainsKey(name);
+
+    /// <summary>
+    /// The materialized wire name of a generic instantiation: <c>Box&lt;int&gt;</c>
+    /// → <c>Box&lt;int32&gt;</c> (wire names use int32/int64/r8, not language names).
+    /// </summary>
+    private string MaterializedContractName(TypeDescriptor.GenericInstance g)
+    {
+        var baseName = ResolveTypeName(g.Name);
+        var args = g.Arguments.Select(a => MapType(a).Name);
+        return $"{baseName}<{string.Join(", ", args)}>";
+    }
+
+    /// <summary>Materialized name from a written type name + explicit type args
+    /// (<c>new Box&lt;int&gt;(5)</c> → <c>Box&lt;int32&gt;</c>).</summary>
+    private string MaterializedContractName(string typeName, List<TypeDescriptor> typeArgs)
+    {
+        var baseName = ResolveTypeName(typeName);
+        var args = typeArgs.Select(a => MapType(a).Name);
+        return $"{baseName}<{string.Join(", ", args)}>";
+    }
+
+    /// <summary>Type-parameter map from a written type name + explicit type args
+    /// (<c>Box&lt;int&gt;</c> → <c>{ T → int }</c>).</summary>
+    private Dictionary<string, TypeDescriptor>? BuildTypeParamMap(string typeName, List<TypeDescriptor> typeArgs)
+    {
+        if (!_contractTypeParams.TryGetValue(typeName, out var paramsSet)) return null;
+        var map = new Dictionary<string, TypeDescriptor>();
+        int i = 0;
+        foreach (var p in paramsSet)
+        {
+            if (i < typeArgs.Count) map[p] = typeArgs[i];
+            i++;
+        }
+        return map;
+    }
 
     /// <summary>
     /// True when <paramref name="g"/> is <c>Delegate&lt;F&gt;</c>; exposes the
@@ -2100,26 +2374,35 @@ public class IRCodeGenerator
         return new FieldReference(new TypeRef(_closureClass!), name, fieldType);
     }
 
-    private TypeRef MapNamedType(string type) => string.IsNullOrEmpty(type) ? TypeRef.Int32 : type.ToLower() switch {
-        "string" => TypeRef.String,
-        "void" => TypeRef.Void,
-        "bool" => TypeRef.Bool,
-        "int" => TypeRef.Int32,
-        "int64" => TypeRef.Int64,
-        "long" => TypeRef.Int64,
-        "object" => TypeRef.Object,
-        "double" => TypeRef.Float64,
-        "float" => TypeRef.Float32,
-        // Extended integer widths: the VM stores every integer as I4, but the
-        // wire name keeps the native C width so DllImport signatures and
-        // interop struct fields marshal as their true C types.
-        "byte" => new TypeRef("uint8"),
-        "sbyte" => new TypeRef("int8"),
-        "short" => new TypeRef("int16"),
-        "ushort" => new TypeRef("uint16"),
-        "uint" => new TypeRef("uint32"),
-        _ => new TypeRef(ResolveTypeName(type))
-    };
+    private TypeRef MapNamedType(string type)
+    {
+        if (string.IsNullOrEmpty(type)) return TypeRef.Int32;
+        // Function-level type params erase to object (a function is a single
+        // runtime entity); contract type params stay literal (the VM
+        // substitutes them during materialization).
+        if (_currentFnTypeParams.Contains(type)) return TypeRef.Object;
+        if (_currentTypeParams.Contains(type)) return new TypeRef(type);
+        return type.ToLower() switch {
+            "string" => TypeRef.String,
+            "void" => TypeRef.Void,
+            "bool" => TypeRef.Bool,
+            "int" => TypeRef.Int32,
+            "int64" => TypeRef.Int64,
+            "long" => TypeRef.Int64,
+            "object" => TypeRef.Object,
+            "double" => TypeRef.Float64,
+            "float" => TypeRef.Float32,
+            // Extended integer widths: the VM stores every integer as I4, but the
+            // wire name keeps the native C width so DllImport signatures and
+            // interop struct fields marshal as their true C types.
+            "byte" => new TypeRef("uint8"),
+            "sbyte" => new TypeRef("int8"),
+            "short" => new TypeRef("int16"),
+            "ushort" => new TypeRef("uint16"),
+            "uint" => new TypeRef("uint32"),
+            _ => new TypeRef(ResolveTypeName(type))
+        };
+    }
 
     // ── Namespace resolution ────────────────────────────────────────
 

@@ -1,0 +1,333 @@
+import "List.ct";
+import thing;
+
+// A minimal Lisp interpreter in Contract
+// Optimized: cache .Count() in hot loops
+
+Contract Lisp {
+    struct Value {
+        kind: string;
+        atomVal: string;
+        listVal: ValueList<Value>;
+        lambdaFn: (ValueList<Value>) -> Value;
+    }
+
+    struct Env {
+        parent: Env;
+        bindings: Dict<string, Value>;
+    }
+
+    static fn car(lst: ValueList<Value>) -> Value {
+        return lst[0];
+    }
+
+    static fn cdr(lst: ValueList<Value>) -> ValueList<Value> {
+        var result = new ValueList<Value>();
+        var count = lst.Count();
+        for (var i = 1; i < count; i = i + 1) {
+            result.Add(lst.Get(i));
+        }
+        return result;
+    }
+
+    static fn eval(expr: Value, env: Env) -> Value {
+        if (expr.kind == "atom") {
+            var name = expr.atomVal;
+            if (Dict.ContainsKey(env.bindings, name)) {
+                return Dict.Get(env.bindings, name);
+            }
+            if (env.parent != null) {
+                return eval(expr, env.parent);
+            }
+            return expr;
+        }
+
+        if (expr.kind == "list") {
+            var lst = expr.listVal;
+            var listCount = lst.Count();
+            if (listCount == 0) return expr;
+
+            var head = lst.Get(0);
+            var rest = cdr(lst);
+
+            if (head.kind == "atom") {
+                var op = head.atomVal;
+
+                if (op == "quote") {
+                    return rest.Get(0);
+                }
+
+                if (op == "if") {
+                    var cond = eval(rest.Get(0), env);
+                    if (isTruthy(cond)) {
+                        return eval(rest.Get(1), env);
+                    } else if (rest.Count() > 2) {
+                        return eval(rest.Get(2), env);
+                    }
+                    return makeAtom("nil");
+                }
+
+                if (op == "let") {
+                    var bindings = rest.Get(0);
+                    var body = rest.Get(1);
+                    var newEnv = new Env();
+                    newEnv.parent = env;
+                    newEnv.bindings = Dict.Create();
+                    
+                    var bindingsCount = bindings.listVal.Count();
+                    for (var i = 0; i < bindingsCount; i = i + 1) {
+                        var binding = bindings.listVal.Get(i);
+                        var varName = binding.listVal.Get(0).atomVal;
+                        var varVal = eval(binding.listVal.Get(1), env);
+                        Dict.Set(newEnv.bindings, varName, varVal);
+                    }
+                    return eval(body, newEnv);
+                }
+
+                if (op == "lambda" || op == "fn") {
+                    var params = rest.Get(0);
+                    var body = rest.Get(1);
+                    var closure = new Env();
+                    closure.parent = env;
+                    closure.bindings = Dict.Create();
+                    return makeLambda(params, body, closure);
+                }
+
+                if (op == "defun") {
+                    var name = rest.Get(0).atomVal;
+                    var params = rest.Get(1);
+                    var body = rest.Get(2);
+                    var func = makeLambda(params, body, env);
+                    Dict.Set(env.bindings, name, func);
+                    return makeAtom(name);
+                }
+
+                if (op == "+") {
+                    var sum = 0;
+                    var restCount = rest.Count();
+                    for (var i = 0; i < restCount; i = i + 1) {
+                        var val = eval(rest.Get(i), env);
+                        sum = sum + Convert.ToInt32(val.atomVal);
+                    }
+                    return makeAtom(Convert.ToString(sum));
+                }
+
+                if (op == "-") {
+                    var result = Convert.ToInt32(rest.Get(0).atomVal);
+                    var restCount = rest.Count();
+                    for (var i = 1; i < restCount; i = i + 1) {
+                        var val = eval(rest.Get(i), env);
+                        result = result - Convert.ToInt32(val.atomVal);
+                    }
+                    return makeAtom(Convert.ToString(result));
+                }
+
+                if (op == "*") {
+                    var prod = 1;
+                    var restCount = rest.Count();
+                    for (var i = 0; i < restCount; i = i + 1) {
+                        var val = eval(rest.Get(i), env);
+                        prod = prod * Convert.ToInt32(val.atomVal);
+                    }
+                    return makeAtom(Convert.ToString(prod));
+                }
+
+                if (op == "=") {
+                    var left = eval(rest.Get(0), env);
+                    var right = eval(rest.Get(1), env);
+                    return (left.atomVal == right.atomVal) ? makeAtom("t") : makeAtom("nil");
+                }
+
+                if (op == "<") {
+                    var left = Convert.ToInt32(eval(rest.Get(0), env).atomVal);
+                    var right = Convert.ToInt32(eval(rest.Get(1), env).atomVal);
+                    return (left < right) ? makeAtom("t") : makeAtom("nil");
+                }
+
+                if (op == "list") {
+                    var resultList = new ValueList<Value>();
+                    var restCount = rest.Count();
+                    for (var i = 0; i < restCount; i = i + 1) {
+                        resultList.Add(eval(rest.Get(i), env));
+                    }
+                    return makeList(resultList);
+                }
+
+                if (op == "car") {
+                    var lst = eval(rest.Get(0), env).listVal;
+                    return lst.Get(0);
+                }
+
+                if (op == "cdr") {
+                    var lst = eval(rest.Get(0), env).listVal;
+                    return makeList(cdr(lst));
+                }
+            }
+
+            var fn = eval(head, env);
+            if (fn.kind == "lambda") {
+                var args = new ValueList<Value>();
+                var restCount = rest.Count();
+                for (var i = 0; i < restCount; i = i + 1) {
+                    args.Add(eval(rest.Get(i), env));
+                }
+                return fn.lambdaFn(args);
+            }
+
+            return makeAtom("error");
+        }
+
+        return expr;
+    }
+
+    static fn makeLambda(params: Value, body: Value, closure: Env) -> Value {
+        var paramNames = params.listVal;
+        var v = new Value();
+        v.kind = "lambda";
+        v.lambdaFn = fun (args: ValueList<Value>) -> {
+            var callEnv = new Env();
+            callEnv.parent = closure;
+            callEnv.bindings = Dict.Create();
+            var paramCount = paramNames.Count();
+            for (var i = 0; i < paramCount; i = i + 1) {
+                var name = paramNames.Get(i).atomVal;
+                Dict.Set(callEnv.bindings, name, args.Get(i));
+            }
+            return eval(body, callEnv);
+        };
+        return v;
+    }
+
+    static fn makeAtom(s: string) -> Value {
+        var v = new Value();
+        v.kind = "atom";
+        v.atomVal = s;
+        return v;
+    }
+
+    static fn makeList(lst: ValueList<Value>) -> Value {
+        var v = new Value();
+        v.kind = "list";
+        v.listVal = lst;
+        return v;
+    }
+
+    static fn isTruthy(v: Value) -> bool {
+        return v.atomVal != "nil" && v.atomVal != "false";
+    }
+
+    static fn valueToString(v: Value) -> string {
+        if (v.kind == "atom") {
+            return v.atomVal;
+        }
+        if (v.kind == "lambda") {
+            return "<lambda>";
+        }
+        if (v.kind == "list") {
+            var parts = new ValueList<string>();
+            var count = v.listVal.Count();
+            for (var i = 0; i < count; i = i + 1) {
+                parts.Add(valueToString(v.listVal.Get(i)));
+            }
+            var joined = "";
+            var partCount = parts.Count();
+            for (var i = 0; i < partCount; i = i + 1) {
+                if (i > 0) joined = joined + " ";
+                joined = joined + parts.Get(i);
+            }
+            return "(" + joined + ")";
+        }
+        return "?";
+    }
+
+    static fn tokenize(input: string) -> ValueList<string> {
+        var tokens = new ValueList<string>();
+        var current = "";
+        var inputLen = String.Length(input);
+        for (var i = 0; i < inputLen; i = i + 1) {
+            var ch = String.Substring(input, i, 1);
+            if (ch == "(" || ch == ")") {
+                if (current != "") {
+                    tokens.Add(current);
+                    current = "";
+                }
+                tokens.Add(ch);
+            } else if (ch == " " || ch == "\n" || ch == "\t") {
+                if (current != "") {
+                    tokens.Add(current);
+                    current = "";
+                }
+            } else {
+                current = current + ch;
+            }
+        }
+        if (current != "") {
+            tokens.Add(current);
+        }
+        return tokens;
+    }
+
+    static fn parse(tokens: ValueList<string>, pos: int) -> Value {
+        if (pos >= tokens.Count()) return makeAtom("nil");
+        
+        var token = tokens.Get(pos);
+        if (token == "(") {
+            var list = new ValueList<Value>();
+            var i = pos + 1;
+            var tokenCount = tokens.Count();
+            while (i < tokenCount && tokens.Get(i) != ")") {
+                var (val, nextPos) = parseWithPos(tokens, i);
+                list.Add(val);
+                i = nextPos;
+            }
+            return makeList(list);
+        }
+        return makeAtom(token);
+    }
+
+    static fn parseWithPos(tokens: ValueList<string>, pos: int) -> (Value, int) {
+        var tokenCount = tokens.Count();
+        if (pos >= tokenCount) return (makeAtom("nil"), pos);
+        
+        var token = tokens.Get(pos);
+        if (token == "(") {
+            var list = new ValueList<Value>();
+            var i = pos + 1;
+            while (i < tokenCount && tokens.Get(i) != ")") {
+                var (val, nextPos) = parseWithPos(tokens, i);
+                list.Add(val);
+                i = nextPos;
+            }
+            return (makeList(list), i + 1);
+        }
+        return (makeAtom(token), pos + 1);
+    }
+
+    static fn Main() {
+        var globalEnv = new Env();
+        globalEnv.parent = null;
+        globalEnv.bindings = Dict.Create();
+
+        IO.Println("Lisp REPL");
+        IO.Println("(+ 1 2 3)");
+        IO.Println("(* 2 3 4)");
+        IO.Println("(if (< 3 5) \"yes\" \"no\")");
+        IO.Println("(let ((x 5) (y 3)) (+ x y))");
+        IO.Println("(lambda (x) (+ x 1))");
+        IO.Println("");
+
+        var tests = new ValueList<string>();
+        tests.Add("(list 1 2 3 4 5 6 7 8 9 10)");
+        tests.Add("(let ((x 10000)) (+ x x x x x x x x x x))");
+        tests.Add("(lambda (n) (if (< n 2) 1 (* n n)))");
+
+        var testCount = tests.Count();
+        for (var i = 0; i < testCount; i = i + 1) {
+            var input = tests.Get(i);
+            var tokens = tokenize(input);
+            var (expr, _) = parseWithPos(tokens, 0);
+            var result = eval(expr, globalEnv);
+            IO.Println(input + " => " + valueToString(result));
+        }
+    }
+}

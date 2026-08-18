@@ -19,7 +19,7 @@ namespace Contract.Compiler.Parsing
         Semicolon, Colon, DoubleColon, Comma, Dot, Plus, Minus, Star, Slash, Percent,
         Less, LessEqual, Greater, GreaterEqual, EqualEqual, Bang, BangEqual, Assign, Arrow, Pipe,
         PlusEqual, MinusEqual, StarEqual, SlashEqual, PercentEqual, AndAnd, OrOr,
-        DotDot, GreaterGreater,
+        DotDot, GreaterGreater, Question,
         
         // Special
         EOF
@@ -62,7 +62,6 @@ namespace Contract.Compiler.Parsing
         private static readonly Dictionary<string, TokenType> Keywords = new()
         {
             ["Contract"] = TokenType.Contract,
-            ["fn"] = TokenType.Fn,
             ["if"] = TokenType.If,
             ["else"] = TokenType.Else,
             ["while"] = TokenType.While,
@@ -475,6 +474,9 @@ namespace Contract.Compiler.Parsing
                     {
                         type = TokenType.Assign;
                     }
+                    break;
+                case '?':
+                    type = TokenType.Question;
                     break;
                 default:
                     _diagnostics.AddError($"Unexpected character: {c}", _line, _column, _sourceFile);

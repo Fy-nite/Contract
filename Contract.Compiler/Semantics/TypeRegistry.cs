@@ -18,12 +18,14 @@ namespace Contract.Compiler.Semantics
             "Attribute"
         };
 
-        // Generic type names (type-erased: the runtime sees the unbound name).
-        private readonly HashSet<string> _genericTypes = new(StringComparer.OrdinalIgnoreCase)
+        // Generic type names → arity (the runtime sees the unbound name for
+        // stdlib generics; user generic contracts register their own arity).
+        private readonly Dictionary<string, int> _genericTypes = new(StringComparer.OrdinalIgnoreCase)
         {
-            "List", "Dict",
+            ["List"] = 1,
+            ["Dict"] = 2,
             // Delegate<T> — a typed delegate wrapper; T is the function type.
-            "Delegate"
+            ["Delegate"] = 1
         };
 
         private readonly Dictionary<string, string> _aliases = new();
@@ -33,10 +35,26 @@ namespace Contract.Compiler.Semantics
             _types.Add(name);
         }
 
-        public void RegisterGenericType(string name)
+        public void RegisterGenericType(string name, int arity)
         {
-            _genericTypes.Add(name);
+            _genericTypes[name] = arity;
         }
+
+        /// <summary>True when <paramref name="name"/> is a known generic type (List, Dict, Delegate, or a user generic contract).</summary>
+        public bool IsGenericType(string name) => _genericTypes.ContainsKey(name);
+
+        /// <summary>The declared arity of a generic type, or 0 when it isn't one.</summary>
+        public int GetArity(string name)
+            => _genericTypes.TryGetValue(name, out var arity) ? arity : 0;
+
+        /// <summary>
+        /// True when <paramref name="name"/> is a valid type name: a built-in,
+        /// a registered custom type, or a known generic (the unbound name is
+        /// valid on its own — <c>Box</c> is a legal type reference even though
+        /// instantiations carry the args).
+        /// </summary>
+        public bool IsValidTypeName(string name)
+            => _types.Contains(name) || _genericTypes.ContainsKey(name);
 
         /// <summary>
         /// Returns the registered (canonical) spelling of a type name, matching
@@ -55,8 +73,8 @@ namespace Contract.Compiler.Semantics
         /// <summary>
         /// Validates a type descriptor. Arrays are valid when their element is valid;
         /// function types are valid when every parameter and the return type are valid;
-        /// generic instances are valid when the unbound name is a known generic and
-        /// every argument is valid.
+        /// generic instances are valid when the unbound name is a known generic, the
+        /// argument count matches the declared arity, and every argument is valid.
         /// </summary>
         public bool IsValid(TypeDescriptor type)
         {
@@ -69,7 +87,9 @@ namespace Contract.Compiler.Semantics
                 case TypeDescriptor.Function f:
                     return f.Parameters.All(IsValid) && IsValid(f.Return);
                 case TypeDescriptor.GenericInstance g:
-                    return _genericTypes.Contains(g.Name) && g.Arguments.All(IsValid);
+                    return _genericTypes.TryGetValue(g.Name, out var arity)
+                        && g.Arguments.Count == arity
+                        && g.Arguments.All(IsValid);
                 default:
                     return false;
             }

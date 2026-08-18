@@ -46,11 +46,15 @@ namespace Contract.Cli
             var verbose = false;
             var bundle = false;
             var singleFile = false;
+            var jit = false;
             string? outPath = null;
             string? format = null;
             string? methodCall = null;
             string? bindAssembly = null;
             string? hostTypeName = null;
+            string? emitDir = null;
+            string? cacheDir = null;
+            var emitCallgraph = false;
             var rids = new System.Collections.Generic.List<string>();
             var files = new System.Collections.Generic.List<string>();
 
@@ -89,6 +93,14 @@ namespace Contract.Cli
                     case "--bind":
                         if (++i >= args.Length) { Error("--bind requires an assembly path"); return 1; }
                         bindAssembly = args[i]; break;
+                    case "--jit": jit = true; break;
+                    case "--emit":
+                        if (++i >= args.Length) { Error("--emit requires a directory path"); return 1; }
+                        emitDir = args[i]; break;
+                    case "--cache":
+                        if (++i >= args.Length) { Error("--cache requires a directory path"); return 1; }
+                        cacheDir = args[i]; break;
+                    case "--emit-callgraph": emitCallgraph = true; break;
                     case "run":
                         break; // subcommand marker; the remaining positional is the file
                     case "bundle":
@@ -106,6 +118,13 @@ namespace Contract.Cli
             try
             {
                 var rt = new ContractRuntime();
+
+                // JIT / emit / cache options
+                if (jit) rt.Inner.Mode = JitMode.Reflection;
+                if (emitDir != null) { ObjectRT.Runtime.Runtime.EmitDir = emitDir; Directory.CreateDirectory(emitDir); }
+                if (cacheDir != null) { ObjectRT.Runtime.Runtime.CacheDir = cacheDir; Directory.CreateDirectory(cacheDir); }
+                var callCounts = emitCallgraph ? new System.Collections.Concurrent.ConcurrentDictionary<string, long>() : null;
+                if (callCounts != null) rt.Inner.CallCounts = callCounts;
                 System.Reflection.Assembly? bindingAsm = null;
                 if (bindAssembly != null)
                 {
@@ -185,6 +204,7 @@ namespace Contract.Cli
                     {
                         rt.RunModule(module);
                     }
+                    if (callCounts != null) EmitCallgraph(callCounts);
                     return 0;
                 }
 
@@ -235,6 +255,7 @@ namespace Contract.Cli
                 {
                     rt.RunModule(runModule);
                 }
+                if (callCounts != null) EmitCallgraph(callCounts);
                 return 0;
             }
             catch (Exception ex)
@@ -293,6 +314,21 @@ namespace Contract.Cli
             return null;
         }
 
+        /// <summary>Dumps a sorted call-frequency table to stderr.</summary>
+        static void EmitCallgraph(System.Collections.Concurrent.ConcurrentDictionary<string, long> counts)
+        {
+            var total = counts.Values.Sum();
+            var sorted = counts.OrderByDescending(kv => kv.Value);
+            Console.Error.WriteLine();
+            Console.Error.WriteLine("; ── Call Graph (" + total + " total entries) ──────────");
+            foreach (var kv in sorted)
+            {
+                var pct = total > 0 ? (kv.Value * 100.0 / total) : 0;
+                Console.Error.WriteLine($"; {kv.Value,8}  ({pct,5:F1}%)  {kv.Key}");
+            }
+            Console.Error.WriteLine("; ───────────────────────────────────────────────");
+        }
+
         static void Help()
         {
             Console.WriteLine("""
@@ -318,7 +354,11 @@ Options:
   -d, --debug            Print the generated IR
       --bind <assembly>  Load custom host bindings from a .dll (see Contract.Runtime)
       --host <type>      Runtime host type full name (default Contract.Runtime.ContractRuntime);
-                         must be public, new-able, and implement ObjectRT.Abstractions.IHostedRuntime
+                         must be public, new-able, and implement IHostedRuntime
+      --jit              Use the reflection JIT backend (Roslyn C# emit, not the interpreter)
+      --emit <dir>       Write JIT-generated C# source to <dir> (requires --jit)
+      --cache <dir>      Cache JIT-compiled DLLs to <dir> (requires --jit)
+      --emit-callgraph   Print per-method call frequency after execution
       --rid <list>       RIDs for self-contained publish, comma-separated (e.g. win-x64,linux-x64)
       --single-file      With --rid, publish as a single-file executable
       --version          Print the compiler version

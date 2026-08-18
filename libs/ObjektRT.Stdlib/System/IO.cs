@@ -8,11 +8,11 @@ namespace ObjektRT.Stdlib.System;
 public static class IO
 {
     /// <summary>Prints a value to standard output without a trailing newline.</summary>
-    public static void Print(object contents) => Console.Write(contents);
+    public static void Print(object contents) => global::System.Console.Write(contents);
 
     /// <summary>Prints a value to standard output followed by a newline.</summary>
-    public static void Println(object contents) => Console.WriteLine(contents);
+    public static void Println(object contents) => global::System.Console.WriteLine(contents);
 
     /// <summary>Reads a single line from standard input ("" on EOF).</summary>
-    public static string Readln() => Console.ReadLine() ?? "";
+    public static string Readln() => global::System.Console.ReadLine() ?? "";
 }

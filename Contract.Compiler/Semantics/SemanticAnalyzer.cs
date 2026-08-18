@@ -12,9 +12,10 @@ namespace Contract.Compiler.Semantics
         private readonly DiagnosticBag _diagnostics;
         private readonly TypeRegistry _typeRegistry = new();
         private readonly Stack<Dictionary<string, VariableDeclaration>> _scopes = new();
+        /// <summary>In-scope generic type parameters (contract + function bodies).</summary>
+        private readonly Stack<HashSet<string>> _typeParamScopes = new();
         private readonly HashSet<string> _definedFunctions = new();
         private readonly Dictionary<string, TypeDescriptor> _functionReturnTypes = new();
-        private readonly List<ContractDeclaration> _contractsWithFields = new();
         private readonly Dictionary<string, ContractDeclaration> _contractsByName =
             new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, List<string>> _shortToFull = new();
@@ -68,14 +69,23 @@ namespace Contract.Compiler.Semantics
                 }
             }
 
-            // Register contracts as valid types (short + namespace-qualified)
+            // Register contracts as valid types (short + namespace-qualified).
+            // Generic contracts register as generic types with their arity so
+            // instantiations (Box<int>) validate.
             foreach (var contract in program.Contracts)
             {
-                _typeRegistry.RegisterCustomType(contract.Name);
-                if (contract.FullName != contract.Name)
-                    _typeRegistry.RegisterCustomType(contract.FullName);
-                if (contract.Fields.Count > 0)
-                    _contractsWithFields.Add(contract);
+                if (contract.IsGeneric)
+                {
+                    _typeRegistry.RegisterGenericType(contract.Name, contract.TypeParameters.Count);
+                    if (contract.FullName != contract.Name)
+                        _typeRegistry.RegisterGenericType(contract.FullName, contract.TypeParameters.Count);
+                }
+                else
+                {
+                    _typeRegistry.RegisterCustomType(contract.Name);
+                    if (contract.FullName != contract.Name)
+                        _typeRegistry.RegisterCustomType(contract.FullName);
+                }
             }
 
             // Register structs as valid types (short + namespace-qualified)
@@ -344,6 +354,7 @@ namespace Contract.Compiler.Semantics
         private void AnalyzeContract(ContractDeclaration contract)
         {
             _currentContractName = contract.Name;
+            PushTypeParams(contract.TypeParameters);
             foreach (var ctor in contract.Constructors)
             {
                 _currentIsInstance = true;   // ctors receive `this` as param 0
@@ -357,6 +368,7 @@ namespace Contract.Compiler.Semantics
                     AnalyzeFunction(func);
                 }
             }
+            PopTypeParams();
         }
 
         // ── Field types ──────────────────────────────────────────────
@@ -370,12 +382,16 @@ namespace Contract.Compiler.Semantics
         {
             foreach (var contract in program.Contracts)
             {
+                // Generic contract fields reference the type params (T) — push
+                // them so field validation accepts the literal parameter names.
+                PushTypeParams(contract.TypeParameters);
                 ValidateFields(contract.Fields, "contract");
                 foreach (var member in contract.Members)
                 {
                     if (member is StructDeclaration nestedStruct)
                         ValidateFields(nestedStruct.Fields, "struct");
                 }
+                PopTypeParams();
             }
 
             foreach (var structDecl in program.Structs)
@@ -414,11 +430,55 @@ namespace Contract.Compiler.Semantics
                     _usedTypes.Add(ResolveTypeName(fieldNamed.Name));
                 }
 
-                if (!_typeRegistry.IsValid(field.Type))
+                if (!IsValidTypeInContext(field.Type))
                 {
                     _diagnostics.AddError($"Unknown type '{field.Type}' for field '{field.Name}'", field.Line, field.Column);
                 }
             }
+        }
+
+        /// <summary>
+        /// True when a type descriptor is valid in the current context: the
+        /// registry accepts it, or it references an in-scope generic type
+        /// parameter (contract/fn type params are legal type names inside the
+        /// generic body).
+        /// </summary>
+        private bool IsValidTypeInContext(TypeDescriptor type)
+        {
+            switch (type)
+            {
+                case TypeDescriptor.Named n:
+                    return _typeRegistry.IsValidTypeName(n.Name) || IsTypeParamInScope(n.Name);
+                case TypeDescriptor.ArrayOf a:
+                    return IsValidTypeInContext(a.Element);
+                case TypeDescriptor.Function f:
+                    return f.Parameters.All(IsValidTypeInContext) && IsValidTypeInContext(f.Return);
+                case TypeDescriptor.Tuple t:
+                    return t.Elements.All(IsValidTypeInContext);
+                case TypeDescriptor.GenericInstance g:
+                    return _typeRegistry.IsGenericType(g.Name)
+                        && g.Arguments.Count == _typeRegistry.GetArity(g.Name)
+                        && g.Arguments.All(IsValidTypeInContext);
+                default:
+                    return false;
+            }
+        }
+
+        private bool IsTypeParamInScope(string name)
+        {
+            foreach (var scope in _typeParamScopes)
+                if (scope.Contains(name)) return true;
+            return false;
+        }
+
+        private void PushTypeParams(IEnumerable<string> parameters)
+        {
+            _typeParamScopes.Push(new HashSet<string>(parameters));
+        }
+
+        private void PopTypeParams()
+        {
+            if (_typeParamScopes.Count > 0) _typeParamScopes.Pop();
         }
 
         // ── Attributes & inheritance ───────────────────────────────────
@@ -705,12 +765,15 @@ namespace Contract.Compiler.Semantics
             BeginFunctionFrame();
             _currentReturnType = null;
             _currentSourceFile = ctor.SourceFile;
+            // Generic contract constructors reference the type params (T).
+            if (_currentContractName != null && FindGenericContract(_currentContractName) is { } ctorGenContract)
+                PushTypeParams(ctorGenContract.TypeParameters);
 
             foreach (var param in ctor.Parameters)
             {
                 if (param.Type is TypeDescriptor.Named pn && !pn.IsEmpty)
                     _usedTypes.Add(ResolveTypeName(pn.Name));
-                if (!param.Type.IsEmpty && !_typeRegistry.IsValid(param.Type))
+                if (!param.Type.IsEmpty && !IsValidTypeInContext(param.Type))
                 {
                     _diagnostics.AddError($"Unknown type '{param.Type}' for parameter '{param.Name}'", param.Line, param.Column);
                 }
@@ -722,6 +785,8 @@ namespace Contract.Compiler.Semantics
                 AnalyzeStatement(ctor.Body);
             }
 
+            if (_currentContractName != null && FindGenericContract(_currentContractName) != null)
+                PopTypeParams();
             _scopes.Pop();
             EndFunctionFrame();
         }
@@ -734,12 +799,13 @@ namespace Contract.Compiler.Semantics
             _scopes.Clear();
             _scopes.Push(new Dictionary<string, VariableDeclaration>());
             BeginFunctionFrame();
+            PushTypeParams(func.TypeParameters);
 
             foreach (var param in func.Parameters)
             {
                 if (param.Type is TypeDescriptor.Named pn && !pn.IsEmpty)
                     _usedTypes.Add(ResolveTypeName(pn.Name));
-                if (!_typeRegistry.IsValid(param.Type))
+                if (!IsValidTypeInContext(param.Type))
                 {
                     _diagnostics.AddError($"Unknown type '{param.Type}' for parameter '{param.Name}'", param.Line, param.Column);
                 }
@@ -750,7 +816,7 @@ namespace Contract.Compiler.Semantics
             {
                 if (func.ReturnType is TypeDescriptor.Named rn && !rn.IsEmpty)
                     _usedTypes.Add(ResolveTypeName(rn.Name));
-                if (!_typeRegistry.IsValid(func.ReturnType))
+                if (!IsValidTypeInContext(func.ReturnType))
                 {
                     _diagnostics.AddError($"Unknown return type '{func.ReturnType}' for function '{func.Name}'", func.Line, func.Column);
                 }
@@ -764,6 +830,7 @@ namespace Contract.Compiler.Semantics
             _currentReturnType = null;
 
             EmitFunctionWarnings(func);
+            PopTypeParams();
             _scopes.Pop();
             EndFunctionFrame();
         }
@@ -780,7 +847,7 @@ namespace Contract.Compiler.Semantics
                     type = new TypeDescriptor.Named(resolved);
             }
 
-            if (!_typeRegistry.IsValid(type))
+            if (!IsValidTypeInContext(type))
             {
                 _diagnostics.AddError($"Unknown type '{type}'", line, column);
             }
@@ -940,6 +1007,28 @@ namespace Contract.Compiler.Semantics
                     if (varDecl.Initializer != null)
                         AnalyzeExpression(varDecl.Initializer);
 
+                    // Destructuring: var (a, b) = f(); — bind each name to the
+                    // corresponding tuple element type.
+                    if (varDecl.Names.Count > 0)
+                    {
+                        var tupleType = varDecl.Initializer != null ? InferType(varDecl.Initializer) : null;
+                        if (tupleType is TypeDescriptor.Tuple tuple)
+                        {
+                            for (int i = 0; i < varDecl.Names.Count; i++)
+                            {
+                                var elemType = i < tuple.Elements.Count ? tuple.Elements[i] : TypeDescriptor.Empty;
+                                DeclareVariable(varDecl.Names[i], elemType, varDecl.Line, varDecl.Column);
+                            }
+                        }
+                        else
+                        {
+                            _diagnostics.AddError(
+                                $"Cannot destructure a value of type '{(tupleType?.ToString() ?? "unknown")}' — expected a tuple return",
+                                varDecl.Line, varDecl.Column);
+                        }
+                        break;
+                    }
+
                     if (varDecl.Type.IsEmpty)
                     {
                         if (varDecl.Initializer != null)
@@ -986,7 +1075,21 @@ namespace Contract.Compiler.Semantics
                     if (forStmt.Condition != null)
                         AnalyzeConditionWarnings("for", forStmt.Condition, forStmt.Line, forStmt.Column);
                     if (forStmt.Initializer != null)
-                        AnalyzeStatement(forStmt.Initializer);
+                    {
+                        if (forStmt.Initializer is BlockStatement initBlock)
+                        {
+                            // foreach desugar: the temp declarations live in a
+                            // block initializer — analyze them FLAT into the
+                            // loop's own scope so the condition/update can see
+                            // the temps (a nested scope would hide them).
+                            foreach (var s in initBlock.Statements)
+                                AnalyzeStatement(s);
+                        }
+                        else
+                        {
+                            AnalyzeStatement(forStmt.Initializer);
+                        }
+                    }
                     if (forStmt.Condition != null)
                         AnalyzeExpression(forStmt.Condition);
                     AnalyzeStatement(forStmt.Body);
@@ -1070,7 +1173,20 @@ namespace Contract.Compiler.Semantics
                         AnalyzeExpression(bin.Right);
                         _fnWrittenNames.Add(assignTarget.Name);
                         if (IsContractField(assignTarget.Name))
+                        {
                             _writtenFields.Add((_currentContractName ?? "", assignTarget.Name));
+                        }
+                        else if (!IsVariableDefined(assignTarget.Name)
+                                 && !_definedFunctions.Contains(assignTarget.Name)
+                                 && !_symbolTable.GetBoundClasses().Contains(assignTarget.Name)
+                                 && !_symbolTable.IsBoundModule(assignTarget.Name)
+                                 && !IsEnumType(assignTarget.Name))
+                        {
+                            // Bare assignment must target a local or a field of
+                            // the CURRENT contract — reaching into another
+                            // contract's field without `this` is an error.
+                            _diagnostics.AddError($"Undefined variable: '{assignTarget.Name}'", assignTarget.Line, assignTarget.Column);
+                        }
                         bin.ResolvedType = InferType(bin);
                         break;
                     }
@@ -1080,6 +1196,8 @@ namespace Contract.Compiler.Semantics
                         // obj.field = v / obj.field += v — record the write.
                         AnalyzeExpression(bin.Right);
                         AnalyzeExpression(memWrite.Object);
+                        if (ResolveOwnerContract(memWrite.Object) is { } writeOwner)
+                            CheckMemberAccess(writeOwner, memWrite.Property, memWrite.Line, memWrite.Column, checkMethods: false);
                         RecordFieldAccess(memWrite, isWrite: true);
                         bin.ResolvedType = InferType(bin);
                         break;
@@ -1122,14 +1240,16 @@ namespace Contract.Compiler.Semantics
                         // Static members: Contract::Method() or Contract::field.
                         // Inherited statics resolve through the base chain, and
                         // instance methods reached this way are an error.
+                        var scopedContract = FindContract(scoped.Module);
                         bool isStaticField = FindContractStaticField(scoped.Module, scoped.Member) != null;
                         if (isStaticField)
                         {
+                            if (scopedContract != null)
+                                CheckMemberAccess(scopedContract, scoped.Member, scoped.Line, scoped.Column);
                             _readFields.Add((scoped.Module, scoped.Member));
                         }
                         else
                         {
-                            var scopedContract = FindContract(scoped.Module);
                             var cm = scopedContract != null
                                 ? FindMethodIncludingBase(scopedContract, scoped.Member, instanceOnly: false)
                                 : null;
@@ -1139,6 +1259,12 @@ namespace Contract.Compiler.Semantics
                             }
                             else
                             {
+                                if (!IsAccessibleFrom(cm.Access, cm.ContractName ?? ""))
+                                {
+                                    _diagnostics.AddError(
+                                        $"Method '{cm.ContractName}.{scoped.Member}' is {AccessName(cm.Access)} — not accessible from '{_currentContractName}'",
+                                        scoped.Line, scoped.Column);
+                                }
                                 _usedFunctions.Add(cm.Name);
                             }
                         }
@@ -1175,7 +1301,10 @@ namespace Contract.Compiler.Semantics
                             {
                                 _usedTypes.Add(staticOwner.FullName);
                                 if (FindContractStaticField(typePath, mem.Property) != null)
+                                {
+                                    CheckMemberAccess(staticOwner, mem.Property, mem.Line, mem.Column);
                                     _readFields.Add((typePath, mem.Property));
+                                }
                             }
                         }
                     }
@@ -1191,6 +1320,8 @@ namespace Contract.Compiler.Semantics
                     else
                     {
                         AnalyzeExpression(mem.Object);
+                        if (ResolveOwnerContract(mem.Object) is { } readOwner)
+                            CheckMemberAccess(readOwner, mem.Property, mem.Line, mem.Column, checkMethods: false);
                         RecordFieldAccess(mem, isWrite: false);
                     }
                     break;
@@ -1231,8 +1362,17 @@ namespace Contract.Compiler.Semantics
                     break;
                 case LiteralExpression _:
                     break;
+                case TupleLiteralExpression tupleLit:
+                    foreach (var element in tupleLit.Elements)
+                        AnalyzeExpression(element);
+                    break;
                 case UnaryExpression unary:
                     AnalyzeExpression(unary.Operand);
+                    break;
+                case TernaryExpression ternary:
+                    AnalyzeExpression(ternary.Condition);
+                    AnalyzeExpression(ternary.ThenBranch);
+                    AnalyzeExpression(ternary.ElseBranch);
                     break;
                 case ArrayLiteralExpression arrLit:
                     foreach (var element in arrLit.Elements)
@@ -1245,17 +1385,49 @@ namespace Contract.Compiler.Semantics
                     // type, and the emitted newobj all agree.
                     newExpr.TypeName = ResolveTypeName(newExpr.TypeName);
 
-                    if (newExpr.Size != null)
+                    // Generic instantiation: new Box<int>(5) — validate the
+                    // type arguments (arity + each arg valid) and record the
+                    // unbound name as a type usage.
+                    if (newExpr.TypeArguments.Count > 0)
+                    {
+                        if (!_typeRegistry.IsGenericType(newExpr.TypeName))
+                        {
+                            _diagnostics.AddError($"Type '{newExpr.TypeName}' is not generic — cannot supply type arguments", newExpr.Line, newExpr.Column);
+                        }
+                        else if (newExpr.TypeArguments.Count != _typeRegistry.GetArity(newExpr.TypeName))
+                        {
+                            _diagnostics.AddError(
+                                $"Type '{newExpr.TypeName}' expects {_typeRegistry.GetArity(newExpr.TypeName)} type argument(s), got {newExpr.TypeArguments.Count}",
+                                newExpr.Line, newExpr.Column);
+                        }
+                        foreach (var ta in newExpr.TypeArguments)
+                        {
+                            if (!IsValidTypeInContext(ta))
+                                _diagnostics.AddError($"Unknown type argument '{ta}'", newExpr.Line, newExpr.Column);
+                        }
+                        _usedTypes.Add(newExpr.TypeName);
+                    }
+                    else if (newExpr.Size != null)
                     {
                         AnalyzeExpression(newExpr.Size);
-                        if (!_typeRegistry.IsValidType(newExpr.TypeName))
+                        if (!_typeRegistry.IsValidTypeName(newExpr.TypeName) && !IsTypeParamInScope(newExpr.TypeName))
                         {
                             _diagnostics.AddError($"Unknown type '{newExpr.TypeName}'", newExpr.Line, newExpr.Column);
                         }
                     }
-                    else if (!_typeRegistry.IsValidType(newExpr.TypeName))
+                    else if (!_typeRegistry.IsValidTypeName(newExpr.TypeName))
                     {
                         _diagnostics.AddError($"Unknown type '{newExpr.TypeName}'", newExpr.Line, newExpr.Column);
+                    }
+                    else if (_typeRegistry.IsGenericType(newExpr.TypeName)
+                             && FindGenericContract(newExpr.TypeName) != null)
+                    {
+                        // A user generic contract used without type arguments
+                        // (new Box(5)) is an error — the type parameter must be
+                        // supplied.
+                        _diagnostics.AddError(
+                            $"Generic contract '{newExpr.TypeName}' requires type arguments — use 'new {newExpr.TypeName}<...>(...)'",
+                            newExpr.Line, newExpr.Column);
                     }
 
                     // Native-bound contracts construct through the host module's
@@ -1298,14 +1470,19 @@ namespace Contract.Compiler.Semantics
                     for (int i = 0; i < lambda.Parameters.Count; i++)
                     {
                         string pt = i < lambda.ParameterTypes.Count ? lambda.ParameterTypes[i] : "";
-                        if (!string.IsNullOrEmpty(pt) && !_typeRegistry.IsValidType(pt))
+                        if (!string.IsNullOrEmpty(pt) && !_typeRegistry.IsValidType(pt) && !IsTypeParamInScope(pt))
                         {
                             _diagnostics.AddError($"Unknown type '{pt}' for lambda parameter '{lambda.Parameters[i]}'", lambda.Line, lambda.Column);
                         }
                     }
                     _scopes.Push(new Dictionary<string, VariableDeclaration>());
                     foreach (var p in lambda.Parameters)
-                        DeclareVariable(p, new TypeDescriptor.Named("int"), lambda.Line, lambda.Column, trackUsage: false, warnOnShadow: false);
+                    {
+                        int pi = lambda.Parameters.IndexOf(p);
+                        string pt = pi < lambda.ParameterTypes.Count ? lambda.ParameterTypes[pi] : "";
+                        var paramType = !string.IsNullOrEmpty(pt) ? TypeDescriptor.Parse(pt) : new TypeDescriptor.Named("int");
+                        DeclareVariable(p, paramType, lambda.Line, lambda.Column, trackUsage: false, warnOnShadow: false);
+                    }
                     if (lambda.BlockBody != null)
                     {
                         foreach (var stmt in lambda.BlockBody.Statements)
@@ -1342,6 +1519,93 @@ namespace Contract.Compiler.Semantics
                 if (isWrite) _writtenFields.Add((ownerType.Name, mem.Property));
                 else _readFields.Add((ownerType.Name, mem.Property));
             }
+        }
+
+        // ── Access control ───────────────────────────────────────────
+
+        /// <summary>Human-readable name of an access level for error messages.</summary>
+        private static string AccessName(AccessModifier access) => access switch
+        {
+            AccessModifier.Public => "public",
+            AccessModifier.Private => "private",
+            AccessModifier.Protected => "protected",
+            AccessModifier.Internal => "internal",
+            _ => "default"
+        };
+
+        /// <summary>
+        /// True when a member with <paramref name="access"/> declared on
+        /// <paramref name="declaringContractName"/> is reachable from the
+        /// current analysis context (the contract whose body is being analyzed).
+        /// </summary>
+        private bool IsAccessibleFrom(AccessModifier access, string declaringContractName)
+        {
+            switch (access)
+            {
+                case AccessModifier.Public:
+                case AccessModifier.Default:
+                    return true;
+                case AccessModifier.Private:
+                    return _currentContractName == declaringContractName;
+                case AccessModifier.Protected:
+                    if (_currentContractName == declaringContractName) return true;
+                    var current = FindContract(_currentContractName ?? "");
+                    var declaring = FindContract(declaringContractName);
+                    return current != null && declaring != null && IsDerivedFrom(current, declaring);
+                case AccessModifier.Internal:
+                    var cur = FindContract(_currentContractName ?? "");
+                    var decl = FindContract(declaringContractName);
+                    return cur != null && decl != null && cur.Namespace == decl.Namespace;
+                default:
+                    return true;
+            }
+        }
+
+        /// <summary>
+        /// Checks that a member (field or method) named <paramref name="member"/>
+        /// on <paramref name="ownerContract"/> is accessible from the current
+        /// context. Reports an error when the access level forbids it. When
+        /// <paramref name="checkMethods"/> is false only field access is
+        /// validated (method access is reported by ResolveCall).
+        /// </summary>
+        private void CheckMemberAccess(ContractDeclaration ownerContract, string member, int line, int column, bool checkMethods = true)
+        {
+            var fieldDecl = FindFieldDeclaringContract(ownerContract, member, staticOnly: false);
+            if (fieldDecl != null)
+            {
+                var field = fieldDecl.Fields.First(f => f.Name == member);
+                if (!IsAccessibleFrom(field.Access, fieldDecl.Name))
+                {
+                    _diagnostics.AddError(
+                        $"Field '{fieldDecl.Name}.{member}' is {AccessName(field.Access)} — not accessible from '{_currentContractName}'",
+                        line, column);
+                }
+                return;
+            }
+
+            if (!checkMethods) return;
+
+            var method = FindMethodIncludingBase(ownerContract, member, instanceOnly: false);
+            if (method != null && !IsAccessibleFrom(method.Access, method.ContractName ?? ""))
+            {
+                _diagnostics.AddError(
+                    $"Method '{method.ContractName}.{member}' is {AccessName(method.Access)} — not accessible from '{_currentContractName}'",
+                    line, column);
+            }
+        }
+
+        /// <summary>
+        /// Resolves the contract that owns a member-access receiver: <c>this</c>
+        /// → the current contract, a variable → its declared contract type, a
+        /// bare name → a contract by that name. Null when the receiver isn't a
+        /// known contract.
+        /// </summary>
+        private ContractDeclaration? ResolveOwnerContract(Expression obj)
+        {
+            if (obj is not IdentifierExpression id) return null;
+            if (id.Name == "this") return FindContract(_currentContractName ?? "");
+            if (FindVariableType(id.Name) is TypeDescriptor.Named n) return FindContract(n.Name);
+            return FindContract(id.Name);
         }
 
         private static bool IsZeroLiteral(LiteralExpression lit)
@@ -1387,13 +1651,15 @@ namespace Contract.Compiler.Semantics
 
         private bool IsContractField(string name)
         {
-            // True when a contract has a field with this name (bare field access
-            // in an instance method).
-            foreach (var contract in _contractsWithFields)
-            {
-                if (contract.Fields.Any(f => f.Name == name)) return true;
-            }
-            return false;
+            // True when the CURRENT contract (or a base) declares a field with
+            // this name — bare field access in an instance method must not
+            // reach into another contract's fields without `this`. Static
+            // fields of the current contract are also reachable bare.
+            if (_currentContractName == null) return false;
+            var contract = FindContract(_currentContractName);
+            if (contract == null) return false;
+            return FindFieldDeclaringContract(contract, name, staticOnly: false) != null
+                || FindFieldDeclaringContract(contract, name, staticOnly: true) != null;
         }
 
         // ── Enums ───────────────────────────────────────────────────
@@ -1525,7 +1791,7 @@ namespace Contract.Compiler.Semantics
             string resolved = TypeNameResolver.Resolve(
                 name,
                 _program?.NamespaceImports ?? new List<string>(),
-                candidate => _typeRegistry.IsValidType(candidate),
+                candidate => _typeRegistry.IsValidTypeName(candidate),
                 CurrentContractNamespace(),
                 UniqueShortMatch,
                 importIndex => _usedNamespaceImports.Add(importIndex));
@@ -1600,6 +1866,7 @@ namespace Contract.Compiler.Semantics
         {
             if (_program == null) return null;
 
+            // Try contract fields first
             var contract = FindContract(ownerName);
             if (contract != null)
             {
@@ -1608,6 +1875,7 @@ namespace Contract.Compiler.Semantics
                     return declaring.Fields.First(f => f.Name == fieldName).Type;
             }
 
+            // Try struct fields: variable of struct type (e.g. expr.listVal)
             if (FindVariableType(ownerName) is TypeDescriptor.Named n)
             {
                 var owner = FindContract(n.Name);
@@ -1617,6 +1885,21 @@ namespace Contract.Compiler.Semantics
                     if (declaring != null)
                         return declaring.Fields.First(f => f.Name == fieldName).Type;
                 }
+                // Struct field: e.g. expr.listVal where expr is of struct Value
+                var structDecl = FindStruct(n.Name);
+                if (structDecl != null)
+                {
+                    var field = structDecl.Fields.FirstOrDefault(f => f.Name == fieldName);
+                    if (field != null) return field.Type;
+                }
+            }
+
+            // Try struct fields by direct name (e.g. owner is "Value" itself)
+            var structByName = FindStruct(ownerName);
+            if (structByName != null)
+            {
+                var field = structByName.Fields.FirstOrDefault(f => f.Name == fieldName);
+                if (field != null) return field.Type;
             }
 
             return null;
@@ -1635,6 +1918,9 @@ namespace Contract.Compiler.Semantics
                         double => new TypeDescriptor.Named("double"),
                         _ => null
                     };
+                case TupleLiteralExpression tupleLit:
+                    return new TypeDescriptor.Tuple(
+                        tupleLit.Elements.Select(e => InferType(e) ?? TypeDescriptor.Empty).ToList());
                 case IdentifierExpression id:
                 {
                     var found = FindVariableType(id.Name);
@@ -1644,14 +1930,38 @@ namespace Contract.Compiler.Semantics
                 }
                 case UnaryExpression unary:
                     return InferType(unary.Operand);
+                case TernaryExpression ternary:
+                    return InferType(ternary.ThenBranch) ?? InferType(ternary.ElseBranch);
+                case IndexExpression indexExpr:
+                    // arr[i] — the element type of the target's array type.
+                    if (indexExpr.Target is IdentifierExpression targetId
+                        && FindVariableType(targetId.Name) is TypeDescriptor.ArrayOf arrType)
+                    {
+                        return arrType.Element;
+                    }
+                    return new TypeDescriptor.Named("int");
                 case NewExpression newExpr:
                     // Resolve through namespaces/imports (defensive — normally
                     // already rewritten by AnalyzeExpression).
+                    if (newExpr.TypeArguments.Count > 0)
+                    {
+                        // new Box<int>(5) — the variable's type is the
+                        // instantiation, not the unbound name.
+                        return new TypeDescriptor.GenericInstance(
+                            ResolveTypeName(newExpr.TypeName),
+                            newExpr.TypeArguments);
+                    }
                     return newExpr.Size != null
                         ? new TypeDescriptor.ArrayOf(new TypeDescriptor.Named(ResolveTypeName(newExpr.TypeName)))
                         : new TypeDescriptor.Named(ResolveTypeName(newExpr.TypeName));
                 case ArrayLiteralExpression arrLit:
-                    if (arrLit.Elements.Count == 0) return null;
+                    if (arrLit.Elements.Count == 0)
+                    {
+                        // Empty array literal: infer object[] (the language's
+                        // dynamic array handle) unless a type hint is set.
+                        arrLit.ElementType = TypeDescriptor.Empty;
+                        return new TypeDescriptor.ArrayOf(new TypeDescriptor.Named("object"));
+                    }
                     var element = InferType(arrLit.Elements[0]);
                     if (element == null) return null;
                     foreach (var e in arrLit.Elements)
@@ -1707,13 +2017,22 @@ namespace Contract.Compiler.Semantics
                     }
                     return new TypeDescriptor.Named("int");
                 case MemberExpression mem:
-                    // Field read: Config.count (static) or p.count (instance field
-                    // of a contract-typed variable). Falls back to int otherwise.
+                    // Field read: Config.count (static), p.count (instance field
+                    // of a contract-typed variable), or expr.listVal (struct field).
+                    // Falls back to int otherwise.
                     if (mem.Object is IdentifierExpression memObj)
                     {
                         // Enum member: Color.Red → the enum type.
                         if (IsEnumType(memObj.Name)) return new TypeDescriptor.Named(memObj.Name);
                         var fieldType = FindFieldType(memObj.Name, mem.Property);
+                        if (fieldType != null) return fieldType;
+                    }
+                    // Chained: eval(...).listVal — infer the call's return type,
+                    // then look up the field on that type.
+                    if (mem.Object is CallExpression callObj && callObj.Symbol is FunctionDeclaration callFn
+                        && callFn.ReturnType is TypeDescriptor.Named callRet && !callRet.IsEmpty)
+                    {
+                        var fieldType = FindFieldType(callRet.Name, mem.Property);
                         if (fieldType != null) return fieldType;
                     }
                     return new TypeDescriptor.Named("int");
@@ -1763,6 +2082,174 @@ namespace Contract.Compiler.Semantics
             return new TypeDescriptor.Named("int");
         }
 
+        // ── Generic call-site resolution ─────────────────────────────
+
+        /// <summary>True when a function is a generic target: it declares type
+        /// parameters itself, or lives on a generic contract.</summary>
+        private bool IsGenericTarget(FunctionDeclaration fn)
+            => fn.IsGeneric || (fn.ContractName != null && FindGenericContract(fn.ContractName) != null);
+
+        private ContractDeclaration? FindGenericContract(string name)
+        {
+            if (_program == null) return null;
+            return _program.Contracts.FirstOrDefault(c => c.IsGeneric && (c.Name == name || c.FullName == name));
+        }
+
+        /// <summary>
+        /// Substitutes type parameters in a descriptor using <paramref name="map"/>.
+        /// Only mapped parameters (actual type parameters like T) are substituted;
+        /// concrete types like int, string, etc. pass through unchanged.
+        /// </summary>
+        private static TypeDescriptor SubstituteType(TypeDescriptor type, IReadOnlyDictionary<string, TypeDescriptor> map)
+        {
+            switch (type)
+            {
+                case TypeDescriptor.Named n:
+                    return map.TryGetValue(n.Name, out var mapped) ? mapped : type;
+                case TypeDescriptor.ArrayOf a:
+                    return new TypeDescriptor.ArrayOf(SubstituteType(a.Element, map));
+                case TypeDescriptor.Function f:
+                    return new TypeDescriptor.Function(
+                        f.Parameters.Select(p => SubstituteType(p, map)).ToList(),
+                        SubstituteType(f.Return, map));
+                case TypeDescriptor.GenericInstance g:
+                    return new TypeDescriptor.GenericInstance(
+                        g.Name,
+                        g.Arguments.Select(a => SubstituteType(a, map)).ToList());
+                default:
+                    return type;
+            }
+        }
+
+        /// <summary>
+        /// A copy of <paramref name="fn"/> with its type parameters (and its
+        /// generic contract's parameters) substituted to concrete types, so
+        /// inference and codegen see the specialized signature. The concrete
+        /// contract type arguments are recorded on the copy's
+        /// <see cref="FunctionDeclaration.TypeArguments"/> so the codegen can
+        /// emit the materialized declaring name.
+        /// </summary>
+        private static FunctionDeclaration SubstituteFunction(FunctionDeclaration fn, IReadOnlyDictionary<string, TypeDescriptor> map, ContractDeclaration? genericContract = null)
+        {
+            var copy = new FunctionDeclaration(fn.Name, fn.Line, fn.Column)
+            {
+                IsStatic = fn.IsStatic,
+                IsInstance = fn.IsInstance,
+                Access = fn.Access,
+                ContractName = fn.ContractName,
+                ReturnType = fn.ReturnType != null ? SubstituteType(fn.ReturnType, map) : null,
+                SourceFile = fn.SourceFile,
+            };
+            if (genericContract != null)
+            {
+                foreach (var tp in genericContract.TypeParameters)
+                    copy.TypeArguments.Add(map.TryGetValue(tp, out var arg) ? arg : new TypeDescriptor.Named("object"));
+            }
+            foreach (var p in fn.Parameters)
+                copy.Parameters.Add(new Parameter(p.Name, SubstituteType(p.Type, map), p.Line, p.Column));
+            return copy;
+        }
+
+        /// <summary>
+        /// The type-parameter map for a generic contract instantiation:
+        /// <c>Box&lt;int&gt;</c> → <c>{ T → int }</c>.
+        /// </summary>
+        private Dictionary<string, TypeDescriptor> TypeParamMap(ContractDeclaration contract, TypeDescriptor.GenericInstance g)
+        {
+            var map = new Dictionary<string, TypeDescriptor>();
+            for (int i = 0; i < contract.TypeParameters.Count && i < g.Arguments.Count; i++)
+                map[contract.TypeParameters[i]] = g.Arguments[i];
+            return map;
+        }
+
+        /// <summary>
+        /// Infers the type-parameter substitution for a call to a generic
+        /// function: explicit type args seed the map, then each argument's type
+        /// is unified against the parameter's type (a parameter typed with a
+        /// type parameter binds it). Unbound parameters default to <c>object</c>.
+        /// </summary>
+        private Dictionary<string, TypeDescriptor> InferSubstitution(FunctionDeclaration fn, CallExpression call, IReadOnlyDictionary<string, TypeDescriptor>? seed = null)
+        {
+            var map = new Dictionary<string, TypeDescriptor>();
+            if (seed != null)
+                foreach (var (k, v) in seed) map[k] = v;
+
+            // Explicit type args seed the function's own parameters in order.
+            for (int i = 0; i < fn.TypeParameters.Count && i < call.TypeArguments.Count; i++)
+                map[fn.TypeParameters[i]] = call.TypeArguments[i];
+
+            // Unify argument types against parameter types.
+            for (int i = 0; i < fn.Parameters.Count && i < call.Arguments.Count; i++)
+            {
+                var paramType = fn.Parameters[i].Type;
+                var argType = InferType(call.Arguments[i]);
+                if (argType == null) continue;
+                BindFrom(paramType, argType, map);
+            }
+
+            return map;
+        }
+
+        /// <summary>Binds type parameters in <paramref name="paramType"/> from
+        /// the concrete <paramref name="argType"/> (e.g. <c>T</c> ← <c>int</c>,
+        /// <c>T[]</c> ← <c>int[]</c>).</summary>
+        private static void BindFrom(TypeDescriptor paramType, TypeDescriptor argType, Dictionary<string, TypeDescriptor> map)
+        {
+            switch (paramType)
+            {
+                case TypeDescriptor.Named n when map.ContainsKey(n.Name):
+                    map[n.Name] = argType;
+                    break;
+                case TypeDescriptor.ArrayOf pa when argType is TypeDescriptor.ArrayOf aa:
+                    BindFrom(pa.Element, aa.Element, map);
+                    break;
+                case TypeDescriptor.Function pf when argType is TypeDescriptor.Function af:
+                    for (int i = 0; i < pf.Parameters.Count && i < af.Parameters.Count; i++)
+                        BindFrom(pf.Parameters[i], af.Parameters[i], map);
+                    BindFrom(pf.Return, af.Return, map);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Resolves a generic call target: validates explicit type args, infers
+        /// the substitution (explicit args + argument unification + seed), and
+        /// returns the substituted copy of the declaration. Returns the original
+        /// when the target isn't generic.
+        /// </summary>
+        private FunctionDeclaration? ResolveGenericTarget(FunctionDeclaration fn, CallExpression call, IReadOnlyDictionary<string, TypeDescriptor>? seed = null)
+        {
+            // Explicit type args must be validated even for non-generic targets
+            // (doubleIt<int>(x) is an error), so check them before the
+            // IsGenericTarget early return.
+            if (call.TypeArguments.Count > 0)
+            {
+                if (!fn.IsGeneric)
+                {
+                    _diagnostics.AddError($"Function '{fn.Name}' is not generic — cannot supply type arguments", call.Line, call.Column);
+                    return fn;
+                }
+                if (call.TypeArguments.Count != fn.TypeParameters.Count)
+                {
+                    _diagnostics.AddError(
+                        $"Function '{fn.Name}' expects {fn.TypeParameters.Count} type argument(s), got {call.TypeArguments.Count}",
+                        call.Line, call.Column);
+                    return fn;
+                }
+                foreach (var ta in call.TypeArguments)
+                {
+                    if (!IsValidTypeInContext(ta))
+                        _diagnostics.AddError($"Unknown type argument '{ta}'", call.Line, call.Column);
+                }
+            }
+
+            if (!IsGenericTarget(fn)) return fn;
+
+            var map = InferSubstitution(fn, call, seed);
+            var genericContract = fn.ContractName != null ? FindGenericContract(fn.ContractName) : null;
+            return SubstituteFunction(fn, map, genericContract);
+        }
+
         private void ResolveCall(CallExpression call)
         {
             if (call.Callee is MemberExpression mem)
@@ -1773,7 +2260,7 @@ namespace Contract.Compiler.Semantics
                 {
                     string methodName = mem.Property;
 
-                    if (_symbolTable.TryGetMethod(moduleName, methodName, out var moduleMethod))
+                    if (_symbolTable.TryResolveMethod(moduleName, methodName, call.Arguments.Count, out var moduleMethod))
                     {
                         // A method reached through a type/module name must be
                         // static — an instance method needs an object created
@@ -1785,13 +2272,23 @@ namespace Contract.Compiler.Semantics
                                 call.Line, call.Column);
                             return;
                         }
-                        call.Symbol = moduleMethod;
-                        _usedModulePaths.Add(moduleName);
                         if (moduleMethod is FunctionDeclaration moduleFn)
                         {
+                            // Generic static on a generic contract: Box.wrap(7)
+                            // — the contract's T is inferred from the argument.
+                            var genericContract = FindGenericContract(moduleName);
+                            var seed = genericContract != null
+                                ? new Dictionary<string, TypeDescriptor>()
+                                : null;
+                            call.Symbol = ResolveGenericTarget(moduleFn, call, seed);
                             _usedFunctions.Add(moduleFn.Name);
                             _usedTypes.Add(moduleName);
                         }
+                        else
+                        {
+                            call.Symbol = moduleMethod;
+                        }
+                        _usedModulePaths.Add(moduleName);
                         return;
                     }
 
@@ -1800,6 +2297,12 @@ namespace Contract.Compiler.Semantics
                     if (FindContract(moduleName) is { } staticOwnerContract
                         && FindMethodIncludingBase(staticOwnerContract, methodName, instanceOnly: false) is { IsStatic: true } inheritedStaticDot)
                     {
+                        if (!IsAccessibleFrom(inheritedStaticDot.Access, inheritedStaticDot.ContractName ?? ""))
+                        {
+                            _diagnostics.AddError(
+                                $"Method '{inheritedStaticDot.ContractName}.{methodName}' is {AccessName(inheritedStaticDot.Access)} — not accessible from '{_currentContractName}'",
+                                call.Line, call.Column);
+                        }
                         call.Symbol = inheritedStaticDot;
                         _usedFunctions.Add(inheritedStaticDot.Name);
                         _usedTypes.Add(moduleName);
@@ -1809,7 +2312,34 @@ namespace Contract.Compiler.Semantics
 
                     if (moduleName.Contains('.'))
                     {
-                        // A dotted chain that isn't a bound module — nothing else to try.
+                        // Dotted chain that isn't a bound module. Try to resolve
+                        // the first segment as a variable of struct type with a
+                        // field of GenericInstance type that has the method.
+                        // e.g. bindings.listVal.Count() where "bindings" is a
+                        // Value struct with field listVal: ValueList<Value>.
+                        var firstSeg = moduleName;
+                        int dotIdx = moduleName.IndexOf('.');
+                        if (dotIdx > 0) firstSeg = moduleName.Substring(0, dotIdx);
+                        if (IsVariableDefined(firstSeg)
+                            && FindVariableType(firstSeg) is TypeDescriptor.Named firstVarType
+                            && FindStruct(firstVarType.Name) is { } firstStruct)
+                        {
+                            foreach (var field in firstStruct.Fields)
+                            {
+                                if (field.Type is TypeDescriptor.GenericInstance fg
+                                    && FindGenericContract(fg.Name) is { } fieldGenContract)
+                                {
+                                    var fm = FindMethodIncludingBase(fieldGenContract, methodName, instanceOnly: true);
+                                    if (fm != null)
+                                    {
+                                        call.Symbol = ResolveGenericTarget(fm, call, TypeParamMap(fieldGenContract, fg));
+                                        _usedFunctions.Add(fm.Name);
+                                        _usedTypes.Add(firstVarType.Name);
+                                        return;
+                                    }
+                                }
+                            }
+                        }
                         _diagnostics.AddError($"External method '{moduleName}.{methodName}' not found.", call.Line, call.Column);
                         return;
                     }
@@ -1817,6 +2347,63 @@ namespace Contract.Compiler.Semantics
                     // Single-segment base: try the existing instance-method resolution
                     // (c.method() where c is a variable of a contract type).
                     string className = moduleName;
+
+                    // this.method() — an instance method call on the implicit
+                    // receiver. Resolves against the current contract (or its
+                    // bases); inside a generic contract body the member is the
+                    // ORIGINAL declaration (the VM substitutes during
+                    // materialization).
+                    if (className == "this" && _currentIsInstance && _currentContractName != null)
+                    {
+                        var thisContract = FindContract(_currentContractName);
+                        if (thisContract != null)
+                        {
+                            var member = FindMethodIncludingBase(thisContract, methodName, instanceOnly: true);
+                            if (member != null)
+                            {
+                                if (!IsAccessibleFrom(member.Access, member.ContractName ?? ""))
+                                {
+                                    _diagnostics.AddError(
+                                        $"Method '{member.ContractName}.{methodName}' is {AccessName(member.Access)} — not accessible from '{_currentContractName}'",
+                                        call.Line, call.Column);
+                                }
+                                call.Symbol = member;
+                                _usedFunctions.Add(member.Name);
+                                _usedTypes.Add(thisContract.FullName);
+                                return;
+                            }
+                        }
+                    }
+
+                    // Chained member access: bindings.listVal.Count() — when
+                    // the first segment is a variable of struct type, resolve
+                    // the field, then check for methods on the field's type.
+                    if (IsVariableDefined(className))
+                    {
+                        var varType = FindVariableType(className);
+                        if (varType is TypeDescriptor.Named n && FindStruct(n.Name) is { } structDecl)
+                        {
+                            // Check if any struct field of GenericInstance type
+                            // has the method — this handles chained access like
+                            // bindings.listVal.Count() where "Count" is on the
+                            // field's type, not the struct itself.
+                            foreach (var field in structDecl.Fields)
+                            {
+                                if (field.Type is TypeDescriptor.GenericInstance fg
+                                    && FindGenericContract(fg.Name) is { } fieldGenContract)
+                                {
+                                    var fm = FindMethodIncludingBase(fieldGenContract, methodName, instanceOnly: true);
+                                    if (fm != null)
+                                    {
+                                        call.Symbol = ResolveGenericTarget(fm, call, TypeParamMap(fieldGenContract, fg));
+                                        _usedFunctions.Add(fm.Name);
+                                        _usedTypes.Add(n.Name);
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     // User-contract instance method call: c.method() where c is a
                     // variable whose type is a contract with that method. Walks
@@ -1831,6 +2418,12 @@ namespace Contract.Compiler.Semantics
                             var member = FindMethodIncludingBase(contract, methodName, instanceOnly: true);
                             if (member != null)
                             {
+                                if (!IsAccessibleFrom(member.Access, member.ContractName ?? ""))
+                                {
+                                    _diagnostics.AddError(
+                                        $"Method '{member.ContractName}.{methodName}' is {AccessName(member.Access)} — not accessible from '{_currentContractName}'",
+                                        call.Line, call.Column);
+                                }
                                 call.Symbol = member;
                                 _usedFunctions.Add(member.Name);
                                 _usedTypes.Add(n.Name);
@@ -1838,7 +2431,50 @@ namespace Contract.Compiler.Semantics
                                 return;
                             }
                         }
+                        // Generic contract instance: b.get() where b: Box<int>.
+                        if (varType is TypeDescriptor.GenericInstance g
+                            && FindGenericContract(g.Name) is { } genContract)
+                        {
+                            var member = FindMethodIncludingBase(genContract, methodName, instanceOnly: true);
+                            if (member != null)
+                            {
+                                if (!IsAccessibleFrom(member.Access, member.ContractName ?? ""))
+                                {
+                                    _diagnostics.AddError(
+                                        $"Method '{member.ContractName}.{methodName}' is {AccessName(member.Access)} — not accessible from '{_currentContractName}'",
+                                        call.Line, call.Column);
+                                }
+                                call.Symbol = ResolveGenericTarget(member, call, TypeParamMap(genContract, g));
+                                _usedFunctions.Add(member.Name);
+                                _usedTypes.Add(g.Name);
+                                _usedTypes.Add(genContract.FullName);
+                                return;
+                            }
+                        }
                         // Fall through to error below.
+                    }
+
+                    // Struct field of function type: fn.lambdaFn(args) where
+                    // fn is a variable of a struct type with a field named
+                    // methodName that has a function type.
+                    if (IsVariableDefined(className))
+                    {
+                        var varType = FindVariableType(className);
+                        if (varType is TypeDescriptor.Named n
+                            && FindStruct(n.Name) is { } structDecl)
+                        {
+                            var field = structDecl.Fields.FirstOrDefault(f => f.Name == methodName);
+                            if (field != null && field.Type is TypeDescriptor.Function fnType)
+                            {
+                                // The struct field is a function — treat this as
+                                // a call to that function type.  We don't set
+                                // call.Symbol because the codegen resolves the
+                                // field access + callvirt separately (member
+                                // expression on the left is already handled).
+                                _usedTypes.Add(n.Name);
+                                return;
+                            }
+                        }
                     }
 
                     _diagnostics.AddError($"External method '{className}.{methodName}' not found.", call.Line, call.Column);
@@ -1847,13 +2483,23 @@ namespace Contract.Compiler.Semantics
             else if (call.Callee is ScopedAccessExpression scoped)
             {
                 // Module::Method(...) — external stdlib or a static function on a contract.
-                if (_symbolTable.TryGetMethod(scoped.Module, scoped.Member, out var scopedMethod))
+                if (_symbolTable.TryResolveMethod(scoped.Module, scoped.Member, call.Arguments.Count, out var scopedMethod))
                 {
-                    call.Symbol = scopedMethod;
                     if (scopedMethod is FunctionDeclaration scopedFn)
                     {
+                        // Box::wrap(7) — generic static on a generic contract;
+                        // Box<int>::reset() — explicit type args on the module.
+                        var genericContract = FindGenericContract(scoped.Module);
+                        var seed = genericContract != null
+                            ? new Dictionary<string, TypeDescriptor>()
+                            : null;
+                        call.Symbol = ResolveGenericTarget(scopedFn, call, seed);
                         _usedFunctions.Add(scopedFn.Name);
                         _usedTypes.Add(scoped.Module);
+                    }
+                    else
+                    {
+                        call.Symbol = scopedMethod;
                     }
                     return;
                 }
@@ -1863,7 +2509,13 @@ namespace Contract.Compiler.Semantics
                 if (FindContract(scoped.Module) is { } scopedContract
                     && FindMethodIncludingBase(scopedContract, scoped.Member, instanceOnly: false) is { IsStatic: true } inheritedStatic)
                 {
-                    call.Symbol = inheritedStatic;
+                    if (!IsAccessibleFrom(inheritedStatic.Access, inheritedStatic.ContractName ?? ""))
+                    {
+                        _diagnostics.AddError(
+                            $"Method '{inheritedStatic.ContractName}.{scoped.Member}' is {AccessName(inheritedStatic.Access)} — not accessible from '{_currentContractName}'",
+                            call.Line, call.Column);
+                    }
+                    call.Symbol = ResolveGenericTarget(inheritedStatic, call);
                     _usedFunctions.Add(inheritedStatic.Name);
                     _usedTypes.Add(scoped.Module);
                     return;
@@ -1889,6 +2541,10 @@ namespace Contract.Compiler.Semantics
                 }
                 else if (!isFunctionValue)
                 {
+                    // Generic function: identity(42) — T inferred from the arg.
+                    var fn = FindFunctionDecl(ident.Name);
+                    if (fn != null)
+                        call.Symbol = ResolveGenericTarget(fn, call);
                     _usedFunctions.Add(ident.Name);
                 }
             }

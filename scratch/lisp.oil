@@ -1,0 +1,2798 @@
+module Lisp version 1.0.0
+
+class Lisp {
+    static method car(lst: thing.ValueList<Value>) -> Value {
+        // #line 23:16 "return lst[0];"
+        ldarg 0
+        // #line 23:20 "return lst[0];"
+        ldc.i4 0
+        // #line 23:20 "return lst[0];"
+        ldelem
+        // #line 23:20 "return lst[0];"
+        ret
+    }
+
+    static method cdr(lst: thing.ValueList<Value>) -> thing.ValueList<Value> {
+        local result: thing.ValueList<Value>
+        local i: int32
+
+        // #line 27:22 "var result = new ValueList<Value>();"
+        newobj thing.ValueList<Value>.constructor()
+        // #line 27:22 "var result = new ValueList<Value>();"
+        dup
+        // #line 27:22 "var result = new ValueList<Value>();"
+        call thing.ValueList<Value>..ctor(object) -> void
+        // #line 27:22 "var result = new ValueList<Value>();"
+        pop
+        // #line 27:22 "var result = new ValueList<Value>();"
+        stloc result
+        // #line 28:22 "for (var i = 1; i < lst.Count(); i = i + 1) {"
+        ldc.i4 1
+        // #line 28:22 "for (var i = 1; i < lst.Count(); i = i + 1) {"
+        stloc i
+        // #line 28:25 "for (var i = 1; i < lst.Count(); i = i + 1) {"
+        ldloc i
+        // #line 28:29 "for (var i = 1; i < lst.Count(); i = i + 1) {"
+        ldarg 0
+        // #line 28:29 "for (var i = 1; i < lst.Count(); i = i + 1) {"
+        call thing.ValueList<Value>.Count(object) -> int32
+        // #line 28:29 "for (var i = 1; i < lst.Count(); i = i + 1) {"
+        clt
+        // #line 28:29 "for (var i = 1; i < lst.Count(); i = i + 1) {"
+        while (stack) {
+            // #line 28:29 "for (var i = 1; i < lst.Count(); i = i + 1) {"
+            pop
+            // #line 29:13 "result.Add(lst.Get(i));"
+            ldloc result
+            // #line 29:24 "result.Add(lst.Get(i));"
+            ldarg 0
+            // #line 29:32 "result.Add(lst.Get(i));"
+            ldloc i
+            // #line 29:32 "result.Add(lst.Get(i));"
+            call thing.ValueList<Value>.Get(object, int32) -> Value
+            // #line 29:32 "result.Add(lst.Get(i));"
+            call thing.ValueList<Value>.Add(object, Value) -> int32
+            // #line 29:32 "result.Add(lst.Get(i));"
+            pop
+            // #line 28:46 "for (var i = 1; i < lst.Count(); i = i + 1) {"
+            ldloc i
+            // #line 28:50 "for (var i = 1; i < lst.Count(); i = i + 1) {"
+            ldc.i4 1
+            // #line 28:50 "for (var i = 1; i < lst.Count(); i = i + 1) {"
+            add
+            // #line 28:50 "for (var i = 1; i < lst.Count(); i = i + 1) {"
+            dup
+            // #line 28:50 "for (var i = 1; i < lst.Count(); i = i + 1) {"
+            stloc i
+            // #line 28:25 "for (var i = 1; i < lst.Count(); i = i + 1) {"
+            ldloc i
+            // #line 28:29 "for (var i = 1; i < lst.Count(); i = i + 1) {"
+            ldarg 0
+            // #line 28:29 "for (var i = 1; i < lst.Count(); i = i + 1) {"
+            call thing.ValueList<Value>.Count(object) -> int32
+            // #line 28:29 "for (var i = 1; i < lst.Count(); i = i + 1) {"
+            clt
+        }
+        // #line 28:29 "for (var i = 1; i < lst.Count(); i = i + 1) {"
+        pop
+        // #line 31:16 "return result;"
+        ldloc result
+        // #line 31:16 "return result;"
+        ret
+    }
+
+    static method eval(expr: Value, env: Env) -> Value {
+        local name: string
+        local lst: thing.ValueList<Value>
+        local head: Value
+        local rest: thing.ValueList<Value>
+        local op: string
+        local cond: Value
+        local bindings: Value
+        local body: Value
+        local newEnv: Env
+        local i: int32
+        local binding: Value
+        local varName: string
+        local varVal: Value
+        local params: Value
+        local body: Value
+        local closure: Env
+        local name: string
+        local params: Value
+        local body: Value
+        local func: Value
+        local sum: int32
+        local i: int32
+        local val: Value
+        local result: int32
+        local i: int32
+        local val: Value
+        local prod: int32
+        local i: int32
+        local val: Value
+        local left: Value
+        local right: Value
+        local left: int32
+        local right: int32
+        local result: thing.ValueList<Value>
+        local i: int32
+        local lst: thing.ValueList<Value>
+        local lst: thing.ValueList<Value>
+        local fn: Value
+        local args: thing.ValueList<Value>
+        local i: int32
+
+        // #line 36:13 "if (expr.kind == "atom") {"
+        ldarg 0
+        // #line 36:13 "if (expr.kind == "atom") {"
+        ldfld Value::kind
+        // #line 36:26 "if (expr.kind == "atom") {"
+        ldstr "atom"
+        // #line 36:26 "if (expr.kind == "atom") {"
+        ceq
+        // #line 36:26 "if (expr.kind == "atom") {"
+        if (stack) {
+            // #line 37:24 "var name = expr.atomVal;"
+            ldarg 0
+            // #line 37:24 "var name = expr.atomVal;"
+            ldfld Value::atomVal
+            // #line 37:24 "var name = expr.atomVal;"
+            stloc name
+            // #line 38:34 "if (Dict.ContainsKey(env.bindings, name)) {"
+            ldarg 1
+            // #line 38:34 "if (Dict.ContainsKey(env.bindings, name)) {"
+            ldfld Env::bindings
+            // #line 38:48 "if (Dict.ContainsKey(env.bindings, name)) {"
+            ldloc name
+            // #line 38:48 "if (Dict.ContainsKey(env.bindings, name)) {"
+            call Dict.ContainsKey(object, object) -> bool
+            // #line 38:48 "if (Dict.ContainsKey(env.bindings, name)) {"
+            if (stack) {
+                // #line 39:33 "return Dict.Get(env.bindings, name);"
+                ldarg 1
+                // #line 39:33 "return Dict.Get(env.bindings, name);"
+                ldfld Env::bindings
+                // #line 39:47 "return Dict.Get(env.bindings, name);"
+                ldloc name
+                // #line 39:47 "return Dict.Get(env.bindings, name);"
+                call Dict.Get(object, object) -> object
+                // #line 39:47 "return Dict.Get(env.bindings, name);"
+                ret
+            }
+            // #line 42:17 "if (env.parent != null) {"
+            ldarg 1
+            // #line 42:17 "if (env.parent != null) {"
+            ldfld Env::parent
+            // #line 42:31 "if (env.parent != null) {"
+            ldnull
+            // #line 42:31 "if (env.parent != null) {"
+            ceq
+            // #line 42:31 "if (env.parent != null) {"
+            not
+            // #line 42:31 "if (env.parent != null) {"
+            if (stack) {
+                // #line 43:29 "return eval(expr, env.parent);"
+                ldarg 0
+                // #line 43:35 "return eval(expr, env.parent);"
+                ldarg 1
+                // #line 43:35 "return eval(expr, env.parent);"
+                ldfld Env::parent
+                // #line 43:35 "return eval(expr, env.parent);"
+                call Lisp.eval(Value, Env) -> Value
+                // #line 43:35 "return eval(expr, env.parent);"
+                ret
+            }
+            // #line 45:20 "return expr;  // undefined variable returns itself"
+            ldarg 0
+            // #line 45:20 "return expr;  // undefined variable returns itself"
+            ret
+        }
+        // #line 49:13 "if (expr.kind == "list") {"
+        ldarg 0
+        // #line 49:13 "if (expr.kind == "list") {"
+        ldfld Value::kind
+        // #line 49:26 "if (expr.kind == "list") {"
+        ldstr "list"
+        // #line 49:26 "if (expr.kind == "list") {"
+        ceq
+        // #line 49:26 "if (expr.kind == "list") {"
+        if (stack) {
+            // #line 50:23 "var lst = expr.listVal;"
+            ldarg 0
+            // #line 50:23 "var lst = expr.listVal;"
+            ldfld Value::listVal
+            // #line 50:23 "var lst = expr.listVal;"
+            stloc lst
+            // #line 51:17 "if (lst.Count() == 0) return expr;"
+            ldloc lst
+            // #line 51:17 "if (lst.Count() == 0) return expr;"
+            call thing.ValueList<Value>.Count(object) -> int32
+            // #line 51:32 "if (lst.Count() == 0) return expr;"
+            ldc.i4 0
+            // #line 51:32 "if (lst.Count() == 0) return expr;"
+            ceq
+            // #line 51:32 "if (lst.Count() == 0) return expr;"
+            if (stack) {
+                // #line 51:42 "if (lst.Count() == 0) return expr;"
+                ldarg 0
+                // #line 51:42 "if (lst.Count() == 0) return expr;"
+                ret
+            }
+            // #line 53:24 "var head = lst.Get(0);"
+            ldloc lst
+            // #line 53:32 "var head = lst.Get(0);"
+            ldc.i4 0
+            // #line 53:32 "var head = lst.Get(0);"
+            call thing.ValueList<Value>.Get(object, int32) -> Value
+            // #line 53:32 "var head = lst.Get(0);"
+            stloc head
+            // #line 54:28 "var rest = cdr(lst);"
+            ldloc lst
+            // #line 54:28 "var rest = cdr(lst);"
+            call Lisp.cdr(thing.ValueList<Value>) -> thing.ValueList<Value>
+            // #line 54:28 "var rest = cdr(lst);"
+            stloc rest
+            // #line 57:17 "if (head.kind == "atom") {"
+            ldloc head
+            // #line 57:17 "if (head.kind == "atom") {"
+            ldfld Value::kind
+            // #line 57:30 "if (head.kind == "atom") {"
+            ldstr "atom"
+            // #line 57:30 "if (head.kind == "atom") {"
+            ceq
+            // #line 57:30 "if (head.kind == "atom") {"
+            if (stack) {
+                // #line 58:26 "var op = head.atomVal;"
+                ldloc head
+                // #line 58:26 "var op = head.atomVal;"
+                ldfld Value::atomVal
+                // #line 58:26 "var op = head.atomVal;"
+                stloc op
+                // #line 60:21 "if (op == "quote") {"
+                ldloc op
+                // #line 60:27 "if (op == "quote") {"
+                ldstr "quote"
+                // #line 60:27 "if (op == "quote") {"
+                ceq
+                // #line 60:27 "if (op == "quote") {"
+                if (stack) {
+                    // #line 61:28 "return rest.Get(0);"
+                    ldloc rest
+                    // #line 61:37 "return rest.Get(0);"
+                    ldc.i4 0
+                    // #line 61:37 "return rest.Get(0);"
+                    call thing.ValueList<Value>.Get(object, int32) -> Value
+                    // #line 61:37 "return rest.Get(0);"
+                    ret
+                }
+                // #line 64:21 "if (op == "if") {"
+                ldloc op
+                // #line 64:27 "if (op == "if") {"
+                ldstr "if"
+                // #line 64:27 "if (op == "if") {"
+                ceq
+                // #line 64:27 "if (op == "if") {"
+                if (stack) {
+                    // #line 65:37 "var cond = eval(rest.Get(0), env);"
+                    ldloc rest
+                    // #line 65:46 "var cond = eval(rest.Get(0), env);"
+                    ldc.i4 0
+                    // #line 65:46 "var cond = eval(rest.Get(0), env);"
+                    call thing.ValueList<Value>.Get(object, int32) -> Value
+                    // #line 65:50 "var cond = eval(rest.Get(0), env);"
+                    ldarg 1
+                    // #line 65:50 "var cond = eval(rest.Get(0), env);"
+                    call Lisp.eval(Value, Env) -> Value
+                    // #line 65:50 "var cond = eval(rest.Get(0), env);"
+                    stloc cond
+                    // #line 66:34 "if (isTruthy(cond)) {"
+                    ldloc cond
+                    // #line 66:34 "if (isTruthy(cond)) {"
+                    call Lisp.isTruthy(Value) -> bool
+                    // #line 66:34 "if (isTruthy(cond)) {"
+                    if (stack) {
+                        // #line 67:37 "return eval(rest.Get(1), env);"
+                        ldloc rest
+                        // #line 67:46 "return eval(rest.Get(1), env);"
+                        ldc.i4 1
+                        // #line 67:46 "return eval(rest.Get(1), env);"
+                        call thing.ValueList<Value>.Get(object, int32) -> Value
+                        // #line 67:50 "return eval(rest.Get(1), env);"
+                        ldarg 1
+                        // #line 67:50 "return eval(rest.Get(1), env);"
+                        call Lisp.eval(Value, Env) -> Value
+                        // #line 67:50 "return eval(rest.Get(1), env);"
+                        ret
+                    }
+                    else {
+                        // #line 68:32 "} else if (rest.Count() > 2) {"
+                        ldloc rest
+                        // #line 68:32 "} else if (rest.Count() > 2) {"
+                        call thing.ValueList<Value>.Count(object) -> int32
+                        // #line 68:47 "} else if (rest.Count() > 2) {"
+                        ldc.i4 2
+                        // #line 68:47 "} else if (rest.Count() > 2) {"
+                        cgt
+                        // #line 68:47 "} else if (rest.Count() > 2) {"
+                        if (stack) {
+                            // #line 69:37 "return eval(rest.Get(2), env);"
+                            ldloc rest
+                            // #line 69:46 "return eval(rest.Get(2), env);"
+                            ldc.i4 2
+                            // #line 69:46 "return eval(rest.Get(2), env);"
+                            call thing.ValueList<Value>.Get(object, int32) -> Value
+                            // #line 69:50 "return eval(rest.Get(2), env);"
+                            ldarg 1
+                            // #line 69:50 "return eval(rest.Get(2), env);"
+                            call Lisp.eval(Value, Env) -> Value
+                            // #line 69:50 "return eval(rest.Get(2), env);"
+                            ret
+                        }
+                    }
+                    // #line 71:37 "return makeAtom("nil");"
+                    ldstr "nil"
+                    // #line 71:37 "return makeAtom("nil");"
+                    call Lisp.makeAtom(string) -> Value
+                    // #line 71:37 "return makeAtom("nil");"
+                    ret
+                }
+                // #line 74:21 "if (op == "let") {"
+                ldloc op
+                // #line 74:27 "if (op == "let") {"
+                ldstr "let"
+                // #line 74:27 "if (op == "let") {"
+                ceq
+                // #line 74:27 "if (op == "let") {"
+                if (stack) {
+                    // #line 75:36 "var bindings = rest.Get(0);"
+                    ldloc rest
+                    // #line 75:45 "var bindings = rest.Get(0);"
+                    ldc.i4 0
+                    // #line 75:45 "var bindings = rest.Get(0);"
+                    call thing.ValueList<Value>.Get(object, int32) -> Value
+                    // #line 75:45 "var bindings = rest.Get(0);"
+                    stloc bindings
+                    // #line 76:32 "var body = rest.Get(1);"
+                    ldloc rest
+                    // #line 76:41 "var body = rest.Get(1);"
+                    ldc.i4 1
+                    // #line 76:41 "var body = rest.Get(1);"
+                    call thing.ValueList<Value>.Get(object, int32) -> Value
+                    // #line 76:41 "var body = rest.Get(1);"
+                    stloc body
+                    // #line 77:34 "var newEnv = new Env();"
+                    newobj Env.constructor()
+                    // #line 77:34 "var newEnv = new Env();"
+                    stloc newEnv
+                    // #line 78:21 "newEnv.parent = env;"
+                    ldloc newEnv
+                    // #line 78:21 "newEnv.parent = env;"
+                    dup
+                    // #line 78:37 "newEnv.parent = env;"
+                    ldarg 1
+                    // #line 78:37 "newEnv.parent = env;"
+                    stfld Env::parent
+                    // #line 78:37 "newEnv.parent = env;"
+                    pop
+                    // #line 79:21 "newEnv.bindings = Dict.Create();"
+                    ldloc newEnv
+                    // #line 79:21 "newEnv.bindings = Dict.Create();"
+                    dup
+                    // #line 79:39 "newEnv.bindings = Dict.Create();"
+                    call Dict.Create() -> object
+                    // #line 79:39 "newEnv.bindings = Dict.Create();"
+                    stfld Env::bindings
+                    // #line 79:39 "newEnv.bindings = Dict.Create();"
+                    pop
+                    // #line 82:34 "for (var i = 0; i < bindings.listVal.Count(); i = i + 1) {"
+                    ldc.i4 0
+                    // #line 82:34 "for (var i = 0; i < bindings.listVal.Count(); i = i + 1) {"
+                    stloc i
+                    // #line 82:37 "for (var i = 0; i < bindings.listVal.Count(); i = i + 1) {"
+                    ldloc i
+                    // #line 82:41 "for (var i = 0; i < bindings.listVal.Count(); i = i + 1) {"
+                    ldloc bindings
+                    // #line 82:41 "for (var i = 0; i < bindings.listVal.Count(); i = i + 1) {"
+                    ldfld Value::listVal
+                    // #line 82:41 "for (var i = 0; i < bindings.listVal.Count(); i = i + 1) {"
+                    call thing.ValueList.Count(object) -> int32
+                    // #line 82:41 "for (var i = 0; i < bindings.listVal.Count(); i = i + 1) {"
+                    clt
+                    // #line 82:41 "for (var i = 0; i < bindings.listVal.Count(); i = i + 1) {"
+                    while (stack) {
+                        // #line 82:41 "for (var i = 0; i < bindings.listVal.Count(); i = i + 1) {"
+                        pop
+                        // #line 83:39 "var binding = bindings.listVal.Get(i);       // (x 5)"
+                        ldloc bindings
+                        // #line 83:39 "var binding = bindings.listVal.Get(i);       // (x 5)"
+                        ldfld Value::listVal
+                        // #line 83:60 "var binding = bindings.listVal.Get(i);       // (x 5)"
+                        ldloc i
+                        // #line 83:60 "var binding = bindings.listVal.Get(i);       // (x 5)"
+                        call thing.ValueList.Get(object, int32) -> Value
+                        // #line 83:60 "var binding = bindings.listVal.Get(i);       // (x 5)"
+                        stloc binding
+                        // #line 84:39 "var varName = binding.listVal.Get(0).atomVal; // x"
+                        ldloc binding
+                        // #line 84:39 "var varName = binding.listVal.Get(0).atomVal; // x"
+                        ldfld Value::listVal
+                        // #line 84:59 "var varName = binding.listVal.Get(0).atomVal; // x"
+                        ldc.i4 0
+                        // #line 84:59 "var varName = binding.listVal.Get(0).atomVal; // x"
+                        call thing.ValueList.Get(object, int32) -> Value
+                        // #line 84:59 "var varName = binding.listVal.Get(0).atomVal; // x"
+                        ldfld Value::atomVal
+                        // #line 84:59 "var varName = binding.listVal.Get(0).atomVal; // x"
+                        stloc varName
+                        // #line 85:43 "var varVal = eval(binding.listVal.Get(1), env); // 5"
+                        ldloc binding
+                        // #line 85:43 "var varVal = eval(binding.listVal.Get(1), env); // 5"
+                        ldfld Value::listVal
+                        // #line 85:63 "var varVal = eval(binding.listVal.Get(1), env); // 5"
+                        ldc.i4 1
+                        // #line 85:63 "var varVal = eval(binding.listVal.Get(1), env); // 5"
+                        call thing.ValueList.Get(object, int32) -> Value
+                        // #line 85:67 "var varVal = eval(binding.listVal.Get(1), env); // 5"
+                        ldarg 1
+                        // #line 85:67 "var varVal = eval(binding.listVal.Get(1), env); // 5"
+                        call Lisp.eval(Value, Env) -> Value
+                        // #line 85:67 "var varVal = eval(binding.listVal.Get(1), env); // 5"
+                        stloc varVal
+                        // #line 86:34 "Dict.Set(newEnv.bindings, varName, varVal);"
+                        ldloc newEnv
+                        // #line 86:34 "Dict.Set(newEnv.bindings, varName, varVal);"
+                        ldfld Env::bindings
+                        // #line 86:51 "Dict.Set(newEnv.bindings, varName, varVal);"
+                        ldloc varName
+                        // #line 86:60 "Dict.Set(newEnv.bindings, varName, varVal);"
+                        ldloc varVal
+                        // #line 86:60 "Dict.Set(newEnv.bindings, varName, varVal);"
+                        call Dict.Set(object, object, object) -> void
+                        // #line 86:60 "Dict.Set(newEnv.bindings, varName, varVal);"
+                        pop
+                        // #line 82:71 "for (var i = 0; i < bindings.listVal.Count(); i = i + 1) {"
+                        ldloc i
+                        // #line 82:75 "for (var i = 0; i < bindings.listVal.Count(); i = i + 1) {"
+                        ldc.i4 1
+                        // #line 82:75 "for (var i = 0; i < bindings.listVal.Count(); i = i + 1) {"
+                        add
+                        // #line 82:75 "for (var i = 0; i < bindings.listVal.Count(); i = i + 1) {"
+                        dup
+                        // #line 82:75 "for (var i = 0; i < bindings.listVal.Count(); i = i + 1) {"
+                        stloc i
+                        // #line 82:37 "for (var i = 0; i < bindings.listVal.Count(); i = i + 1) {"
+                        ldloc i
+                        // #line 82:41 "for (var i = 0; i < bindings.listVal.Count(); i = i + 1) {"
+                        ldloc bindings
+                        // #line 82:41 "for (var i = 0; i < bindings.listVal.Count(); i = i + 1) {"
+                        ldfld Value::listVal
+                        // #line 82:41 "for (var i = 0; i < bindings.listVal.Count(); i = i + 1) {"
+                        call thing.ValueList.Count(object) -> int32
+                        // #line 82:41 "for (var i = 0; i < bindings.listVal.Count(); i = i + 1) {"
+                        clt
+                    }
+                    // #line 82:41 "for (var i = 0; i < bindings.listVal.Count(); i = i + 1) {"
+                    pop
+                    // #line 88:33 "return eval(body, newEnv);"
+                    ldloc body
+                    // #line 88:39 "return eval(body, newEnv);"
+                    ldloc newEnv
+                    // #line 88:39 "return eval(body, newEnv);"
+                    call Lisp.eval(Value, Env) -> Value
+                    // #line 88:39 "return eval(body, newEnv);"
+                    ret
+                }
+                // #line 91:21 "if (op == "lambda" || op == "fn") {"
+                ldloc op
+                // #line 91:27 "if (op == "lambda" || op == "fn") {"
+                ldstr "lambda"
+                // #line 91:27 "if (op == "lambda" || op == "fn") {"
+                ceq
+                // #line 91:39 "if (op == "lambda" || op == "fn") {"
+                ldloc op
+                // #line 91:45 "if (op == "lambda" || op == "fn") {"
+                ldstr "fn"
+                // #line 91:45 "if (op == "lambda" || op == "fn") {"
+                ceq
+                // #line 91:45 "if (op == "lambda" || op == "fn") {"
+                or
+                // #line 91:45 "if (op == "lambda" || op == "fn") {"
+                if (stack) {
+                    // #line 92:34 "var params = rest.Get(0);"
+                    ldloc rest
+                    // #line 92:43 "var params = rest.Get(0);"
+                    ldc.i4 0
+                    // #line 92:43 "var params = rest.Get(0);"
+                    call thing.ValueList<Value>.Get(object, int32) -> Value
+                    // #line 92:43 "var params = rest.Get(0);"
+                    stloc params
+                    // #line 93:32 "var body = rest.Get(1);"
+                    ldloc rest
+                    // #line 93:41 "var body = rest.Get(1);"
+                    ldc.i4 1
+                    // #line 93:41 "var body = rest.Get(1);"
+                    call thing.ValueList<Value>.Get(object, int32) -> Value
+                    // #line 93:41 "var body = rest.Get(1);"
+                    stloc body
+                    // #line 94:35 "var closure = new Env();"
+                    newobj Env.constructor()
+                    // #line 94:35 "var closure = new Env();"
+                    stloc closure
+                    // #line 95:21 "closure.parent = env;"
+                    ldloc closure
+                    // #line 95:21 "closure.parent = env;"
+                    dup
+                    // #line 95:38 "closure.parent = env;"
+                    ldarg 1
+                    // #line 95:38 "closure.parent = env;"
+                    stfld Env::parent
+                    // #line 95:38 "closure.parent = env;"
+                    pop
+                    // #line 96:21 "closure.bindings = Dict.Create();"
+                    ldloc closure
+                    // #line 96:21 "closure.bindings = Dict.Create();"
+                    dup
+                    // #line 96:40 "closure.bindings = Dict.Create();"
+                    call Dict.Create() -> object
+                    // #line 96:40 "closure.bindings = Dict.Create();"
+                    stfld Env::bindings
+                    // #line 96:40 "closure.bindings = Dict.Create();"
+                    pop
+                    // #line 97:39 "return makeLambda(params, body, closure);"
+                    ldloc params
+                    // #line 97:47 "return makeLambda(params, body, closure);"
+                    ldloc body
+                    // #line 97:53 "return makeLambda(params, body, closure);"
+                    ldloc closure
+                    // #line 97:53 "return makeLambda(params, body, closure);"
+                    call Lisp.makeLambda(Value, Value, Env) -> Value
+                    // #line 97:53 "return makeLambda(params, body, closure);"
+                    ret
+                }
+                // #line 100:21 "if (op == "defun") {"
+                ldloc op
+                // #line 100:27 "if (op == "defun") {"
+                ldstr "defun"
+                // #line 100:27 "if (op == "defun") {"
+                ceq
+                // #line 100:27 "if (op == "defun") {"
+                if (stack) {
+                    // #line 101:32 "var name = rest.Get(0).atomVal;"
+                    ldloc rest
+                    // #line 101:41 "var name = rest.Get(0).atomVal;"
+                    ldc.i4 0
+                    // #line 101:41 "var name = rest.Get(0).atomVal;"
+                    call thing.ValueList<Value>.Get(object, int32) -> Value
+                    // #line 101:41 "var name = rest.Get(0).atomVal;"
+                    ldfld Value::atomVal
+                    // #line 101:41 "var name = rest.Get(0).atomVal;"
+                    stloc name
+                    // #line 102:34 "var params = rest.Get(1);"
+                    ldloc rest
+                    // #line 102:43 "var params = rest.Get(1);"
+                    ldc.i4 1
+                    // #line 102:43 "var params = rest.Get(1);"
+                    call thing.ValueList<Value>.Get(object, int32) -> Value
+                    // #line 102:43 "var params = rest.Get(1);"
+                    stloc params
+                    // #line 103:32 "var body = rest.Get(2);"
+                    ldloc rest
+                    // #line 103:41 "var body = rest.Get(2);"
+                    ldc.i4 2
+                    // #line 103:41 "var body = rest.Get(2);"
+                    call thing.ValueList<Value>.Get(object, int32) -> Value
+                    // #line 103:41 "var body = rest.Get(2);"
+                    stloc body
+                    // #line 104:43 "var func = makeLambda(params, body, env);"
+                    ldloc params
+                    // #line 104:51 "var func = makeLambda(params, body, env);"
+                    ldloc body
+                    // #line 104:57 "var func = makeLambda(params, body, env);"
+                    ldarg 1
+                    // #line 104:57 "var func = makeLambda(params, body, env);"
+                    call Lisp.makeLambda(Value, Value, Env) -> Value
+                    // #line 104:57 "var func = makeLambda(params, body, env);"
+                    stloc func
+                    // #line 105:30 "Dict.Set(env.bindings, name, func);"
+                    ldarg 1
+                    // #line 105:30 "Dict.Set(env.bindings, name, func);"
+                    ldfld Env::bindings
+                    // #line 105:44 "Dict.Set(env.bindings, name, func);"
+                    ldloc name
+                    // #line 105:50 "Dict.Set(env.bindings, name, func);"
+                    ldloc func
+                    // #line 105:50 "Dict.Set(env.bindings, name, func);"
+                    call Dict.Set(object, object, object) -> void
+                    // #line 105:50 "Dict.Set(env.bindings, name, func);"
+                    pop
+                    // #line 106:37 "return makeAtom(name);"
+                    ldloc name
+                    // #line 106:37 "return makeAtom(name);"
+                    call Lisp.makeAtom(string) -> Value
+                    // #line 106:37 "return makeAtom(name);"
+                    ret
+                }
+                // #line 109:21 "if (op == "+") {"
+                ldloc op
+                // #line 109:27 "if (op == "+") {"
+                ldstr "+"
+                // #line 109:27 "if (op == "+") {"
+                ceq
+                // #line 109:27 "if (op == "+") {"
+                if (stack) {
+                    // #line 110:31 "var sum = 0;"
+                    ldc.i4 0
+                    // #line 110:31 "var sum = 0;"
+                    stloc sum
+                    // #line 111:34 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    ldc.i4 0
+                    // #line 111:34 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    stloc i
+                    // #line 111:37 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    ldloc i
+                    // #line 111:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    ldloc rest
+                    // #line 111:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    call thing.ValueList<Value>.Count(object) -> int32
+                    // #line 111:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    clt
+                    // #line 111:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    while (stack) {
+                        // #line 111:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        pop
+                        // #line 112:40 "var val = eval(rest.Get(i), env);"
+                        ldloc rest
+                        // #line 112:49 "var val = eval(rest.Get(i), env);"
+                        ldloc i
+                        // #line 112:49 "var val = eval(rest.Get(i), env);"
+                        call thing.ValueList<Value>.Get(object, int32) -> Value
+                        // #line 112:53 "var val = eval(rest.Get(i), env);"
+                        ldarg 1
+                        // #line 112:53 "var val = eval(rest.Get(i), env);"
+                        call Lisp.eval(Value, Env) -> Value
+                        // #line 112:53 "var val = eval(rest.Get(i), env);"
+                        stloc val
+                        // #line 113:31 "sum = sum + Convert.ToInt32(val.atomVal);"
+                        ldloc sum
+                        // #line 113:53 "sum = sum + Convert.ToInt32(val.atomVal);"
+                        ldloc val
+                        // #line 113:53 "sum = sum + Convert.ToInt32(val.atomVal);"
+                        ldfld Value::atomVal
+                        // #line 113:53 "sum = sum + Convert.ToInt32(val.atomVal);"
+                        call Convert.ToInt32(string) -> int32
+                        // #line 113:53 "sum = sum + Convert.ToInt32(val.atomVal);"
+                        add
+                        // #line 113:53 "sum = sum + Convert.ToInt32(val.atomVal);"
+                        dup
+                        // #line 113:53 "sum = sum + Convert.ToInt32(val.atomVal);"
+                        stloc sum
+                        // #line 113:53 "sum = sum + Convert.ToInt32(val.atomVal);"
+                        pop
+                        // #line 111:59 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        ldloc i
+                        // #line 111:63 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        ldc.i4 1
+                        // #line 111:63 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        add
+                        // #line 111:63 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        dup
+                        // #line 111:63 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        stloc i
+                        // #line 111:37 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        ldloc i
+                        // #line 111:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        ldloc rest
+                        // #line 111:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        call thing.ValueList<Value>.Count(object) -> int32
+                        // #line 111:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        clt
+                    }
+                    // #line 111:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    pop
+                    // #line 115:54 "return makeAtom(Convert.ToString(sum));"
+                    ldloc sum
+                    // #line 115:54 "return makeAtom(Convert.ToString(sum));"
+                    call Convert.ToString(int32) -> string
+                    // #line 115:54 "return makeAtom(Convert.ToString(sum));"
+                    call Lisp.makeAtom(string) -> Value
+                    // #line 115:54 "return makeAtom(Convert.ToString(sum));"
+                    ret
+                }
+                // #line 118:21 "if (op == "-") {"
+                ldloc op
+                // #line 118:27 "if (op == "-") {"
+                ldstr "-"
+                // #line 118:27 "if (op == "-") {"
+                ceq
+                // #line 118:27 "if (op == "-") {"
+                if (stack) {
+                    // #line 119:50 "var result = Convert.ToInt32(rest.Get(0).atomVal);"
+                    ldloc rest
+                    // #line 119:59 "var result = Convert.ToInt32(rest.Get(0).atomVal);"
+                    ldc.i4 0
+                    // #line 119:59 "var result = Convert.ToInt32(rest.Get(0).atomVal);"
+                    call thing.ValueList<Value>.Get(object, int32) -> Value
+                    // #line 119:59 "var result = Convert.ToInt32(rest.Get(0).atomVal);"
+                    ldfld Value::atomVal
+                    // #line 119:59 "var result = Convert.ToInt32(rest.Get(0).atomVal);"
+                    call Convert.ToInt32(string) -> int32
+                    // #line 119:59 "var result = Convert.ToInt32(rest.Get(0).atomVal);"
+                    stloc result
+                    // #line 120:34 "for (var i = 1; i < rest.Count(); i = i + 1) {"
+                    ldc.i4 1
+                    // #line 120:34 "for (var i = 1; i < rest.Count(); i = i + 1) {"
+                    stloc i
+                    // #line 120:37 "for (var i = 1; i < rest.Count(); i = i + 1) {"
+                    ldloc i
+                    // #line 120:41 "for (var i = 1; i < rest.Count(); i = i + 1) {"
+                    ldloc rest
+                    // #line 120:41 "for (var i = 1; i < rest.Count(); i = i + 1) {"
+                    call thing.ValueList<Value>.Count(object) -> int32
+                    // #line 120:41 "for (var i = 1; i < rest.Count(); i = i + 1) {"
+                    clt
+                    // #line 120:41 "for (var i = 1; i < rest.Count(); i = i + 1) {"
+                    while (stack) {
+                        // #line 120:41 "for (var i = 1; i < rest.Count(); i = i + 1) {"
+                        pop
+                        // #line 121:40 "var val = eval(rest.Get(i), env);"
+                        ldloc rest
+                        // #line 121:49 "var val = eval(rest.Get(i), env);"
+                        ldloc i
+                        // #line 121:49 "var val = eval(rest.Get(i), env);"
+                        call thing.ValueList<Value>.Get(object, int32) -> Value
+                        // #line 121:53 "var val = eval(rest.Get(i), env);"
+                        ldarg 1
+                        // #line 121:53 "var val = eval(rest.Get(i), env);"
+                        call Lisp.eval(Value, Env) -> Value
+                        // #line 121:53 "var val = eval(rest.Get(i), env);"
+                        stloc val
+                        // #line 122:34 "result = result - Convert.ToInt32(val.atomVal);"
+                        ldloc result
+                        // #line 122:59 "result = result - Convert.ToInt32(val.atomVal);"
+                        ldloc val
+                        // #line 122:59 "result = result - Convert.ToInt32(val.atomVal);"
+                        ldfld Value::atomVal
+                        // #line 122:59 "result = result - Convert.ToInt32(val.atomVal);"
+                        call Convert.ToInt32(string) -> int32
+                        // #line 122:59 "result = result - Convert.ToInt32(val.atomVal);"
+                        sub
+                        // #line 122:59 "result = result - Convert.ToInt32(val.atomVal);"
+                        dup
+                        // #line 122:59 "result = result - Convert.ToInt32(val.atomVal);"
+                        stloc result
+                        // #line 122:59 "result = result - Convert.ToInt32(val.atomVal);"
+                        pop
+                        // #line 120:59 "for (var i = 1; i < rest.Count(); i = i + 1) {"
+                        ldloc i
+                        // #line 120:63 "for (var i = 1; i < rest.Count(); i = i + 1) {"
+                        ldc.i4 1
+                        // #line 120:63 "for (var i = 1; i < rest.Count(); i = i + 1) {"
+                        add
+                        // #line 120:63 "for (var i = 1; i < rest.Count(); i = i + 1) {"
+                        dup
+                        // #line 120:63 "for (var i = 1; i < rest.Count(); i = i + 1) {"
+                        stloc i
+                        // #line 120:37 "for (var i = 1; i < rest.Count(); i = i + 1) {"
+                        ldloc i
+                        // #line 120:41 "for (var i = 1; i < rest.Count(); i = i + 1) {"
+                        ldloc rest
+                        // #line 120:41 "for (var i = 1; i < rest.Count(); i = i + 1) {"
+                        call thing.ValueList<Value>.Count(object) -> int32
+                        // #line 120:41 "for (var i = 1; i < rest.Count(); i = i + 1) {"
+                        clt
+                    }
+                    // #line 120:41 "for (var i = 1; i < rest.Count(); i = i + 1) {"
+                    pop
+                    // #line 124:54 "return makeAtom(Convert.ToString(result));"
+                    ldloc result
+                    // #line 124:54 "return makeAtom(Convert.ToString(result));"
+                    call Convert.ToString(int32) -> string
+                    // #line 124:54 "return makeAtom(Convert.ToString(result));"
+                    call Lisp.makeAtom(string) -> Value
+                    // #line 124:54 "return makeAtom(Convert.ToString(result));"
+                    ret
+                }
+                // #line 127:21 "if (op == "*") {"
+                ldloc op
+                // #line 127:27 "if (op == "*") {"
+                ldstr "*"
+                // #line 127:27 "if (op == "*") {"
+                ceq
+                // #line 127:27 "if (op == "*") {"
+                if (stack) {
+                    // #line 128:32 "var prod = 1;"
+                    ldc.i4 1
+                    // #line 128:32 "var prod = 1;"
+                    stloc prod
+                    // #line 129:34 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    ldc.i4 0
+                    // #line 129:34 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    stloc i
+                    // #line 129:37 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    ldloc i
+                    // #line 129:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    ldloc rest
+                    // #line 129:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    call thing.ValueList<Value>.Count(object) -> int32
+                    // #line 129:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    clt
+                    // #line 129:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    while (stack) {
+                        // #line 129:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        pop
+                        // #line 130:40 "var val = eval(rest.Get(i), env);"
+                        ldloc rest
+                        // #line 130:49 "var val = eval(rest.Get(i), env);"
+                        ldloc i
+                        // #line 130:49 "var val = eval(rest.Get(i), env);"
+                        call thing.ValueList<Value>.Get(object, int32) -> Value
+                        // #line 130:53 "var val = eval(rest.Get(i), env);"
+                        ldarg 1
+                        // #line 130:53 "var val = eval(rest.Get(i), env);"
+                        call Lisp.eval(Value, Env) -> Value
+                        // #line 130:53 "var val = eval(rest.Get(i), env);"
+                        stloc val
+                        // #line 131:32 "prod = prod * Convert.ToInt32(val.atomVal);"
+                        ldloc prod
+                        // #line 131:55 "prod = prod * Convert.ToInt32(val.atomVal);"
+                        ldloc val
+                        // #line 131:55 "prod = prod * Convert.ToInt32(val.atomVal);"
+                        ldfld Value::atomVal
+                        // #line 131:55 "prod = prod * Convert.ToInt32(val.atomVal);"
+                        call Convert.ToInt32(string) -> int32
+                        // #line 131:55 "prod = prod * Convert.ToInt32(val.atomVal);"
+                        mul
+                        // #line 131:55 "prod = prod * Convert.ToInt32(val.atomVal);"
+                        dup
+                        // #line 131:55 "prod = prod * Convert.ToInt32(val.atomVal);"
+                        stloc prod
+                        // #line 131:55 "prod = prod * Convert.ToInt32(val.atomVal);"
+                        pop
+                        // #line 129:59 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        ldloc i
+                        // #line 129:63 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        ldc.i4 1
+                        // #line 129:63 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        add
+                        // #line 129:63 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        dup
+                        // #line 129:63 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        stloc i
+                        // #line 129:37 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        ldloc i
+                        // #line 129:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        ldloc rest
+                        // #line 129:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        call thing.ValueList<Value>.Count(object) -> int32
+                        // #line 129:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        clt
+                    }
+                    // #line 129:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    pop
+                    // #line 133:54 "return makeAtom(Convert.ToString(prod));"
+                    ldloc prod
+                    // #line 133:54 "return makeAtom(Convert.ToString(prod));"
+                    call Convert.ToString(int32) -> string
+                    // #line 133:54 "return makeAtom(Convert.ToString(prod));"
+                    call Lisp.makeAtom(string) -> Value
+                    // #line 133:54 "return makeAtom(Convert.ToString(prod));"
+                    ret
+                }
+                // #line 136:21 "if (op == "=") {"
+                ldloc op
+                // #line 136:27 "if (op == "=") {"
+                ldstr "="
+                // #line 136:27 "if (op == "=") {"
+                ceq
+                // #line 136:27 "if (op == "=") {"
+                if (stack) {
+                    // #line 137:37 "var left = eval(rest.Get(0), env);"
+                    ldloc rest
+                    // #line 137:46 "var left = eval(rest.Get(0), env);"
+                    ldc.i4 0
+                    // #line 137:46 "var left = eval(rest.Get(0), env);"
+                    call thing.ValueList<Value>.Get(object, int32) -> Value
+                    // #line 137:50 "var left = eval(rest.Get(0), env);"
+                    ldarg 1
+                    // #line 137:50 "var left = eval(rest.Get(0), env);"
+                    call Lisp.eval(Value, Env) -> Value
+                    // #line 137:50 "var left = eval(rest.Get(0), env);"
+                    stloc left
+                    // #line 138:38 "var right = eval(rest.Get(1), env);"
+                    ldloc rest
+                    // #line 138:47 "var right = eval(rest.Get(1), env);"
+                    ldc.i4 1
+                    // #line 138:47 "var right = eval(rest.Get(1), env);"
+                    call thing.ValueList<Value>.Get(object, int32) -> Value
+                    // #line 138:51 "var right = eval(rest.Get(1), env);"
+                    ldarg 1
+                    // #line 138:51 "var right = eval(rest.Get(1), env);"
+                    call Lisp.eval(Value, Env) -> Value
+                    // #line 138:51 "var right = eval(rest.Get(1), env);"
+                    stloc right
+                    // #line 139:29 "return (left.atomVal == right.atomVal) ? makeAtom("t") : makeAtom("nil");"
+                    ldloc left
+                    // #line 139:29 "return (left.atomVal == right.atomVal) ? makeAtom("t") : makeAtom("nil");"
+                    ldfld Value::atomVal
+                    // #line 139:45 "return (left.atomVal == right.atomVal) ? makeAtom("t") : makeAtom("nil");"
+                    ldloc right
+                    // #line 139:45 "return (left.atomVal == right.atomVal) ? makeAtom("t") : makeAtom("nil");"
+                    ldfld Value::atomVal
+                    // #line 139:45 "return (left.atomVal == right.atomVal) ? makeAtom("t") : makeAtom("nil");"
+                    ceq
+                    // #line 139:45 "return (left.atomVal == right.atomVal) ? makeAtom("t") : makeAtom("nil");"
+                    if (stack) {
+                        // #line 139:71 "return (left.atomVal == right.atomVal) ? makeAtom("t") : makeAtom("nil");"
+                        ldstr "t"
+                        // #line 139:71 "return (left.atomVal == right.atomVal) ? makeAtom("t") : makeAtom("nil");"
+                        call Lisp.makeAtom(string) -> Value
+                    }
+                    else {
+                        // #line 139:87 "return (left.atomVal == right.atomVal) ? makeAtom("t") : makeAtom("nil");"
+                        ldstr "nil"
+                        // #line 139:87 "return (left.atomVal == right.atomVal) ? makeAtom("t") : makeAtom("nil");"
+                        call Lisp.makeAtom(string) -> Value
+                    }
+                    // #line 139:45 "return (left.atomVal == right.atomVal) ? makeAtom("t") : makeAtom("nil");"
+                    ret
+                }
+                // #line 142:21 "if (op == "<") {"
+                ldloc op
+                // #line 142:27 "if (op == "<") {"
+                ldstr "<"
+                // #line 142:27 "if (op == "<") {"
+                ceq
+                // #line 142:27 "if (op == "<") {"
+                if (stack) {
+                    // #line 143:53 "var left = Convert.ToInt32(eval(rest.Get(0), env).atomVal);"
+                    ldloc rest
+                    // #line 143:62 "var left = Convert.ToInt32(eval(rest.Get(0), env).atomVal);"
+                    ldc.i4 0
+                    // #line 143:62 "var left = Convert.ToInt32(eval(rest.Get(0), env).atomVal);"
+                    call thing.ValueList<Value>.Get(object, int32) -> Value
+                    // #line 143:66 "var left = Convert.ToInt32(eval(rest.Get(0), env).atomVal);"
+                    ldarg 1
+                    // #line 143:66 "var left = Convert.ToInt32(eval(rest.Get(0), env).atomVal);"
+                    call Lisp.eval(Value, Env) -> Value
+                    // #line 143:66 "var left = Convert.ToInt32(eval(rest.Get(0), env).atomVal);"
+                    ldfld Value::atomVal
+                    // #line 143:66 "var left = Convert.ToInt32(eval(rest.Get(0), env).atomVal);"
+                    call Convert.ToInt32(string) -> int32
+                    // #line 143:66 "var left = Convert.ToInt32(eval(rest.Get(0), env).atomVal);"
+                    stloc left
+                    // #line 144:54 "var right = Convert.ToInt32(eval(rest.Get(1), env).atomVal);"
+                    ldloc rest
+                    // #line 144:63 "var right = Convert.ToInt32(eval(rest.Get(1), env).atomVal);"
+                    ldc.i4 1
+                    // #line 144:63 "var right = Convert.ToInt32(eval(rest.Get(1), env).atomVal);"
+                    call thing.ValueList<Value>.Get(object, int32) -> Value
+                    // #line 144:67 "var right = Convert.ToInt32(eval(rest.Get(1), env).atomVal);"
+                    ldarg 1
+                    // #line 144:67 "var right = Convert.ToInt32(eval(rest.Get(1), env).atomVal);"
+                    call Lisp.eval(Value, Env) -> Value
+                    // #line 144:67 "var right = Convert.ToInt32(eval(rest.Get(1), env).atomVal);"
+                    ldfld Value::atomVal
+                    // #line 144:67 "var right = Convert.ToInt32(eval(rest.Get(1), env).atomVal);"
+                    call Convert.ToInt32(string) -> int32
+                    // #line 144:67 "var right = Convert.ToInt32(eval(rest.Get(1), env).atomVal);"
+                    stloc right
+                    // #line 145:29 "return (left < right) ? makeAtom("t") : makeAtom("nil");"
+                    ldloc left
+                    // #line 145:36 "return (left < right) ? makeAtom("t") : makeAtom("nil");"
+                    ldloc right
+                    // #line 145:36 "return (left < right) ? makeAtom("t") : makeAtom("nil");"
+                    clt
+                    // #line 145:36 "return (left < right) ? makeAtom("t") : makeAtom("nil");"
+                    if (stack) {
+                        // #line 145:54 "return (left < right) ? makeAtom("t") : makeAtom("nil");"
+                        ldstr "t"
+                        // #line 145:54 "return (left < right) ? makeAtom("t") : makeAtom("nil");"
+                        call Lisp.makeAtom(string) -> Value
+                    }
+                    else {
+                        // #line 145:70 "return (left < right) ? makeAtom("t") : makeAtom("nil");"
+                        ldstr "nil"
+                        // #line 145:70 "return (left < right) ? makeAtom("t") : makeAtom("nil");"
+                        call Lisp.makeAtom(string) -> Value
+                    }
+                    // #line 145:36 "return (left < right) ? makeAtom("t") : makeAtom("nil");"
+                    ret
+                }
+                // #line 148:21 "if (op == "list") {"
+                ldloc op
+                // #line 148:27 "if (op == "list") {"
+                ldstr "list"
+                // #line 148:27 "if (op == "list") {"
+                ceq
+                // #line 148:27 "if (op == "list") {"
+                if (stack) {
+                    // #line 149:34 "var result = new ValueList<Value>();"
+                    newobj thing.ValueList<Value>.constructor()
+                    // #line 149:34 "var result = new ValueList<Value>();"
+                    dup
+                    // #line 149:34 "var result = new ValueList<Value>();"
+                    call thing.ValueList<Value>..ctor(object) -> void
+                    // #line 149:34 "var result = new ValueList<Value>();"
+                    pop
+                    // #line 149:34 "var result = new ValueList<Value>();"
+                    stloc result
+                    // #line 150:34 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    ldc.i4 0
+                    // #line 150:34 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    stloc i
+                    // #line 150:37 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    ldloc i
+                    // #line 150:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    ldloc rest
+                    // #line 150:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    call thing.ValueList<Value>.Count(object) -> int32
+                    // #line 150:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    clt
+                    // #line 150:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    while (stack) {
+                        // #line 150:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        pop
+                        // #line 151:25 "result.Add(eval(rest.Get(i), env));"
+                        ldloc result
+                        // #line 151:41 "result.Add(eval(rest.Get(i), env));"
+                        ldloc rest
+                        // #line 151:50 "result.Add(eval(rest.Get(i), env));"
+                        ldloc i
+                        // #line 151:50 "result.Add(eval(rest.Get(i), env));"
+                        call thing.ValueList<Value>.Get(object, int32) -> Value
+                        // #line 151:54 "result.Add(eval(rest.Get(i), env));"
+                        ldarg 1
+                        // #line 151:54 "result.Add(eval(rest.Get(i), env));"
+                        call Lisp.eval(Value, Env) -> Value
+                        // #line 151:54 "result.Add(eval(rest.Get(i), env));"
+                        call thing.ValueList<Value>.Add(object, Value) -> int32
+                        // #line 151:54 "result.Add(eval(rest.Get(i), env));"
+                        pop
+                        // #line 150:59 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        ldloc i
+                        // #line 150:63 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        ldc.i4 1
+                        // #line 150:63 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        add
+                        // #line 150:63 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        dup
+                        // #line 150:63 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        stloc i
+                        // #line 150:37 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        ldloc i
+                        // #line 150:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        ldloc rest
+                        // #line 150:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        call thing.ValueList<Value>.Count(object) -> int32
+                        // #line 150:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                        clt
+                    }
+                    // #line 150:41 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    pop
+                    // #line 153:37 "return makeList(result);"
+                    ldloc result
+                    // #line 153:37 "return makeList(result);"
+                    call Lisp.makeList(thing.ValueList<Value>) -> Value
+                    // #line 153:37 "return makeList(result);"
+                    ret
+                }
+                // #line 156:21 "if (op == "car") {"
+                ldloc op
+                // #line 156:27 "if (op == "car") {"
+                ldstr "car"
+                // #line 156:27 "if (op == "car") {"
+                ceq
+                // #line 156:27 "if (op == "car") {"
+                if (stack) {
+                    // #line 157:36 "var lst = eval(rest.Get(0), env).listVal;"
+                    ldloc rest
+                    // #line 157:45 "var lst = eval(rest.Get(0), env).listVal;"
+                    ldc.i4 0
+                    // #line 157:45 "var lst = eval(rest.Get(0), env).listVal;"
+                    call thing.ValueList<Value>.Get(object, int32) -> Value
+                    // #line 157:49 "var lst = eval(rest.Get(0), env).listVal;"
+                    ldarg 1
+                    // #line 157:49 "var lst = eval(rest.Get(0), env).listVal;"
+                    call Lisp.eval(Value, Env) -> Value
+                    // #line 157:49 "var lst = eval(rest.Get(0), env).listVal;"
+                    ldfld Value::listVal
+                    // #line 157:49 "var lst = eval(rest.Get(0), env).listVal;"
+                    stloc lst
+                    // #line 158:28 "return lst.Get(0);"
+                    ldloc lst
+                    // #line 158:36 "return lst.Get(0);"
+                    ldc.i4 0
+                    // #line 158:36 "return lst.Get(0);"
+                    call thing.ValueList<Value>.Get(object, int32) -> Value
+                    // #line 158:36 "return lst.Get(0);"
+                    ret
+                }
+                // #line 161:21 "if (op == "cdr") {"
+                ldloc op
+                // #line 161:27 "if (op == "cdr") {"
+                ldstr "cdr"
+                // #line 161:27 "if (op == "cdr") {"
+                ceq
+                // #line 161:27 "if (op == "cdr") {"
+                if (stack) {
+                    // #line 162:36 "var lst = eval(rest.Get(0), env).listVal;"
+                    ldloc rest
+                    // #line 162:45 "var lst = eval(rest.Get(0), env).listVal;"
+                    ldc.i4 0
+                    // #line 162:45 "var lst = eval(rest.Get(0), env).listVal;"
+                    call thing.ValueList<Value>.Get(object, int32) -> Value
+                    // #line 162:49 "var lst = eval(rest.Get(0), env).listVal;"
+                    ldarg 1
+                    // #line 162:49 "var lst = eval(rest.Get(0), env).listVal;"
+                    call Lisp.eval(Value, Env) -> Value
+                    // #line 162:49 "var lst = eval(rest.Get(0), env).listVal;"
+                    ldfld Value::listVal
+                    // #line 162:49 "var lst = eval(rest.Get(0), env).listVal;"
+                    stloc lst
+                    // #line 163:41 "return makeList(cdr(lst));"
+                    ldloc lst
+                    // #line 163:41 "return makeList(cdr(lst));"
+                    call Lisp.cdr(thing.ValueList<Value>) -> thing.ValueList<Value>
+                    // #line 163:41 "return makeList(cdr(lst));"
+                    call Lisp.makeList(thing.ValueList<Value>) -> Value
+                    // #line 163:41 "return makeList(cdr(lst));"
+                    ret
+                }
+            }
+            // #line 168:27 "var fn = eval(head, env);"
+            ldloc head
+            // #line 168:33 "var fn = eval(head, env);"
+            ldarg 1
+            // #line 168:33 "var fn = eval(head, env);"
+            call Lisp.eval(Value, Env) -> Value
+            // #line 168:33 "var fn = eval(head, env);"
+            stloc fn
+            // #line 169:17 "if (fn.kind == "lambda") {"
+            ldloc fn
+            // #line 169:17 "if (fn.kind == "lambda") {"
+            ldfld Value::kind
+            // #line 169:28 "if (fn.kind == "lambda") {"
+            ldstr "lambda"
+            // #line 169:28 "if (fn.kind == "lambda") {"
+            ceq
+            // #line 169:28 "if (fn.kind == "lambda") {"
+            if (stack) {
+                // #line 171:28 "var args = new ValueList<Value>();"
+                newobj thing.ValueList<Value>.constructor()
+                // #line 171:28 "var args = new ValueList<Value>();"
+                dup
+                // #line 171:28 "var args = new ValueList<Value>();"
+                call thing.ValueList<Value>..ctor(object) -> void
+                // #line 171:28 "var args = new ValueList<Value>();"
+                pop
+                // #line 171:28 "var args = new ValueList<Value>();"
+                stloc args
+                // #line 172:30 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                ldc.i4 0
+                // #line 172:30 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                stloc i
+                // #line 172:33 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                ldloc i
+                // #line 172:37 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                ldloc rest
+                // #line 172:37 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                call thing.ValueList<Value>.Count(object) -> int32
+                // #line 172:37 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                clt
+                // #line 172:37 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                while (stack) {
+                    // #line 172:37 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    pop
+                    // #line 173:21 "args.Add(eval(rest.Get(i), env));"
+                    ldloc args
+                    // #line 173:35 "args.Add(eval(rest.Get(i), env));"
+                    ldloc rest
+                    // #line 173:44 "args.Add(eval(rest.Get(i), env));"
+                    ldloc i
+                    // #line 173:44 "args.Add(eval(rest.Get(i), env));"
+                    call thing.ValueList<Value>.Get(object, int32) -> Value
+                    // #line 173:48 "args.Add(eval(rest.Get(i), env));"
+                    ldarg 1
+                    // #line 173:48 "args.Add(eval(rest.Get(i), env));"
+                    call Lisp.eval(Value, Env) -> Value
+                    // #line 173:48 "args.Add(eval(rest.Get(i), env));"
+                    call thing.ValueList<Value>.Add(object, Value) -> int32
+                    // #line 173:48 "args.Add(eval(rest.Get(i), env));"
+                    pop
+                    // #line 172:55 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    ldloc i
+                    // #line 172:59 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    ldc.i4 1
+                    // #line 172:59 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    add
+                    // #line 172:59 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    dup
+                    // #line 172:59 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    stloc i
+                    // #line 172:33 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    ldloc i
+                    // #line 172:37 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    ldloc rest
+                    // #line 172:37 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    call thing.ValueList<Value>.Count(object) -> int32
+                    // #line 172:37 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                    clt
+                }
+                // #line 172:37 "for (var i = 0; i < rest.Count(); i = i + 1) {"
+                pop
+                // #line 175:36 "return fn.lambdaFn(args);"
+                ldloc args
+                // #line 175:36 "return fn.lambdaFn(args);"
+                ret
+            }
+            // #line 178:29 "return makeAtom("error");"
+            ldstr "error"
+            // #line 178:29 "return makeAtom("error");"
+            call Lisp.makeAtom(string) -> Value
+            // #line 178:29 "return makeAtom("error");"
+            ret
+        }
+        // #line 181:16 "return expr;"
+        ldarg 0
+        // #line 181:16 "return expr;"
+        ret
+    }
+
+    static method makeLambda(params: Value, body: Value, closure: Env) -> Value {
+        local __display: object
+        local v: Value
+
+        newobj __display_0.constructor()
+        stloc __display
+        ldloc __display
+        dup
+        ldarg 2
+        stfld __display_0::closure
+        pop
+        ldloc __display
+        dup
+        ldarg 1
+        stfld __display_0::body
+        pop
+        // #line 185:9 "var paramNames = params.listVal;"
+        ldloc __display
+        // #line 185:9 "var paramNames = params.listVal;"
+        dup
+        // #line 185:26 "var paramNames = params.listVal;"
+        ldarg 0
+        // #line 185:26 "var paramNames = params.listVal;"
+        ldfld Value::listVal
+        // #line 185:26 "var paramNames = params.listVal;"
+        stfld __display_0::paramNames
+        // #line 185:26 "var paramNames = params.listVal;"
+        pop
+        // #line 186:17 "var v = new Value();"
+        newobj Value.constructor()
+        // #line 186:17 "var v = new Value();"
+        stloc v
+        // #line 187:9 "v.kind = "lambda";"
+        ldloc v
+        // #line 187:9 "v.kind = "lambda";"
+        dup
+        // #line 187:18 "v.kind = "lambda";"
+        ldstr "lambda"
+        // #line 187:18 "v.kind = "lambda";"
+        stfld Value::kind
+        // #line 187:18 "v.kind = "lambda";"
+        pop
+        // #line 188:9 "v.lambdaFn = fun (args: ValueList<Value>) -> {"
+        ldloc v
+        // #line 188:9 "v.lambdaFn = fun (args: ValueList<Value>) -> {"
+        dup
+        // #line 188:22 "v.lambdaFn = fun (args: ValueList<Value>) -> {"
+        newobj Delegate.constructor()
+        // #line 188:22 "v.lambdaFn = fun (args: ValueList<Value>) -> {"
+        dup
+        // #line 188:22 "v.lambdaFn = fun (args: ValueList<Value>) -> {"
+        ldloc __display
+        // #line 188:22 "v.lambdaFn = fun (args: ValueList<Value>) -> {"
+        stfld Delegate::closure
+        // #line 188:22 "v.lambdaFn = fun (args: ValueList<Value>) -> {"
+        dup
+        // #line 188:22 "v.lambdaFn = fun (args: ValueList<Value>) -> {"
+        ldstr Global.__lambda_0
+        // #line 188:22 "v.lambdaFn = fun (args: ValueList<Value>) -> {"
+        stfld Delegate::target
+        // #line 188:22 "v.lambdaFn = fun (args: ValueList<Value>) -> {"
+        stfld Value::lambdaFn
+        // #line 188:22 "v.lambdaFn = fun (args: ValueList<Value>) -> {"
+        pop
+        // #line 198:16 "return v;"
+        ldloc v
+        // #line 198:16 "return v;"
+        ret
+    }
+
+    static method makeAtom(s: string) -> Value {
+        local v: Value
+
+        // #line 202:17 "var v = new Value();"
+        newobj Value.constructor()
+        // #line 202:17 "var v = new Value();"
+        stloc v
+        // #line 203:9 "v.kind = "atom";"
+        ldloc v
+        // #line 203:9 "v.kind = "atom";"
+        dup
+        // #line 203:18 "v.kind = "atom";"
+        ldstr "atom"
+        // #line 203:18 "v.kind = "atom";"
+        stfld Value::kind
+        // #line 203:18 "v.kind = "atom";"
+        pop
+        // #line 204:9 "v.atomVal = s;"
+        ldloc v
+        // #line 204:9 "v.atomVal = s;"
+        dup
+        // #line 204:21 "v.atomVal = s;"
+        ldarg 0
+        // #line 204:21 "v.atomVal = s;"
+        stfld Value::atomVal
+        // #line 204:21 "v.atomVal = s;"
+        pop
+        // #line 205:16 "return v;"
+        ldloc v
+        // #line 205:16 "return v;"
+        ret
+    }
+
+    static method makeList(lst: thing.ValueList<Value>) -> Value {
+        local v: Value
+
+        // #line 209:17 "var v = new Value();"
+        newobj Value.constructor()
+        // #line 209:17 "var v = new Value();"
+        stloc v
+        // #line 210:9 "v.kind = "list";"
+        ldloc v
+        // #line 210:9 "v.kind = "list";"
+        dup
+        // #line 210:18 "v.kind = "list";"
+        ldstr "list"
+        // #line 210:18 "v.kind = "list";"
+        stfld Value::kind
+        // #line 210:18 "v.kind = "list";"
+        pop
+        // #line 211:9 "v.listVal = lst;"
+        ldloc v
+        // #line 211:9 "v.listVal = lst;"
+        dup
+        // #line 211:21 "v.listVal = lst;"
+        ldarg 0
+        // #line 211:21 "v.listVal = lst;"
+        stfld Value::listVal
+        // #line 211:21 "v.listVal = lst;"
+        pop
+        // #line 212:16 "return v;"
+        ldloc v
+        // #line 212:16 "return v;"
+        ret
+    }
+
+    static method isTruthy(v: Value) -> bool {
+        // #line 216:16 "return v.atomVal != "nil" && v.atomVal != "false";"
+        ldarg 0
+        // #line 216:16 "return v.atomVal != "nil" && v.atomVal != "false";"
+        ldfld Value::atomVal
+        // #line 216:29 "return v.atomVal != "nil" && v.atomVal != "false";"
+        ldstr "nil"
+        // #line 216:29 "return v.atomVal != "nil" && v.atomVal != "false";"
+        ceq
+        // #line 216:29 "return v.atomVal != "nil" && v.atomVal != "false";"
+        not
+        // #line 216:38 "return v.atomVal != "nil" && v.atomVal != "false";"
+        ldarg 0
+        // #line 216:38 "return v.atomVal != "nil" && v.atomVal != "false";"
+        ldfld Value::atomVal
+        // #line 216:51 "return v.atomVal != "nil" && v.atomVal != "false";"
+        ldstr "false"
+        // #line 216:51 "return v.atomVal != "nil" && v.atomVal != "false";"
+        ceq
+        // #line 216:51 "return v.atomVal != "nil" && v.atomVal != "false";"
+        not
+        // #line 216:51 "return v.atomVal != "nil" && v.atomVal != "false";"
+        and
+        // #line 216:51 "return v.atomVal != "nil" && v.atomVal != "false";"
+        ret
+    }
+
+    static method valueToString(v: Value) -> string {
+        local parts: thing.ValueList<string>
+        local i: int32
+        local joined: string
+        local i: int32
+
+        // #line 220:13 "if (v.kind == "atom") {"
+        ldarg 0
+        // #line 220:13 "if (v.kind == "atom") {"
+        ldfld Value::kind
+        // #line 220:23 "if (v.kind == "atom") {"
+        ldstr "atom"
+        // #line 220:23 "if (v.kind == "atom") {"
+        ceq
+        // #line 220:23 "if (v.kind == "atom") {"
+        if (stack) {
+            // #line 221:20 "return v.atomVal;"
+            ldarg 0
+            // #line 221:20 "return v.atomVal;"
+            ldfld Value::atomVal
+            // #line 221:20 "return v.atomVal;"
+            ret
+        }
+        // #line 223:13 "if (v.kind == "lambda") {"
+        ldarg 0
+        // #line 223:13 "if (v.kind == "lambda") {"
+        ldfld Value::kind
+        // #line 223:23 "if (v.kind == "lambda") {"
+        ldstr "lambda"
+        // #line 223:23 "if (v.kind == "lambda") {"
+        ceq
+        // #line 223:23 "if (v.kind == "lambda") {"
+        if (stack) {
+            // #line 224:20 "return "<lambda>";"
+            ldstr "<lambda>"
+            // #line 224:20 "return "<lambda>";"
+            ret
+        }
+        // #line 226:13 "if (v.kind == "list") {"
+        ldarg 0
+        // #line 226:13 "if (v.kind == "list") {"
+        ldfld Value::kind
+        // #line 226:23 "if (v.kind == "list") {"
+        ldstr "list"
+        // #line 226:23 "if (v.kind == "list") {"
+        ceq
+        // #line 226:23 "if (v.kind == "list") {"
+        if (stack) {
+            // #line 227:25 "var parts = new ValueList<string>();"
+            newobj thing.ValueList<string>.constructor()
+            // #line 227:25 "var parts = new ValueList<string>();"
+            dup
+            // #line 227:25 "var parts = new ValueList<string>();"
+            call thing.ValueList<string>..ctor(object) -> void
+            // #line 227:25 "var parts = new ValueList<string>();"
+            pop
+            // #line 227:25 "var parts = new ValueList<string>();"
+            stloc parts
+            // #line 228:26 "for (var i = 0; i < v.listVal.Count(); i = i + 1) {"
+            ldc.i4 0
+            // #line 228:26 "for (var i = 0; i < v.listVal.Count(); i = i + 1) {"
+            stloc i
+            // #line 228:29 "for (var i = 0; i < v.listVal.Count(); i = i + 1) {"
+            ldloc i
+            // #line 228:33 "for (var i = 0; i < v.listVal.Count(); i = i + 1) {"
+            ldarg 0
+            // #line 228:33 "for (var i = 0; i < v.listVal.Count(); i = i + 1) {"
+            ldfld Value::listVal
+            // #line 228:33 "for (var i = 0; i < v.listVal.Count(); i = i + 1) {"
+            call thing.ValueList.Count(object) -> int32
+            // #line 228:33 "for (var i = 0; i < v.listVal.Count(); i = i + 1) {"
+            clt
+            // #line 228:33 "for (var i = 0; i < v.listVal.Count(); i = i + 1) {"
+            while (stack) {
+                // #line 228:33 "for (var i = 0; i < v.listVal.Count(); i = i + 1) {"
+                pop
+                // #line 229:17 "parts.Add(valueToString(v.listVal.Get(i)));"
+                ldloc parts
+                // #line 229:41 "parts.Add(valueToString(v.listVal.Get(i)));"
+                ldarg 0
+                // #line 229:41 "parts.Add(valueToString(v.listVal.Get(i)));"
+                ldfld Value::listVal
+                // #line 229:55 "parts.Add(valueToString(v.listVal.Get(i)));"
+                ldloc i
+                // #line 229:55 "parts.Add(valueToString(v.listVal.Get(i)));"
+                call thing.ValueList.Get(object, int32) -> Value
+                // #line 229:55 "parts.Add(valueToString(v.listVal.Get(i)));"
+                call Lisp.valueToString(Value) -> string
+                // #line 229:55 "parts.Add(valueToString(v.listVal.Get(i)));"
+                call thing.ValueList<string>.Add(object, string) -> int32
+                // #line 229:55 "parts.Add(valueToString(v.listVal.Get(i)));"
+                pop
+                // #line 228:56 "for (var i = 0; i < v.listVal.Count(); i = i + 1) {"
+                ldloc i
+                // #line 228:60 "for (var i = 0; i < v.listVal.Count(); i = i + 1) {"
+                ldc.i4 1
+                // #line 228:60 "for (var i = 0; i < v.listVal.Count(); i = i + 1) {"
+                add
+                // #line 228:60 "for (var i = 0; i < v.listVal.Count(); i = i + 1) {"
+                dup
+                // #line 228:60 "for (var i = 0; i < v.listVal.Count(); i = i + 1) {"
+                stloc i
+                // #line 228:29 "for (var i = 0; i < v.listVal.Count(); i = i + 1) {"
+                ldloc i
+                // #line 228:33 "for (var i = 0; i < v.listVal.Count(); i = i + 1) {"
+                ldarg 0
+                // #line 228:33 "for (var i = 0; i < v.listVal.Count(); i = i + 1) {"
+                ldfld Value::listVal
+                // #line 228:33 "for (var i = 0; i < v.listVal.Count(); i = i + 1) {"
+                call thing.ValueList.Count(object) -> int32
+                // #line 228:33 "for (var i = 0; i < v.listVal.Count(); i = i + 1) {"
+                clt
+            }
+            // #line 228:33 "for (var i = 0; i < v.listVal.Count(); i = i + 1) {"
+            pop
+            // #line 231:26 "var joined = "";"
+            ldstr ""
+            // #line 231:26 "var joined = "";"
+            stloc joined
+            // #line 232:26 "for (var i = 0; i < parts.Count(); i = i + 1) {"
+            ldc.i4 0
+            // #line 232:26 "for (var i = 0; i < parts.Count(); i = i + 1) {"
+            stloc i
+            // #line 232:29 "for (var i = 0; i < parts.Count(); i = i + 1) {"
+            ldloc i
+            // #line 232:33 "for (var i = 0; i < parts.Count(); i = i + 1) {"
+            ldloc parts
+            // #line 232:33 "for (var i = 0; i < parts.Count(); i = i + 1) {"
+            call thing.ValueList<string>.Count(object) -> int32
+            // #line 232:33 "for (var i = 0; i < parts.Count(); i = i + 1) {"
+            clt
+            // #line 232:33 "for (var i = 0; i < parts.Count(); i = i + 1) {"
+            while (stack) {
+                // #line 232:33 "for (var i = 0; i < parts.Count(); i = i + 1) {"
+                pop
+                // #line 233:21 "if (i > 0) joined = joined + " ";"
+                ldloc i
+                // #line 233:25 "if (i > 0) joined = joined + " ";"
+                ldc.i4 0
+                // #line 233:25 "if (i > 0) joined = joined + " ";"
+                cgt
+                // #line 233:25 "if (i > 0) joined = joined + " ";"
+                if (stack) {
+                    // #line 233:37 "if (i > 0) joined = joined + " ";"
+                    ldloc joined
+                    // #line 233:46 "if (i > 0) joined = joined + " ";"
+                    ldstr " "
+                    // #line 233:46 "if (i > 0) joined = joined + " ";"
+                    call String.Concat(string, string) -> string
+                    // #line 233:46 "if (i > 0) joined = joined + " ";"
+                    dup
+                    // #line 233:46 "if (i > 0) joined = joined + " ";"
+                    stloc joined
+                    // #line 233:46 "if (i > 0) joined = joined + " ";"
+                    pop
+                }
+                // #line 234:26 "joined = joined + parts.Get(i);"
+                ldloc joined
+                // #line 234:35 "joined = joined + parts.Get(i);"
+                ldloc parts
+                // #line 234:45 "joined = joined + parts.Get(i);"
+                ldloc i
+                // #line 234:45 "joined = joined + parts.Get(i);"
+                call thing.ValueList<string>.Get(object, int32) -> string
+                // #line 234:45 "joined = joined + parts.Get(i);"
+                call String.Concat(string, string) -> string
+                // #line 234:45 "joined = joined + parts.Get(i);"
+                dup
+                // #line 234:45 "joined = joined + parts.Get(i);"
+                stloc joined
+                // #line 234:45 "joined = joined + parts.Get(i);"
+                pop
+                // #line 232:52 "for (var i = 0; i < parts.Count(); i = i + 1) {"
+                ldloc i
+                // #line 232:56 "for (var i = 0; i < parts.Count(); i = i + 1) {"
+                ldc.i4 1
+                // #line 232:56 "for (var i = 0; i < parts.Count(); i = i + 1) {"
+                add
+                // #line 232:56 "for (var i = 0; i < parts.Count(); i = i + 1) {"
+                dup
+                // #line 232:56 "for (var i = 0; i < parts.Count(); i = i + 1) {"
+                stloc i
+                // #line 232:29 "for (var i = 0; i < parts.Count(); i = i + 1) {"
+                ldloc i
+                // #line 232:33 "for (var i = 0; i < parts.Count(); i = i + 1) {"
+                ldloc parts
+                // #line 232:33 "for (var i = 0; i < parts.Count(); i = i + 1) {"
+                call thing.ValueList<string>.Count(object) -> int32
+                // #line 232:33 "for (var i = 0; i < parts.Count(); i = i + 1) {"
+                clt
+            }
+            // #line 232:33 "for (var i = 0; i < parts.Count(); i = i + 1) {"
+            pop
+            // #line 236:20 "return "(" + joined + ")";"
+            ldstr "("
+            // #line 236:26 "return "(" + joined + ")";"
+            ldloc joined
+            // #line 236:26 "return "(" + joined + ")";"
+            call String.Concat(string, string) -> string
+            // #line 236:35 "return "(" + joined + ")";"
+            ldstr ")"
+            // #line 236:35 "return "(" + joined + ")";"
+            call String.Concat(string, string) -> string
+            // #line 236:35 "return "(" + joined + ")";"
+            ret
+        }
+        // #line 238:16 "return "?";"
+        ldstr "?"
+        // #line 238:16 "return "?";"
+        ret
+    }
+
+    static method tokenize(input: string) -> thing.ValueList<string> {
+        local tokens: thing.ValueList<string>
+        local current: string
+        local i: int32
+        local ch: string
+
+        // #line 242:22 "var tokens = new ValueList<string>();"
+        newobj thing.ValueList<string>.constructor()
+        // #line 242:22 "var tokens = new ValueList<string>();"
+        dup
+        // #line 242:22 "var tokens = new ValueList<string>();"
+        call thing.ValueList<string>..ctor(object) -> void
+        // #line 242:22 "var tokens = new ValueList<string>();"
+        pop
+        // #line 242:22 "var tokens = new ValueList<string>();"
+        stloc tokens
+        // #line 243:23 "var current = "";"
+        ldstr ""
+        // #line 243:23 "var current = "";"
+        stloc current
+        // #line 244:22 "for (var i = 0; i < String.Length(input); i = i + 1) {"
+        ldc.i4 0
+        // #line 244:22 "for (var i = 0; i < String.Length(input); i = i + 1) {"
+        stloc i
+        // #line 244:25 "for (var i = 0; i < String.Length(input); i = i + 1) {"
+        ldloc i
+        // #line 244:43 "for (var i = 0; i < String.Length(input); i = i + 1) {"
+        ldarg 0
+        // #line 244:43 "for (var i = 0; i < String.Length(input); i = i + 1) {"
+        call String.Length(string) -> int32
+        // #line 244:43 "for (var i = 0; i < String.Length(input); i = i + 1) {"
+        clt
+        // #line 244:43 "for (var i = 0; i < String.Length(input); i = i + 1) {"
+        while (stack) {
+            // #line 244:43 "for (var i = 0; i < String.Length(input); i = i + 1) {"
+            pop
+            // #line 245:39 "var ch = String.Substring(input, i, 1);"
+            ldarg 0
+            // #line 245:46 "var ch = String.Substring(input, i, 1);"
+            ldloc i
+            // #line 245:49 "var ch = String.Substring(input, i, 1);"
+            ldc.i4 1
+            // #line 245:49 "var ch = String.Substring(input, i, 1);"
+            call String.Substring(string, int32, int32) -> string
+            // #line 245:49 "var ch = String.Substring(input, i, 1);"
+            stloc ch
+            // #line 246:17 "if (ch == "(" || ch == ")") {"
+            ldloc ch
+            // #line 246:23 "if (ch == "(" || ch == ")") {"
+            ldstr "("
+            // #line 246:23 "if (ch == "(" || ch == ")") {"
+            ceq
+            // #line 246:30 "if (ch == "(" || ch == ")") {"
+            ldloc ch
+            // #line 246:36 "if (ch == "(" || ch == ")") {"
+            ldstr ")"
+            // #line 246:36 "if (ch == "(" || ch == ")") {"
+            ceq
+            // #line 246:36 "if (ch == "(" || ch == ")") {"
+            or
+            // #line 246:36 "if (ch == "(" || ch == ")") {"
+            if (stack) {
+                // #line 247:21 "if (current != "") {"
+                ldloc current
+                // #line 247:32 "if (current != "") {"
+                ldstr ""
+                // #line 247:32 "if (current != "") {"
+                ceq
+                // #line 247:32 "if (current != "") {"
+                not
+                // #line 247:32 "if (current != "") {"
+                if (stack) {
+                    // #line 248:21 "tokens.Add(current);"
+                    ldloc tokens
+                    // #line 248:32 "tokens.Add(current);"
+                    ldloc current
+                    // #line 248:32 "tokens.Add(current);"
+                    call thing.ValueList<string>.Add(object, string) -> int32
+                    // #line 248:32 "tokens.Add(current);"
+                    pop
+                    // #line 249:31 "current = "";"
+                    ldstr ""
+                    // #line 249:31 "current = "";"
+                    dup
+                    // #line 249:31 "current = "";"
+                    stloc current
+                    // #line 249:31 "current = "";"
+                    pop
+                }
+                // #line 251:17 "tokens.Add(ch);"
+                ldloc tokens
+                // #line 251:28 "tokens.Add(ch);"
+                ldloc ch
+                // #line 251:28 "tokens.Add(ch);"
+                call thing.ValueList<string>.Add(object, string) -> int32
+                // #line 251:28 "tokens.Add(ch);"
+                pop
+            }
+            else {
+                // #line 252:24 "} else if (ch == " " || ch == "\n" || ch == "\t") {"
+                ldloc ch
+                // #line 252:30 "} else if (ch == " " || ch == "\n" || ch == "\t") {"
+                ldstr " "
+                // #line 252:30 "} else if (ch == " " || ch == "\n" || ch == "\t") {"
+                ceq
+                // #line 252:37 "} else if (ch == " " || ch == "\n" || ch == "\t") {"
+                ldloc ch
+                // #line 252:43 "} else if (ch == " " || ch == "\n" || ch == "\t") {"
+                ldstr "\n"
+                // #line 252:43 "} else if (ch == " " || ch == "\n" || ch == "\t") {"
+                ceq
+                // #line 252:43 "} else if (ch == " " || ch == "\n" || ch == "\t") {"
+                or
+                // #line 252:51 "} else if (ch == " " || ch == "\n" || ch == "\t") {"
+                ldloc ch
+                // #line 252:57 "} else if (ch == " " || ch == "\n" || ch == "\t") {"
+                ldstr "\t"
+                // #line 252:57 "} else if (ch == " " || ch == "\n" || ch == "\t") {"
+                ceq
+                // #line 252:57 "} else if (ch == " " || ch == "\n" || ch == "\t") {"
+                or
+                // #line 252:57 "} else if (ch == " " || ch == "\n" || ch == "\t") {"
+                if (stack) {
+                    // #line 253:21 "if (current != "") {"
+                    ldloc current
+                    // #line 253:32 "if (current != "") {"
+                    ldstr ""
+                    // #line 253:32 "if (current != "") {"
+                    ceq
+                    // #line 253:32 "if (current != "") {"
+                    not
+                    // #line 253:32 "if (current != "") {"
+                    if (stack) {
+                        // #line 254:21 "tokens.Add(current);"
+                        ldloc tokens
+                        // #line 254:32 "tokens.Add(current);"
+                        ldloc current
+                        // #line 254:32 "tokens.Add(current);"
+                        call thing.ValueList<string>.Add(object, string) -> int32
+                        // #line 254:32 "tokens.Add(current);"
+                        pop
+                        // #line 255:31 "current = "";"
+                        ldstr ""
+                        // #line 255:31 "current = "";"
+                        dup
+                        // #line 255:31 "current = "";"
+                        stloc current
+                        // #line 255:31 "current = "";"
+                        pop
+                    }
+                }
+                else {
+                    // #line 258:27 "current = current + ch;"
+                    ldloc current
+                    // #line 258:37 "current = current + ch;"
+                    ldloc ch
+                    // #line 258:37 "current = current + ch;"
+                    call String.Concat(string, string) -> string
+                    // #line 258:37 "current = current + ch;"
+                    dup
+                    // #line 258:37 "current = current + ch;"
+                    stloc current
+                    // #line 258:37 "current = current + ch;"
+                    pop
+                }
+            }
+            // #line 244:55 "for (var i = 0; i < String.Length(input); i = i + 1) {"
+            ldloc i
+            // #line 244:59 "for (var i = 0; i < String.Length(input); i = i + 1) {"
+            ldc.i4 1
+            // #line 244:59 "for (var i = 0; i < String.Length(input); i = i + 1) {"
+            add
+            // #line 244:59 "for (var i = 0; i < String.Length(input); i = i + 1) {"
+            dup
+            // #line 244:59 "for (var i = 0; i < String.Length(input); i = i + 1) {"
+            stloc i
+            // #line 244:25 "for (var i = 0; i < String.Length(input); i = i + 1) {"
+            ldloc i
+            // #line 244:43 "for (var i = 0; i < String.Length(input); i = i + 1) {"
+            ldarg 0
+            // #line 244:43 "for (var i = 0; i < String.Length(input); i = i + 1) {"
+            call String.Length(string) -> int32
+            // #line 244:43 "for (var i = 0; i < String.Length(input); i = i + 1) {"
+            clt
+        }
+        // #line 244:43 "for (var i = 0; i < String.Length(input); i = i + 1) {"
+        pop
+        // #line 261:13 "if (current != "") {"
+        ldloc current
+        // #line 261:24 "if (current != "") {"
+        ldstr ""
+        // #line 261:24 "if (current != "") {"
+        ceq
+        // #line 261:24 "if (current != "") {"
+        not
+        // #line 261:24 "if (current != "") {"
+        if (stack) {
+            // #line 262:13 "tokens.Add(current);"
+            ldloc tokens
+            // #line 262:24 "tokens.Add(current);"
+            ldloc current
+            // #line 262:24 "tokens.Add(current);"
+            call thing.ValueList<string>.Add(object, string) -> int32
+            // #line 262:24 "tokens.Add(current);"
+            pop
+        }
+        // #line 264:16 "return tokens;"
+        ldloc tokens
+        // #line 264:16 "return tokens;"
+        ret
+    }
+
+    static method parse(tokens: thing.ValueList<string>, pos: int32) -> Value {
+        local token: string
+        local list: thing.ValueList<Value>
+        local i: int32
+        local val: object
+        local nextPos: object
+
+        // #line 268:13 "if (pos >= tokens.Count()) return makeAtom("nil");"
+        ldarg 1
+        // #line 268:20 "if (pos >= tokens.Count()) return makeAtom("nil");"
+        ldarg 0
+        // #line 268:20 "if (pos >= tokens.Count()) return makeAtom("nil");"
+        call thing.ValueList<string>.Count(object) -> int32
+        // #line 268:20 "if (pos >= tokens.Count()) return makeAtom("nil");"
+        clt
+        // #line 268:20 "if (pos >= tokens.Count()) return makeAtom("nil");"
+        not
+        // #line 268:20 "if (pos >= tokens.Count()) return makeAtom("nil");"
+        if (stack) {
+            // #line 268:52 "if (pos >= tokens.Count()) return makeAtom("nil");"
+            ldstr "nil"
+            // #line 268:52 "if (pos >= tokens.Count()) return makeAtom("nil");"
+            call Lisp.makeAtom(string) -> Value
+            // #line 268:52 "if (pos >= tokens.Count()) return makeAtom("nil");"
+            ret
+        }
+        // #line 270:21 "var token = tokens.Get(pos);"
+        ldarg 0
+        // #line 270:32 "var token = tokens.Get(pos);"
+        ldarg 1
+        // #line 270:32 "var token = tokens.Get(pos);"
+        call thing.ValueList<string>.Get(object, int32) -> string
+        // #line 270:32 "var token = tokens.Get(pos);"
+        stloc token
+        // #line 271:13 "if (token == "(") {"
+        ldloc token
+        // #line 271:22 "if (token == "(") {"
+        ldstr "("
+        // #line 271:22 "if (token == "(") {"
+        ceq
+        // #line 271:22 "if (token == "(") {"
+        if (stack) {
+            // #line 272:24 "var list = new ValueList<Value>();"
+            newobj thing.ValueList<Value>.constructor()
+            // #line 272:24 "var list = new ValueList<Value>();"
+            dup
+            // #line 272:24 "var list = new ValueList<Value>();"
+            call thing.ValueList<Value>..ctor(object) -> void
+            // #line 272:24 "var list = new ValueList<Value>();"
+            pop
+            // #line 272:24 "var list = new ValueList<Value>();"
+            stloc list
+            // #line 273:21 "var i = pos + 1;"
+            ldarg 1
+            // #line 273:27 "var i = pos + 1;"
+            ldc.i4 1
+            // #line 273:27 "var i = pos + 1;"
+            add
+            // #line 273:27 "var i = pos + 1;"
+            stloc i
+            // #line 274:20 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            ldloc i
+            // #line 274:24 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            ldarg 0
+            // #line 274:24 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            call thing.ValueList<string>.Count(object) -> int32
+            // #line 274:24 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            clt
+            // #line 274:42 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            ldarg 0
+            // #line 274:53 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            ldloc i
+            // #line 274:53 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            call thing.ValueList<string>.Get(object, int32) -> string
+            // #line 274:59 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            ldstr ")"
+            // #line 274:59 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            ceq
+            // #line 274:59 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            not
+            // #line 274:59 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            and
+            // #line 274:59 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            while (stack) {
+                // #line 274:59 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                pop
+                // #line 275:51 "var (val, nextPos) = parseWithPos(tokens, i);"
+                ldarg 0
+                // #line 275:59 "var (val, nextPos) = parseWithPos(tokens, i);"
+                ldloc i
+                // #line 275:59 "var (val, nextPos) = parseWithPos(tokens, i);"
+                call Lisp.parseWithPos(thing.ValueList<string>, int32) -> object[]
+                // #line 275:59 "var (val, nextPos) = parseWithPos(tokens, i);"
+                dup
+                // #line 275:59 "var (val, nextPos) = parseWithPos(tokens, i);"
+                ldc.i4 0
+                // #line 275:59 "var (val, nextPos) = parseWithPos(tokens, i);"
+                ldelem
+                // #line 275:59 "var (val, nextPos) = parseWithPos(tokens, i);"
+                stloc val
+                // #line 275:59 "var (val, nextPos) = parseWithPos(tokens, i);"
+                dup
+                // #line 275:59 "var (val, nextPos) = parseWithPos(tokens, i);"
+                ldc.i4 1
+                // #line 275:59 "var (val, nextPos) = parseWithPos(tokens, i);"
+                ldelem
+                // #line 275:59 "var (val, nextPos) = parseWithPos(tokens, i);"
+                stloc nextPos
+                // #line 275:59 "var (val, nextPos) = parseWithPos(tokens, i);"
+                pop
+                // #line 276:17 "list.Add(val);"
+                ldloc list
+                // #line 276:26 "list.Add(val);"
+                ldloc val
+                // #line 276:26 "list.Add(val);"
+                call thing.ValueList<Value>.Add(object, Value) -> int32
+                // #line 276:26 "list.Add(val);"
+                pop
+                // #line 277:21 "i = nextPos;"
+                ldloc nextPos
+                // #line 277:21 "i = nextPos;"
+                dup
+                // #line 277:21 "i = nextPos;"
+                stloc i
+                // #line 277:21 "i = nextPos;"
+                pop
+                // #line 274:20 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                ldloc i
+                // #line 274:24 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                ldarg 0
+                // #line 274:24 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                call thing.ValueList<string>.Count(object) -> int32
+                // #line 274:24 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                clt
+                // #line 274:42 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                ldarg 0
+                // #line 274:53 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                ldloc i
+                // #line 274:53 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                call thing.ValueList<string>.Get(object, int32) -> string
+                // #line 274:59 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                ldstr ")"
+                // #line 274:59 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                ceq
+                // #line 274:59 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                not
+                // #line 274:59 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                and
+            }
+            // #line 274:59 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            pop
+            // #line 279:29 "return makeList(list);"
+            ldloc list
+            // #line 279:29 "return makeList(list);"
+            call Lisp.makeList(thing.ValueList<Value>) -> Value
+            // #line 279:29 "return makeList(list);"
+            ret
+        }
+        // #line 281:25 "return makeAtom(token);"
+        ldloc token
+        // #line 281:25 "return makeAtom(token);"
+        call Lisp.makeAtom(string) -> Value
+        // #line 281:25 "return makeAtom(token);"
+        ret
+    }
+
+    static method parseWithPos(tokens: thing.ValueList<string>, pos: int32) -> object[] {
+        local token: string
+        local list: thing.ValueList<Value>
+        local i: int32
+        local val: object
+        local nextPos: object
+
+        // #line 285:13 "if (pos >= tokens.Count()) return (makeAtom("nil"), pos);"
+        ldarg 1
+        // #line 285:20 "if (pos >= tokens.Count()) return (makeAtom("nil"), pos);"
+        ldarg 0
+        // #line 285:20 "if (pos >= tokens.Count()) return (makeAtom("nil"), pos);"
+        call thing.ValueList<string>.Count(object) -> int32
+        // #line 285:20 "if (pos >= tokens.Count()) return (makeAtom("nil"), pos);"
+        clt
+        // #line 285:20 "if (pos >= tokens.Count()) return (makeAtom("nil"), pos);"
+        not
+        // #line 285:20 "if (pos >= tokens.Count()) return (makeAtom("nil"), pos);"
+        if (stack) {
+            // #line 285:59 "if (pos >= tokens.Count()) return (makeAtom("nil"), pos);"
+            ldc.i4 2
+            // #line 285:59 "if (pos >= tokens.Count()) return (makeAtom("nil"), pos);"
+            newarr object
+            // #line 285:59 "if (pos >= tokens.Count()) return (makeAtom("nil"), pos);"
+            dup
+            // #line 285:59 "if (pos >= tokens.Count()) return (makeAtom("nil"), pos);"
+            ldc.i4 0
+            // #line 285:53 "if (pos >= tokens.Count()) return (makeAtom("nil"), pos);"
+            ldstr "nil"
+            // #line 285:53 "if (pos >= tokens.Count()) return (makeAtom("nil"), pos);"
+            call Lisp.makeAtom(string) -> Value
+            // #line 285:53 "if (pos >= tokens.Count()) return (makeAtom("nil"), pos);"
+            stelem
+            // #line 285:53 "if (pos >= tokens.Count()) return (makeAtom("nil"), pos);"
+            dup
+            // #line 285:53 "if (pos >= tokens.Count()) return (makeAtom("nil"), pos);"
+            ldc.i4 1
+            // #line 285:61 "if (pos >= tokens.Count()) return (makeAtom("nil"), pos);"
+            ldarg 1
+            // #line 285:61 "if (pos >= tokens.Count()) return (makeAtom("nil"), pos);"
+            stelem
+            // #line 285:61 "if (pos >= tokens.Count()) return (makeAtom("nil"), pos);"
+            ret
+        }
+        // #line 287:21 "var token = tokens.Get(pos);"
+        ldarg 0
+        // #line 287:32 "var token = tokens.Get(pos);"
+        ldarg 1
+        // #line 287:32 "var token = tokens.Get(pos);"
+        call thing.ValueList<string>.Get(object, int32) -> string
+        // #line 287:32 "var token = tokens.Get(pos);"
+        stloc token
+        // #line 288:13 "if (token == "(") {"
+        ldloc token
+        // #line 288:22 "if (token == "(") {"
+        ldstr "("
+        // #line 288:22 "if (token == "(") {"
+        ceq
+        // #line 288:22 "if (token == "(") {"
+        if (stack) {
+            // #line 289:24 "var list = new ValueList<Value>();"
+            newobj thing.ValueList<Value>.constructor()
+            // #line 289:24 "var list = new ValueList<Value>();"
+            dup
+            // #line 289:24 "var list = new ValueList<Value>();"
+            call thing.ValueList<Value>..ctor(object) -> void
+            // #line 289:24 "var list = new ValueList<Value>();"
+            pop
+            // #line 289:24 "var list = new ValueList<Value>();"
+            stloc list
+            // #line 290:21 "var i = pos + 1;"
+            ldarg 1
+            // #line 290:27 "var i = pos + 1;"
+            ldc.i4 1
+            // #line 290:27 "var i = pos + 1;"
+            add
+            // #line 290:27 "var i = pos + 1;"
+            stloc i
+            // #line 291:20 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            ldloc i
+            // #line 291:24 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            ldarg 0
+            // #line 291:24 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            call thing.ValueList<string>.Count(object) -> int32
+            // #line 291:24 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            clt
+            // #line 291:42 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            ldarg 0
+            // #line 291:53 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            ldloc i
+            // #line 291:53 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            call thing.ValueList<string>.Get(object, int32) -> string
+            // #line 291:59 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            ldstr ")"
+            // #line 291:59 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            ceq
+            // #line 291:59 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            not
+            // #line 291:59 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            and
+            // #line 291:59 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            while (stack) {
+                // #line 291:59 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                pop
+                // #line 292:51 "var (val, nextPos) = parseWithPos(tokens, i);"
+                ldarg 0
+                // #line 292:59 "var (val, nextPos) = parseWithPos(tokens, i);"
+                ldloc i
+                // #line 292:59 "var (val, nextPos) = parseWithPos(tokens, i);"
+                call Lisp.parseWithPos(thing.ValueList<string>, int32) -> object[]
+                // #line 292:59 "var (val, nextPos) = parseWithPos(tokens, i);"
+                dup
+                // #line 292:59 "var (val, nextPos) = parseWithPos(tokens, i);"
+                ldc.i4 0
+                // #line 292:59 "var (val, nextPos) = parseWithPos(tokens, i);"
+                ldelem
+                // #line 292:59 "var (val, nextPos) = parseWithPos(tokens, i);"
+                stloc val
+                // #line 292:59 "var (val, nextPos) = parseWithPos(tokens, i);"
+                dup
+                // #line 292:59 "var (val, nextPos) = parseWithPos(tokens, i);"
+                ldc.i4 1
+                // #line 292:59 "var (val, nextPos) = parseWithPos(tokens, i);"
+                ldelem
+                // #line 292:59 "var (val, nextPos) = parseWithPos(tokens, i);"
+                stloc nextPos
+                // #line 292:59 "var (val, nextPos) = parseWithPos(tokens, i);"
+                pop
+                // #line 293:17 "list.Add(val);"
+                ldloc list
+                // #line 293:26 "list.Add(val);"
+                ldloc val
+                // #line 293:26 "list.Add(val);"
+                call thing.ValueList<Value>.Add(object, Value) -> int32
+                // #line 293:26 "list.Add(val);"
+                pop
+                // #line 294:21 "i = nextPos;"
+                ldloc nextPos
+                // #line 294:21 "i = nextPos;"
+                dup
+                // #line 294:21 "i = nextPos;"
+                stloc i
+                // #line 294:21 "i = nextPos;"
+                pop
+                // #line 291:20 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                ldloc i
+                // #line 291:24 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                ldarg 0
+                // #line 291:24 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                call thing.ValueList<string>.Count(object) -> int32
+                // #line 291:24 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                clt
+                // #line 291:42 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                ldarg 0
+                // #line 291:53 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                ldloc i
+                // #line 291:53 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                call thing.ValueList<string>.Get(object, int32) -> string
+                // #line 291:59 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                ldstr ")"
+                // #line 291:59 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                ceq
+                // #line 291:59 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                not
+                // #line 291:59 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+                and
+            }
+            // #line 291:59 "while (i < tokens.Count() && tokens.Get(i) != ")") {"
+            pop
+            // #line 296:35 "return (makeList(list), i + 1);"
+            ldc.i4 2
+            // #line 296:35 "return (makeList(list), i + 1);"
+            newarr object
+            // #line 296:35 "return (makeList(list), i + 1);"
+            dup
+            // #line 296:35 "return (makeList(list), i + 1);"
+            ldc.i4 0
+            // #line 296:30 "return (makeList(list), i + 1);"
+            ldloc list
+            // #line 296:30 "return (makeList(list), i + 1);"
+            call Lisp.makeList(thing.ValueList<Value>) -> Value
+            // #line 296:30 "return (makeList(list), i + 1);"
+            stelem
+            // #line 296:30 "return (makeList(list), i + 1);"
+            dup
+            // #line 296:30 "return (makeList(list), i + 1);"
+            ldc.i4 1
+            // #line 296:37 "return (makeList(list), i + 1);"
+            ldloc i
+            // #line 296:41 "return (makeList(list), i + 1);"
+            ldc.i4 1
+            // #line 296:41 "return (makeList(list), i + 1);"
+            add
+            // #line 296:41 "return (makeList(list), i + 1);"
+            stelem
+            // #line 296:41 "return (makeList(list), i + 1);"
+            ret
+        }
+        // #line 298:32 "return (makeAtom(token), pos + 1);"
+        ldc.i4 2
+        // #line 298:32 "return (makeAtom(token), pos + 1);"
+        newarr object
+        // #line 298:32 "return (makeAtom(token), pos + 1);"
+        dup
+        // #line 298:32 "return (makeAtom(token), pos + 1);"
+        ldc.i4 0
+        // #line 298:26 "return (makeAtom(token), pos + 1);"
+        ldloc token
+        // #line 298:26 "return (makeAtom(token), pos + 1);"
+        call Lisp.makeAtom(string) -> Value
+        // #line 298:26 "return (makeAtom(token), pos + 1);"
+        stelem
+        // #line 298:26 "return (makeAtom(token), pos + 1);"
+        dup
+        // #line 298:26 "return (makeAtom(token), pos + 1);"
+        ldc.i4 1
+        // #line 298:34 "return (makeAtom(token), pos + 1);"
+        ldarg 1
+        // #line 298:40 "return (makeAtom(token), pos + 1);"
+        ldc.i4 1
+        // #line 298:40 "return (makeAtom(token), pos + 1);"
+        add
+        // #line 298:40 "return (makeAtom(token), pos + 1);"
+        stelem
+        // #line 298:40 "return (makeAtom(token), pos + 1);"
+        ret
+    }
+
+    static method Main() -> void {
+        local globalEnv: Env
+        local tests: thing.ValueList<string>
+        local i: int32
+        local input: string
+        local tokens: thing.ValueList<string>
+        local expr: object
+        local _: object
+        local result: Value
+
+        // #line 302:25 "var globalEnv = new Env();"
+        newobj Env.constructor()
+        // #line 302:25 "var globalEnv = new Env();"
+        stloc globalEnv
+        // #line 303:9 "globalEnv.parent = null;"
+        ldloc globalEnv
+        // #line 303:9 "globalEnv.parent = null;"
+        dup
+        // #line 303:28 "globalEnv.parent = null;"
+        ldnull
+        // #line 303:28 "globalEnv.parent = null;"
+        stfld Env::parent
+        // #line 303:28 "globalEnv.parent = null;"
+        pop
+        // #line 304:9 "globalEnv.bindings = Dict.Create();"
+        ldloc globalEnv
+        // #line 304:9 "globalEnv.bindings = Dict.Create();"
+        dup
+        // #line 304:30 "globalEnv.bindings = Dict.Create();"
+        call Dict.Create() -> object
+        // #line 304:30 "globalEnv.bindings = Dict.Create();"
+        stfld Env::bindings
+        // #line 304:30 "globalEnv.bindings = Dict.Create();"
+        pop
+        // #line 306:20 "IO.Println("Lisp REPL");"
+        ldstr "Lisp REPL"
+        // #line 306:20 "IO.Println("Lisp REPL");"
+        call IO.Println(object) -> void
+        // #line 306:20 "IO.Println("Lisp REPL");"
+        pop
+        // #line 307:20 "IO.Println("(+ 1 2 3)");"
+        ldstr "(+ 1 2 3)"
+        // #line 307:20 "IO.Println("(+ 1 2 3)");"
+        call IO.Println(object) -> void
+        // #line 307:20 "IO.Println("(+ 1 2 3)");"
+        pop
+        // #line 308:20 "IO.Println("(* 2 3 4)");"
+        ldstr "(* 2 3 4)"
+        // #line 308:20 "IO.Println("(* 2 3 4)");"
+        call IO.Println(object) -> void
+        // #line 308:20 "IO.Println("(* 2 3 4)");"
+        pop
+        // #line 309:20 "IO.Println("(if (< 3 5) \"yes\" \"no\")");"
+        ldstr "(if (< 3 5) \"yes\" \"no\")"
+        // #line 309:20 "IO.Println("(if (< 3 5) \"yes\" \"no\")");"
+        call IO.Println(object) -> void
+        // #line 309:20 "IO.Println("(if (< 3 5) \"yes\" \"no\")");"
+        pop
+        // #line 310:20 "IO.Println("(let ((x 5) (y 3)) (+ x y))");"
+        ldstr "(let ((x 5) (y 3)) (+ x y))"
+        // #line 310:20 "IO.Println("(let ((x 5) (y 3)) (+ x y))");"
+        call IO.Println(object) -> void
+        // #line 310:20 "IO.Println("(let ((x 5) (y 3)) (+ x y))");"
+        pop
+        // #line 311:20 "IO.Println("(lambda (x) (+ x 1))");"
+        ldstr "(lambda (x) (+ x 1))"
+        // #line 311:20 "IO.Println("(lambda (x) (+ x 1))");"
+        call IO.Println(object) -> void
+        // #line 311:20 "IO.Println("(lambda (x) (+ x 1))");"
+        pop
+        // #line 312:20 "IO.Println("");"
+        ldstr ""
+        // #line 312:20 "IO.Println("");"
+        call IO.Println(object) -> void
+        // #line 312:20 "IO.Println("");"
+        pop
+        // #line 315:21 "var tests = new ValueList<string>();"
+        newobj thing.ValueList<string>.constructor()
+        // #line 315:21 "var tests = new ValueList<string>();"
+        dup
+        // #line 315:21 "var tests = new ValueList<string>();"
+        call thing.ValueList<string>..ctor(object) -> void
+        // #line 315:21 "var tests = new ValueList<string>();"
+        pop
+        // #line 315:21 "var tests = new ValueList<string>();"
+        stloc tests
+        // #line 316:9 "tests.Add("(+ 1 2 3)");"
+        ldloc tests
+        // #line 316:19 "tests.Add("(+ 1 2 3)");"
+        ldstr "(+ 1 2 3)"
+        // #line 316:19 "tests.Add("(+ 1 2 3)");"
+        call thing.ValueList<string>.Add(object, string) -> int32
+        // #line 316:19 "tests.Add("(+ 1 2 3)");"
+        pop
+        // #line 317:9 "tests.Add("(* 2 3 4)");"
+        ldloc tests
+        // #line 317:19 "tests.Add("(* 2 3 4)");"
+        ldstr "(* 2 3 4)"
+        // #line 317:19 "tests.Add("(* 2 3 4)");"
+        call thing.ValueList<string>.Add(object, string) -> int32
+        // #line 317:19 "tests.Add("(* 2 3 4)");"
+        pop
+        // #line 318:9 "tests.Add("(if (< 3 5) 10 20)");"
+        ldloc tests
+        // #line 318:19 "tests.Add("(if (< 3 5) 10 20)");"
+        ldstr "(if (< 3 5) 10 20)"
+        // #line 318:19 "tests.Add("(if (< 3 5) 10 20)");"
+        call thing.ValueList<string>.Add(object, string) -> int32
+        // #line 318:19 "tests.Add("(if (< 3 5) 10 20)");"
+        pop
+        // #line 319:9 "tests.Add("(let ((x 5) (y 3)) (+ x y))");"
+        ldloc tests
+        // #line 319:19 "tests.Add("(let ((x 5) (y 3)) (+ x y))");"
+        ldstr "(let ((x 5) (y 3)) (+ x y))"
+        // #line 319:19 "tests.Add("(let ((x 5) (y 3)) (+ x y))");"
+        call thing.ValueList<string>.Add(object, string) -> int32
+        // #line 319:19 "tests.Add("(let ((x 5) (y 3)) (+ x y))");"
+        pop
+        // #line 320:9 "tests.Add("(list 1 2 3)");"
+        ldloc tests
+        // #line 320:19 "tests.Add("(list 1 2 3)");"
+        ldstr "(list 1 2 3)"
+        // #line 320:19 "tests.Add("(list 1 2 3)");"
+        call thing.ValueList<string>.Add(object, string) -> int32
+        // #line 320:19 "tests.Add("(list 1 2 3)");"
+        pop
+        // #line 322:22 "for (var i = 0; i < tests.Count(); i = i + 1) {"
+        ldc.i4 0
+        // #line 322:22 "for (var i = 0; i < tests.Count(); i = i + 1) {"
+        stloc i
+        // #line 322:25 "for (var i = 0; i < tests.Count(); i = i + 1) {"
+        ldloc i
+        // #line 322:29 "for (var i = 0; i < tests.Count(); i = i + 1) {"
+        ldloc tests
+        // #line 322:29 "for (var i = 0; i < tests.Count(); i = i + 1) {"
+        call thing.ValueList<string>.Count(object) -> int32
+        // #line 322:29 "for (var i = 0; i < tests.Count(); i = i + 1) {"
+        clt
+        // #line 322:29 "for (var i = 0; i < tests.Count(); i = i + 1) {"
+        while (stack) {
+            // #line 322:29 "for (var i = 0; i < tests.Count(); i = i + 1) {"
+            pop
+            // #line 323:25 "var input = tests.Get(i);"
+            ldloc tests
+            // #line 323:35 "var input = tests.Get(i);"
+            ldloc i
+            // #line 323:35 "var input = tests.Get(i);"
+            call thing.ValueList<string>.Get(object, int32) -> string
+            // #line 323:35 "var input = tests.Get(i);"
+            stloc input
+            // #line 324:35 "var tokens = tokenize(input);"
+            ldloc input
+            // #line 324:35 "var tokens = tokenize(input);"
+            call Lisp.tokenize(string) -> thing.ValueList<string>
+            // #line 324:35 "var tokens = tokenize(input);"
+            stloc tokens
+            // #line 325:42 "var (expr, _) = parseWithPos(tokens, 0);"
+            ldloc tokens
+            // #line 325:50 "var (expr, _) = parseWithPos(tokens, 0);"
+            ldc.i4 0
+            // #line 325:50 "var (expr, _) = parseWithPos(tokens, 0);"
+            call Lisp.parseWithPos(thing.ValueList<string>, int32) -> object[]
+            // #line 325:50 "var (expr, _) = parseWithPos(tokens, 0);"
+            dup
+            // #line 325:50 "var (expr, _) = parseWithPos(tokens, 0);"
+            ldc.i4 0
+            // #line 325:50 "var (expr, _) = parseWithPos(tokens, 0);"
+            ldelem
+            // #line 325:50 "var (expr, _) = parseWithPos(tokens, 0);"
+            stloc expr
+            // #line 325:50 "var (expr, _) = parseWithPos(tokens, 0);"
+            dup
+            // #line 325:50 "var (expr, _) = parseWithPos(tokens, 0);"
+            ldc.i4 1
+            // #line 325:50 "var (expr, _) = parseWithPos(tokens, 0);"
+            ldelem
+            // #line 325:50 "var (expr, _) = parseWithPos(tokens, 0);"
+            stloc _
+            // #line 325:50 "var (expr, _) = parseWithPos(tokens, 0);"
+            pop
+            // #line 326:31 "var result = eval(expr, globalEnv);"
+            ldloc expr
+            // #line 326:37 "var result = eval(expr, globalEnv);"
+            ldloc globalEnv
+            // #line 326:37 "var result = eval(expr, globalEnv);"
+            call Lisp.eval(Value, Env) -> Value
+            // #line 326:37 "var result = eval(expr, globalEnv);"
+            stloc result
+            // #line 327:24 "IO.Println(input + " => " + valueToString(result));"
+            ldloc input
+            // #line 327:32 "IO.Println(input + " => " + valueToString(result));"
+            ldstr " => "
+            // #line 327:32 "IO.Println(input + " => " + valueToString(result));"
+            call String.Concat(string, string) -> string
+            // #line 327:55 "IO.Println(input + " => " + valueToString(result));"
+            ldloc result
+            // #line 327:55 "IO.Println(input + " => " + valueToString(result));"
+            call Lisp.valueToString(Value) -> string
+            // #line 327:55 "IO.Println(input + " => " + valueToString(result));"
+            call String.Concat(string, string) -> string
+            // #line 327:55 "IO.Println(input + " => " + valueToString(result));"
+            call IO.Println(object) -> void
+            // #line 327:55 "IO.Println(input + " => " + valueToString(result));"
+            pop
+            // #line 322:48 "for (var i = 0; i < tests.Count(); i = i + 1) {"
+            ldloc i
+            // #line 322:52 "for (var i = 0; i < tests.Count(); i = i + 1) {"
+            ldc.i4 1
+            // #line 322:52 "for (var i = 0; i < tests.Count(); i = i + 1) {"
+            add
+            // #line 322:52 "for (var i = 0; i < tests.Count(); i = i + 1) {"
+            dup
+            // #line 322:52 "for (var i = 0; i < tests.Count(); i = i + 1) {"
+            stloc i
+            // #line 322:25 "for (var i = 0; i < tests.Count(); i = i + 1) {"
+            ldloc i
+            // #line 322:29 "for (var i = 0; i < tests.Count(); i = i + 1) {"
+            ldloc tests
+            // #line 322:29 "for (var i = 0; i < tests.Count(); i = i + 1) {"
+            call thing.ValueList<string>.Count(object) -> int32
+            // #line 322:29 "for (var i = 0; i < tests.Count(); i = i + 1) {"
+            clt
+        }
+        // #line 322:29 "for (var i = 0; i < tests.Count(); i = i + 1) {"
+        pop
+        // #line 322:29 "for (var i = 0; i < tests.Count(); i = i + 1) {"
+        ret
+    }
+}
+
+class __display_0 {
+    public field closure: Env
+    public field paramNames: thing.ValueList<Value>
+    public field body: Value
+}
+
+class Delegate {
+    public field target: string
+    public field closure: object
+}
+
+@Generic(T)
+class thing.ValueList {
+    public field items: T[]
+    public field count: int32
+
+    constructor(this: object) {
+        // #line 9:9 "struct Value {"
+        ldarg 0
+        // #line 9:9 "struct Value {"
+        dup
+        // #line 9:28 "struct Value {"
+        ldc.i4 64
+        // #line 9:28 "struct Value {"
+        newarr T
+        // #line 9:28 "struct Value {"
+        stfld thing.ValueList::items
+        // #line 9:28 "struct Value {"
+        pop
+        // #line 10:9 "kind: string;        // "atom", "list", "lambda""
+        ldarg 0
+        // #line 10:9 "kind: string;        // "atom", "list", "lambda""
+        dup
+        // #line 10:22 "kind: string;        // "atom", "list", "lambda""
+        ldc.i4 0
+        // #line 10:22 "kind: string;        // "atom", "list", "lambda""
+        stfld thing.ValueList::count
+        // #line 10:22 "kind: string;        // "atom", "list", "lambda""
+        pop
+        // #line 10:22 "kind: string;        // "atom", "list", "lambda""
+        ret
+    }
+
+    method Get(this: object, index: int32) -> T {
+        // #line 14:16 "}"
+        ldarg 0
+        // #line 14:16 "}"
+        ldfld thing.ValueList::items
+        // #line 14:27 "}"
+        ldarg 1
+        // #line 14:27 "}"
+        ldelem
+        // #line 14:27 "}"
+        ret
+    }
+
+    method Set(this: object, index: int32, value: T) -> int32 {
+        // #line 18:9 "parent: Env;"
+        ldarg 0
+        // #line 18:9 "parent: Env;"
+        ldfld thing.ValueList::items
+        // #line 18:9 "parent: Env;"
+        dup
+        // #line 18:20 "parent: Env;"
+        ldarg 1
+        // #line 18:29 "parent: Env;"
+        ldarg 2
+        // #line 18:29 "parent: Env;"
+        stelem
+        // #line 18:29 "parent: Env;"
+        pop
+        // #line 18:29 "parent: Env;"
+        ldc.i4 0
+        // #line 18:29 "parent: Env;"
+        ret
+    }
+
+    method Add(this: object, value: T) -> int32 {
+        // #line 22:9 "static fn car(lst: ValueList<Value>) -> Value {"
+        ldarg 0
+        // #line 22:9 "static fn car(lst: ValueList<Value>) -> Value {"
+        ldfld thing.ValueList::items
+        // #line 22:9 "static fn car(lst: ValueList<Value>) -> Value {"
+        dup
+        // #line 22:20 "static fn car(lst: ValueList<Value>) -> Value {"
+        ldarg 0
+        // #line 22:20 "static fn car(lst: ValueList<Value>) -> Value {"
+        ldfld thing.ValueList::count
+        // #line 22:34 "static fn car(lst: ValueList<Value>) -> Value {"
+        ldarg 1
+        // #line 22:34 "static fn car(lst: ValueList<Value>) -> Value {"
+        stelem
+        // #line 22:34 "static fn car(lst: ValueList<Value>) -> Value {"
+        pop
+        // #line 23:9 "return lst[0];"
+        ldarg 0
+        // #line 23:9 "return lst[0];"
+        dup
+        // #line 23:22 "return lst[0];"
+        ldarg 0
+        // #line 23:22 "return lst[0];"
+        ldfld thing.ValueList::count
+        // #line 23:35 "return lst[0];"
+        ldc.i4 1
+        // #line 23:35 "return lst[0];"
+        add
+        // #line 23:35 "return lst[0];"
+        stfld thing.ValueList::count
+        // #line 23:35 "return lst[0];"
+        pop
+        // #line 23:35 "return lst[0];"
+        ldc.i4 0
+        // #line 23:35 "return lst[0];"
+        ret
+    }
+
+    method Count(this: object) -> int32 {
+        // #line 27:16 "var result = new ValueList<Value>();"
+        ldarg 0
+        // #line 27:16 "var result = new ValueList<Value>();"
+        ldfld thing.ValueList::count
+        // #line 27:16 "var result = new ValueList<Value>();"
+        ret
+    }
+
+    method RemoveAt(this: object, index: int32) -> int32 {
+        local i: int32
+
+        // #line 31:22 "return result;"
+        ldarg 1
+        // #line 31:22 "return result;"
+        stloc i
+        // #line 31:29 "return result;"
+        ldloc i
+        // #line 31:33 "return result;"
+        ldarg 0
+        // #line 31:33 "return result;"
+        ldfld thing.ValueList::count
+        // #line 31:46 "return result;"
+        ldc.i4 1
+        // #line 31:46 "return result;"
+        sub
+        // #line 31:46 "return result;"
+        clt
+        // #line 31:46 "return result;"
+        while (stack) {
+            // #line 31:46 "return result;"
+            pop
+            // #line 32:13 "}"
+            ldarg 0
+            // #line 32:13 "}"
+            ldfld thing.ValueList::items
+            // #line 32:13 "}"
+            dup
+            // #line 32:24 "}"
+            ldloc i
+            // #line 32:29 "}"
+            ldarg 0
+            // #line 32:29 "}"
+            ldfld thing.ValueList::items
+            // #line 32:40 "}"
+            ldloc i
+            // #line 32:44 "}"
+            ldc.i4 1
+            // #line 32:44 "}"
+            add
+            // #line 32:44 "}"
+            ldelem
+            // #line 32:44 "}"
+            stelem
+            // #line 32:44 "}"
+            pop
+            // #line 31:53 "return result;"
+            ldloc i
+            // #line 31:57 "return result;"
+            ldc.i4 1
+            // #line 31:57 "return result;"
+            add
+            // #line 31:57 "return result;"
+            dup
+            // #line 31:57 "return result;"
+            stloc i
+            // #line 31:29 "return result;"
+            ldloc i
+            // #line 31:33 "return result;"
+            ldarg 0
+            // #line 31:33 "return result;"
+            ldfld thing.ValueList::count
+            // #line 31:46 "return result;"
+            ldc.i4 1
+            // #line 31:46 "return result;"
+            sub
+            // #line 31:46 "return result;"
+            clt
+        }
+        // #line 31:46 "return result;"
+        pop
+        // #line 34:9 "static fn eval(expr: Value, env: Env) -> Value {"
+        ldarg 0
+        // #line 34:9 "static fn eval(expr: Value, env: Env) -> Value {"
+        dup
+        // #line 34:22 "static fn eval(expr: Value, env: Env) -> Value {"
+        ldarg 0
+        // #line 34:22 "static fn eval(expr: Value, env: Env) -> Value {"
+        ldfld thing.ValueList::count
+        // #line 34:35 "static fn eval(expr: Value, env: Env) -> Value {"
+        ldc.i4 1
+        // #line 34:35 "static fn eval(expr: Value, env: Env) -> Value {"
+        sub
+        // #line 34:35 "static fn eval(expr: Value, env: Env) -> Value {"
+        stfld thing.ValueList::count
+        // #line 34:35 "static fn eval(expr: Value, env: Env) -> Value {"
+        pop
+        // #line 34:35 "static fn eval(expr: Value, env: Env) -> Value {"
+        ldc.i4 0
+        // #line 34:35 "static fn eval(expr: Value, env: Env) -> Value {"
+        ret
+    }
+}
+
+class Global {
+    static method __lambda_0(__closure: object, args: thing.ValueList<Value>) -> int32 {
+        local callEnv: Env
+        local i: int32
+        local name: string
+
+        // #line 189:27 "var callEnv = new Env();"
+        newobj Env.constructor()
+        // #line 189:27 "var callEnv = new Env();"
+        stloc callEnv
+        // #line 190:13 "callEnv.parent = closure;"
+        ldloc callEnv
+        // #line 190:13 "callEnv.parent = closure;"
+        dup
+        // #line 190:30 "callEnv.parent = closure;"
+        ldarg 0
+        // #line 190:30 "callEnv.parent = closure;"
+        ldfld __display_0::closure
+        // #line 190:30 "callEnv.parent = closure;"
+        stfld Env::parent
+        // #line 190:30 "callEnv.parent = closure;"
+        pop
+        // #line 191:13 "callEnv.bindings = Dict.Create();"
+        ldloc callEnv
+        // #line 191:13 "callEnv.bindings = Dict.Create();"
+        dup
+        // #line 191:32 "callEnv.bindings = Dict.Create();"
+        call Dict.Create() -> object
+        // #line 191:32 "callEnv.bindings = Dict.Create();"
+        stfld Env::bindings
+        // #line 191:32 "callEnv.bindings = Dict.Create();"
+        pop
+        // #line 192:26 "for (var i = 0; i < paramNames.Count(); i = i + 1) {"
+        ldc.i4 0
+        // #line 192:26 "for (var i = 0; i < paramNames.Count(); i = i + 1) {"
+        stloc i
+        // #line 192:29 "for (var i = 0; i < paramNames.Count(); i = i + 1) {"
+        ldloc i
+        // #line 192:33 "for (var i = 0; i < paramNames.Count(); i = i + 1) {"
+        ldarg 0
+        // #line 192:33 "for (var i = 0; i < paramNames.Count(); i = i + 1) {"
+        ldfld __display_0::paramNames
+        // #line 192:33 "for (var i = 0; i < paramNames.Count(); i = i + 1) {"
+        call thing.ValueList<Value>.Count(object) -> int32
+        // #line 192:33 "for (var i = 0; i < paramNames.Count(); i = i + 1) {"
+        clt
+        // #line 192:33 "for (var i = 0; i < paramNames.Count(); i = i + 1) {"
+        while (stack) {
+            // #line 192:33 "for (var i = 0; i < paramNames.Count(); i = i + 1) {"
+            pop
+            // #line 193:28 "var name = paramNames.Get(i).atomVal;"
+            ldarg 0
+            // #line 193:28 "var name = paramNames.Get(i).atomVal;"
+            ldfld __display_0::paramNames
+            // #line 193:43 "var name = paramNames.Get(i).atomVal;"
+            ldloc i
+            // #line 193:43 "var name = paramNames.Get(i).atomVal;"
+            call thing.ValueList<Value>.Get(object, int32) -> Value
+            // #line 193:43 "var name = paramNames.Get(i).atomVal;"
+            ldfld Value::atomVal
+            // #line 193:43 "var name = paramNames.Get(i).atomVal;"
+            stloc name
+            // #line 194:26 "Dict.Set(callEnv.bindings, name, args.Get(i));"
+            ldloc callEnv
+            // #line 194:26 "Dict.Set(callEnv.bindings, name, args.Get(i));"
+            ldfld Env::bindings
+            // #line 194:44 "Dict.Set(callEnv.bindings, name, args.Get(i));"
+            ldloc name
+            // #line 194:50 "Dict.Set(callEnv.bindings, name, args.Get(i));"
+            ldarg 1
+            // #line 194:59 "Dict.Set(callEnv.bindings, name, args.Get(i));"
+            ldloc i
+            // #line 194:59 "Dict.Set(callEnv.bindings, name, args.Get(i));"
+            call thing.ValueList<Value>.Get(object, int32) -> Value
+            // #line 194:59 "Dict.Set(callEnv.bindings, name, args.Get(i));"
+            call Dict.Set(object, object, object) -> void
+            // #line 194:59 "Dict.Set(callEnv.bindings, name, args.Get(i));"
+            pop
+            // #line 192:57 "for (var i = 0; i < paramNames.Count(); i = i + 1) {"
+            ldloc i
+            // #line 192:61 "for (var i = 0; i < paramNames.Count(); i = i + 1) {"
+            ldc.i4 1
+            // #line 192:61 "for (var i = 0; i < paramNames.Count(); i = i + 1) {"
+            add
+            // #line 192:61 "for (var i = 0; i < paramNames.Count(); i = i + 1) {"
+            dup
+            // #line 192:61 "for (var i = 0; i < paramNames.Count(); i = i + 1) {"
+            stloc i
+            // #line 192:29 "for (var i = 0; i < paramNames.Count(); i = i + 1) {"
+            ldloc i
+            // #line 192:33 "for (var i = 0; i < paramNames.Count(); i = i + 1) {"
+            ldarg 0
+            // #line 192:33 "for (var i = 0; i < paramNames.Count(); i = i + 1) {"
+            ldfld __display_0::paramNames
+            // #line 192:33 "for (var i = 0; i < paramNames.Count(); i = i + 1) {"
+            call thing.ValueList<Value>.Count(object) -> int32
+            // #line 192:33 "for (var i = 0; i < paramNames.Count(); i = i + 1) {"
+            clt
+        }
+        // #line 192:33 "for (var i = 0; i < paramNames.Count(); i = i + 1) {"
+        pop
+        // #line 196:25 "return eval(body, callEnv);"
+        ldarg 0
+        // #line 196:25 "return eval(body, callEnv);"
+        ldfld __display_0::body
+        // #line 196:31 "return eval(body, callEnv);"
+        ldloc callEnv
+        // #line 196:31 "return eval(body, callEnv);"
+        call Lisp.eval(Value, Env) -> Value
+        // #line 196:31 "return eval(body, callEnv);"
+        ret
+    }
+}
+
+struct Value {
+    field kind: string
+    field atomVal: string
+    field listVal: thing.ValueList<Value>
+    field lambdaFn: object
+}
+
+struct Env {
+    field parent: Env
+    field bindings: object
+}
+

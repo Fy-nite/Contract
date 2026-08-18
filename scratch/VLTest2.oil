@@ -1,0 +1,246 @@
+module Program version 1.0.0
+
+class Program {
+    static method Main() -> void {
+        local list: ValueList<int32>
+
+        // #line 1:68 "import "List.ct"; Contract Program { static fn Main() { var list = new ValueList<int>(); list.Add(10); IO.Println(list.Count()); } }"
+        newobj ValueList<int32>.constructor()
+        // #line 1:68 "import "List.ct"; Contract Program { static fn Main() { var list = new ValueList<int>(); list.Add(10); IO.Println(list.Count()); } }"
+        dup
+        // #line 1:68 "import "List.ct"; Contract Program { static fn Main() { var list = new ValueList<int>(); list.Add(10); IO.Println(list.Count()); } }"
+        call ValueList<int32>..ctor(object) -> void
+        // #line 1:68 "import "List.ct"; Contract Program { static fn Main() { var list = new ValueList<int>(); list.Add(10); IO.Println(list.Count()); } }"
+        pop
+        // #line 1:68 "import "List.ct"; Contract Program { static fn Main() { var list = new ValueList<int>(); list.Add(10); IO.Println(list.Count()); } }"
+        stloc list
+        // #line 1:90 "import "List.ct"; Contract Program { static fn Main() { var list = new ValueList<int>(); list.Add(10); IO.Println(list.Count()); } }"
+        ldloc list
+        // #line 1:99 "import "List.ct"; Contract Program { static fn Main() { var list = new ValueList<int>(); list.Add(10); IO.Println(list.Count()); } }"
+        ldc.i4 10
+        // #line 1:99 "import "List.ct"; Contract Program { static fn Main() { var list = new ValueList<int>(); list.Add(10); IO.Println(list.Count()); } }"
+        call ValueList<int32>.Add(int32, object) -> int32
+        // #line 1:99 "import "List.ct"; Contract Program { static fn Main() { var list = new ValueList<int>(); list.Add(10); IO.Println(list.Count()); } }"
+        pop
+        // #line 1:115 "import "List.ct"; Contract Program { static fn Main() { var list = new ValueList<int>(); list.Add(10); IO.Println(list.Count()); } }"
+        ldloc list
+        // #line 1:115 "import "List.ct"; Contract Program { static fn Main() { var list = new ValueList<int>(); list.Add(10); IO.Println(list.Count()); } }"
+        call ValueList<int32>.Count(object) -> object
+        // #line 1:115 "import "List.ct"; Contract Program { static fn Main() { var list = new ValueList<int>(); list.Add(10); IO.Println(list.Count()); } }"
+        call IO.Println(object) -> void
+        // #line 1:115 "import "List.ct"; Contract Program { static fn Main() { var list = new ValueList<int>(); list.Add(10); IO.Println(list.Count()); } }"
+        pop
+        // #line 1:115 "import "List.ct"; Contract Program { static fn Main() { var list = new ValueList<int>(); list.Add(10); IO.Println(list.Count()); } }"
+        ret
+    }
+}
+
+@Generic(T)
+class ValueList {
+    public field items: T[]
+    public field count: int32
+
+    constructor(this: object) {
+        // #line 8:9
+        ldarg 0
+        // #line 8:9
+        dup
+        // #line 8:28
+        ldc.i4 64
+        // #line 8:28
+        newarr T
+        // #line 8:28
+        stfld ValueList::items
+        // #line 8:28
+        pop
+        // #line 9:9
+        ldarg 0
+        // #line 9:9
+        dup
+        // #line 9:22
+        ldc.i4 0
+        // #line 9:22
+        stfld ValueList::count
+        // #line 9:22
+        pop
+        // #line 9:22
+        ret
+    }
+
+    method Get(this: object, index: int32) -> T {
+        // #line 13:16
+        ldarg 0
+        // #line 13:16
+        ldfld ValueList::items
+        // #line 13:27
+        ldarg 1
+        // #line 13:27
+        ldelem
+        // #line 13:27
+        ret
+    }
+
+    method Set(this: object, index: int32, value: T) -> int32 {
+        // #line 17:9
+        ldarg 0
+        // #line 17:9
+        ldfld ValueList::items
+        // #line 17:9
+        dup
+        // #line 17:20
+        ldarg 1
+        // #line 17:29
+        ldarg 2
+        // #line 17:29
+        stelem
+        // #line 17:29
+        pop
+        // #line 17:29
+        ldc.i4 0
+        // #line 17:29
+        ret
+    }
+
+    method Add(this: object, value: T) -> int32 {
+        // #line 21:9
+        ldarg 0
+        // #line 21:9
+        ldfld ValueList::items
+        // #line 21:9
+        dup
+        // #line 21:20
+        ldarg 0
+        // #line 21:20
+        ldfld ValueList::count
+        // #line 21:34
+        ldarg 1
+        // #line 21:34
+        stelem
+        // #line 21:34
+        pop
+        // #line 22:9
+        ldarg 0
+        // #line 22:9
+        dup
+        // #line 22:22
+        ldarg 0
+        // #line 22:22
+        ldfld ValueList::count
+        // #line 22:35
+        ldc.i4 1
+        // #line 22:35
+        add
+        // #line 22:35
+        stfld ValueList::count
+        // #line 22:35
+        pop
+        // #line 22:35
+        ldc.i4 0
+        // #line 22:35
+        ret
+    }
+
+    method Count(this: object) -> int32 {
+        // #line 26:16
+        ldarg 0
+        // #line 26:16
+        ldfld ValueList::count
+        // #line 26:16
+        ret
+    }
+
+    method RemoveAt(this: object, index: int32) -> int32 {
+        local i: int32
+
+        // #line 30:22
+        ldarg 1
+        // #line 30:22
+        stloc i
+        // #line 30:29
+        ldloc i
+        // #line 30:33
+        ldarg 0
+        // #line 30:33
+        ldfld ValueList::count
+        // #line 30:46
+        ldc.i4 1
+        // #line 30:46
+        sub
+        // #line 30:46
+        clt
+        // #line 30:46
+        while (stack) {
+            // #line 30:46
+            pop
+            // #line 31:13
+            ldarg 0
+            // #line 31:13
+            ldfld ValueList::items
+            // #line 31:13
+            dup
+            // #line 31:24
+            ldloc i
+            // #line 31:29
+            ldarg 0
+            // #line 31:29
+            ldfld ValueList::items
+            // #line 31:40
+            ldloc i
+            // #line 31:44
+            ldc.i4 1
+            // #line 31:44
+            add
+            // #line 31:44
+            ldelem
+            // #line 31:44
+            stelem
+            // #line 31:44
+            pop
+            // #line 30:53
+            ldloc i
+            // #line 30:57
+            ldc.i4 1
+            // #line 30:57
+            add
+            // #line 30:57
+            dup
+            // #line 30:57
+            stloc i
+            // #line 30:29
+            ldloc i
+            // #line 30:33
+            ldarg 0
+            // #line 30:33
+            ldfld ValueList::count
+            // #line 30:46
+            ldc.i4 1
+            // #line 30:46
+            sub
+            // #line 30:46
+            clt
+        }
+        // #line 30:46
+        pop
+        // #line 33:9
+        ldarg 0
+        // #line 33:9
+        dup
+        // #line 33:22
+        ldarg 0
+        // #line 33:22
+        ldfld ValueList::count
+        // #line 33:35
+        ldc.i4 1
+        // #line 33:35
+        sub
+        // #line 33:35
+        stfld ValueList::count
+        // #line 33:35
+        pop
+        // #line 33:35
+        ldc.i4 0
+        // #line 33:35
+        ret
+    }
+}
+

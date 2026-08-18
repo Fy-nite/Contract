@@ -15,6 +15,8 @@ namespace Contract.Compiler.Parsing
         private readonly string? _sourceFile;
         /// <summary>Current `namespace com.example;` for the file — applied to subsequent declarations.</summary>
         private string? _currentNamespace;
+        /// <summary>Unique suffix for foreach desugar temps (__forArr_N / __forIdx_N).</summary>
+        private int _forTempCounter;
 
         public Parser(IEnumerable<Token> tokens, DiagnosticBag diagnostics, string? sourceFile = null)
         {
@@ -115,7 +117,7 @@ namespace Contract.Compiler.Parsing
                         enumDecl.Attributes.AddRange(attributes);
                         program.Enums.Add(enumDecl);
                     }
-                    else if (Match(TokenType.Fn))
+                    else if (MatchFn())
                     {
                         var func = ParseFunction();
                         func.IsExported = isExported;
@@ -297,6 +299,22 @@ namespace Contract.Compiler.Parsing
             Consume(TokenType.Identifier, "Expected contract name");
             string name = Previous.Text;
 
+            var contract = new ContractDeclaration(name, line, column);
+
+            // Generic contract: contract Box<T, U> { ... }
+            if (Match(TokenType.Less))
+            {
+                if (!Check(TokenType.Greater))
+                {
+                    do
+                    {
+                        Consume(TokenType.Identifier, "Expected type parameter name");
+                        contract.TypeParameters.Add(Previous.Text);
+                    } while (Match(TokenType.Comma));
+                }
+                Consume(TokenType.Greater, "Expected '>' after type parameters");
+            }
+
             // Optional single-inheritance base: contract Foo : Base { ... }
             string? contractBaseType = null;
             if (Match(TokenType.Colon))
@@ -307,7 +325,6 @@ namespace Contract.Compiler.Parsing
 
             Consume(TokenType.LBrace, "Expected '{' after contract name");
 
-            var contract = new ContractDeclaration(name, line, column);
             contract.BaseTypeName = contractBaseType;
 
             while (!Check(TokenType.RBrace) && !IsAtEnd())
@@ -346,7 +363,7 @@ namespace Contract.Compiler.Parsing
                     enumDecl.SourceFile = _sourceFile;
                     contract.Members.Add(enumDecl);
                 }
-                else if (Match(TokenType.Fn))
+                else if (MatchFn())
                 {
                     var function = ParseFunction();
                     function.Attributes.AddRange(memberAttributes);
@@ -369,6 +386,7 @@ namespace Contract.Compiler.Parsing
                     contract.Fields.Add(new StructField(fieldName, TypeDescriptor.Parse(fieldType), Previous.Line, Previous.Column)
                     {
                         IsStatic = isStatic,
+                        Access = access,
                     });
                 }
                 else
@@ -461,6 +479,20 @@ namespace Contract.Compiler.Parsing
                 SourceFile = _sourceFile,
             };
 
+            // Generic function: fn identity<T>(x: T) -> T
+            if (Match(TokenType.Less))
+            {
+                if (!Check(TokenType.Greater))
+                {
+                    do
+                    {
+                        Consume(TokenType.Identifier, "Expected type parameter name");
+                        function.TypeParameters.Add(Previous.Text);
+                    } while (Match(TokenType.Comma));
+                }
+                Consume(TokenType.Greater, "Expected '>' after type parameters");
+            }
+
             Consume(TokenType.LParen, "Expected '(' after function name");
 
             if (!Check(TokenType.RParen))
@@ -501,7 +533,24 @@ namespace Contract.Compiler.Parsing
 
         private string ParseType()
         {
-            // Function type: (T1, T2) -> R, or with named params: (a: T1, b: T2) -> R
+            // Delegate type: <Delegate(params) -> return> — sugar for the
+            // generic form Delegate<(params) -> return>.
+            if (Match(TokenType.Less))
+            {
+                int line = Previous.Line;
+                int column = Previous.Column;
+                Consume(TokenType.Identifier, "Expected 'Delegate' after '<' in delegate type");
+                if (Previous.Text != "Delegate")
+                {
+                    AddError($"Expected 'Delegate' after '<' in delegate type, got '{Previous.Text}'", line, column);
+                }
+                var fnType = ParseType();   // (params) -> return
+                Consume(TokenType.Greater, "Expected '>' after delegate type");
+                return $"Delegate<{fnType}>";
+            }
+
+            // Function type: (T1, T2) -> R, or with named params: (a: T1, b: T2) -> R.
+            // A parenthesized list with NO arrow is a tuple type: (T1, T2).
             if (Match(TokenType.LParen))
             {
                 var paramTypes = new List<string>();
@@ -520,9 +569,13 @@ namespace Contract.Compiler.Parsing
                     } while (Match(TokenType.Comma));
                 }
                 Consume(TokenType.RParen, "Expected ')' after function parameter types");
-                Consume(TokenType.Arrow, "Expected '->' in function type");
-                var returnType = ParseType();
-                return $"({string.Join(", ", paramTypes)}) -> {returnType}";
+                if (Match(TokenType.Arrow))
+                {
+                    var returnType = ParseType();
+                    return $"({string.Join(", ", paramTypes)}) -> {returnType}";
+                }
+                // Tuple type: (T1, T2) — a multi-value return.
+                return $"({string.Join(", ", paramTypes)})";
             }
 
             Consume(TokenType.Identifier, "Expected type name");
@@ -642,6 +695,28 @@ namespace Contract.Compiler.Parsing
             int line = Previous.Line;
             int column = Previous.Column;
 
+            // Destructuring: var (a, b) = f(); — binds each tuple element.
+            if (Match(TokenType.LParen))
+            {
+                var decl = new VariableDeclaration("", TypeDescriptor.Empty, null, line, column);
+                if (!Check(TokenType.RParen))
+                {
+                    do
+                    {
+                        Consume(TokenType.Identifier, "Expected variable name in destructuring");
+                        decl.Names.Add(Previous.Text);
+                    } while (Match(TokenType.Comma));
+                }
+                Consume(TokenType.RParen, "Expected ')' after destructuring names");
+
+                Expression? init = null;
+                if (Match(TokenType.Assign))
+                    init = ApplyImplicitLambda(ParseExpression(), Previous.Line, Previous.Column);
+                Consume(TokenType.Semicolon, "Expected ';' after variable declaration");
+                decl.Initializer = init;
+                return decl;
+            }
+
             Consume(TokenType.Identifier, "Expected variable name");
             string name = Previous.Text;
 
@@ -705,6 +780,12 @@ namespace Contract.Compiler.Parsing
 
             Consume(TokenType.LParen, "Expected '(' after 'for'");
 
+            // foreach: for (item : collection) — desugars to an index loop.
+            if (Check(TokenType.Identifier) && CheckNext(TokenType.Colon))
+            {
+                return ParseForEachStatement(line, column);
+            }
+
             // Initializer: variable declaration, expression, or empty
             Statement? initializer = null;
             if (Match(TokenType.Var) || Match(TokenType.Let))
@@ -739,6 +820,71 @@ namespace Contract.Compiler.Parsing
             var body = ParseStatement();
 
             return new ForStatement(initializer, condition, update, body, line, column);
+        }
+
+        /// <summary>
+        /// Parses <c>for (item : collection) body</c> and desugars it into a
+        /// standard index loop:
+        /// <code>
+        /// var __forArr_N = collection;
+        /// var __forIdx_N = 0;
+        /// for (; __forIdx_N &lt; Array.Length(__forArr_N); __forIdx_N += 1) {
+        ///     var item = __forArr_N[__forIdx_N];
+        ///     body
+        /// }
+        /// </code>
+        /// The collection expression is evaluated once into a temp.
+        /// </summary>
+        private ForStatement ParseForEachStatement(int line, int column)
+        {
+            int temp = ++_forTempCounter;
+            string arrName = $"__forArr_{temp}";
+            string idxName = $"__forIdx_{temp}";
+
+            Consume(TokenType.Identifier, "Expected loop variable name");
+            string itemName = Previous.Text;
+            Consume(TokenType.Colon, "Expected ':' after loop variable");
+            var collection = ParseExpression();
+            Consume(TokenType.RParen, "Expected ')' after foreach collection");
+            var body = ParseStatement();
+
+            // var __forArr_N = collection;
+            var arrDecl = new VariableDeclaration(
+                arrName, TypeDescriptor.Empty, collection, line, column);
+            // var __forIdx_N = 0;
+            var idxDecl = new VariableDeclaration(
+                idxName, TypeDescriptor.Empty, new LiteralExpression(0, line, column), line, column);
+
+            var initBlock = new BlockStatement(line, column);
+            initBlock.Statements.Add(arrDecl);
+            initBlock.Statements.Add(idxDecl);
+
+            // __forIdx_N < Array.Length(__forArr_N)
+            var lengthCall = new CallExpression(
+                new MemberExpression(new IdentifierExpression("Array", line, column), "Length", line, column),
+                line, column);
+            lengthCall.Arguments.Add(new IdentifierExpression(arrName, line, column));
+            var condition = new BinaryExpression(
+                new IdentifierExpression(idxName, line, column), "<", lengthCall, line, column);
+
+            // __forIdx_N += 1
+            var update = new BinaryExpression(
+                new IdentifierExpression(idxName, line, column), "+=",
+                new LiteralExpression(1, line, column), line, column);
+
+            // { var item = __forArr_N[__forIdx_N]; body }
+            var itemDecl = new VariableDeclaration(
+                itemName, TypeDescriptor.Empty,
+                new IndexExpression(
+                    new IdentifierExpression(arrName, line, column),
+                    new IdentifierExpression(idxName, line, column),
+                    line, column),
+                line, column);
+            var bodyBlock = new BlockStatement(line, column);
+            bodyBlock.Statements.Add(itemDecl);
+            bodyBlock.Statements.Add(body);
+
+            return new ForStatement(initBlock, condition, update, bodyBlock, line, column);
         }
 
         private SwitchStatement ParseSwitchStatement()
@@ -1038,6 +1184,15 @@ namespace Contract.Compiler.Parsing
         {
             var expr = ParseOr();
 
+            // Ternary: cond ? then : else — lowest precedence (above assignment).
+            if (Match(TokenType.Question))
+            {
+                var thenBranch = ParseAssignment();
+                Consume(TokenType.Colon, "Expected ':' in ternary expression");
+                var elseBranch = ParseAssignment();
+                return new TernaryExpression(expr, thenBranch, elseBranch, expr.Line, expr.Column);
+            }
+
             if (Match(TokenType.Assign, TokenType.PlusEqual, TokenType.MinusEqual, TokenType.StarEqual, TokenType.SlashEqual, TokenType.PercentEqual))
             {
                 var opToken = Previous;
@@ -1167,7 +1322,49 @@ namespace Contract.Compiler.Parsing
 
             while (true)
             {
-                if (Match(TokenType.LParen))
+                // Generic call-site type args: first<int>(xs) or Box<int>::reset().
+                // Checked BEFORE the '(' branch so the '<' isn't parsed as a
+                // comparison. Backtracks when the '<...>' isn't followed by
+                // '(' or '::' (so `a < b` comparisons are untouched).
+                if (Check(TokenType.Less) && TryLookaheadGenericCallArgs() is { } genArgs)
+                {
+                    if (Match(TokenType.LParen))
+                    {
+                        var call = new CallExpression(expr, expr.Line, expr.Column);
+                        call.TypeArguments.AddRange(genArgs);
+                        if (!Check(TokenType.RParen))
+                        {
+                            do
+                            {
+                                call.Arguments.Add(ParseExpression());
+                            } while (Match(TokenType.Comma));
+                        }
+                        Consume(TokenType.RParen, "Expected ')' after arguments");
+                        expr = call;
+                    }
+                    else if (Match(TokenType.DoubleColon))
+                    {
+                        // Box<int>::reset() — the type args belong to the
+                        // module part of the scoped access.
+                        if (TryGetDottedPath(expr, out string modulePath))
+                        {
+                            Consume(TokenType.Identifier, "Expected member name after '::'");
+                            string member = Previous.Text;
+                            var scoped = new ScopedAccessExpression(modulePath, member, expr.Line, expr.Column);
+                            scoped.TypeArguments.AddRange(genArgs);
+                            expr = scoped;
+                        }
+                        else
+                        {
+                            AddError("Left side of '::' must be a module identifier", expr.Line, expr.Column);
+                        }
+                    }
+                    else
+                    {
+                        break; // defensive — the lookahead only succeeds on '(' or '::'
+                    }
+                }
+                else if (Match(TokenType.LParen))
                 {
                     var call = new CallExpression(expr, expr.Line, expr.Column);
 
@@ -1259,6 +1456,93 @@ namespace Contract.Compiler.Parsing
             return true;
         }
 
+        /// <summary>
+        /// When the current token is '&lt;', scans ahead for a balanced &lt;...&gt;
+        /// of type-ish tokens immediately followed by '(' or '::' — the explicit
+        /// type arguments of a generic call (<c>first&lt;int&gt;(xs)</c>,
+        /// <c>Box&lt;int&gt;::reset()</c>). Returns the parsed type arguments with
+        /// the cursor left after the '&gt;'; returns null (restoring the cursor)
+        /// when the lookahead doesn't match, so <c>a &lt; b</c> comparisons are
+        /// untouched.
+        /// </summary>
+        private List<TypeDescriptor>? TryLookaheadGenericCallArgs()
+        {
+            if (!Check(TokenType.Less)) return null;
+            int save = _current;
+
+            Advance(); // consume '<'
+            int depth = 1;
+            var argTexts = new List<string>();
+            var current = new System.Text.StringBuilder();
+
+            while (!IsAtEnd() && depth > 0)
+            {
+                var tok = Current;
+                switch (tok.Type)
+                {
+                    case TokenType.Less:
+                        depth++;
+                        current.Append('<');
+                        Advance();
+                        break;
+                    case TokenType.Greater:
+                        depth--;
+                        if (depth == 0)
+                        {
+                            if (current.Length > 0) argTexts.Add(current.ToString());
+                            Advance();
+                            if (Check(TokenType.LParen) || Check(TokenType.DoubleColon))
+                                return argTexts.Select(TypeDescriptor.Parse).ToList();
+                            _current = save;
+                            return null;
+                        }
+                        current.Append('>');
+                        Advance();
+                        break;
+                    case TokenType.GreaterGreater:
+                        // '>>' closes two levels (nested generic close). At
+                        // depth 1 it would be an unbalanced extra '>' — not a
+                        // generic call.
+                        if (depth < 2) { _current = save; return null; }
+                        depth -= 2;
+                        current.Append('>');   // one close belongs to the inner generic
+                        Advance();
+                        if (depth == 0)
+                        {
+                            if (current.Length > 0) argTexts.Add(current.ToString());
+                            if (Check(TokenType.LParen) || Check(TokenType.DoubleColon))
+                                return argTexts.Select(TypeDescriptor.Parse).ToList();
+                            _current = save;
+                            return null;
+                        }
+                        break;
+                    case TokenType.Arrow:
+                        current.Append("->");
+                        Advance();
+                        break;
+                    case TokenType.Comma:
+                        if (depth == 1)
+                        {
+                            argTexts.Add(current.ToString());
+                            current.Clear();
+                        }
+                        else
+                        {
+                            current.Append(", ");
+                        }
+                        Advance();
+                        break;
+                    default:
+                        current.Append(tok.Text);
+                        Advance();
+                        break;
+                }
+            }
+
+            _current = save;
+            return null;
+        }
+
         private Expression ParsePrimary()
         {
             if (Match(TokenType.IntLiteral))
@@ -1305,12 +1589,10 @@ namespace Contract.Compiler.Parsing
             else if (Match(TokenType.LBracket))
             {
                 var arrayLit = new ArrayLiteralExpression(Previous.Line, Previous.Column);
-                if (!Check(TokenType.RBracket))
+                while (!Check(TokenType.RBracket) && !Check(TokenType.Comma) && !IsAtEnd())
                 {
-                    do
-                    {
-                        arrayLit.Elements.Add(ParseExpression());
-                    } while (Match(TokenType.Comma));
+                    arrayLit.Elements.Add(ParseExpression());
+                    if (!Match(TokenType.Comma)) break;
                 }
                 Consume(TokenType.RBracket, "Expected ']' after array literal");
                 return arrayLit;
@@ -1388,6 +1670,20 @@ namespace Contract.Compiler.Parsing
                 }
 
                 var newExpr = new NewExpression(typeName, line, column);
+
+                // Generic instantiation: new Box<int>(5) / new Pair<int, string>(...)
+                if (Match(TokenType.Less))
+                {
+                    if (!Check(TokenType.Greater))
+                    {
+                        do
+                        {
+                            newExpr.TypeArguments.Add(TypeDescriptor.Parse(ParseType()));
+                        } while (Match(TokenType.Comma));
+                    }
+                    Consume(TokenType.Greater, "Expected '>' after type arguments");
+                }
+
                 if (Match(TokenType.LBracket))
                 {
                     // Array allocation: new Type[expr]
@@ -1416,9 +1712,27 @@ namespace Contract.Compiler.Parsing
             }
             else if (Match(TokenType.LParen))
             {
-                var expr = ParseExpression();
+                // Tuple literal: (a, b, c) — a multi-value return. A single
+                // parenthesized expression (a) is just grouping.
+                if (!Check(TokenType.RParen))
+                {
+                    var first = ParseExpression();
+                    if (Match(TokenType.Comma))
+                    {
+                        var tuple = new TupleLiteralExpression(Previous.Line, Previous.Column);
+                        tuple.Elements.Add(first);
+                        do
+                        {
+                            tuple.Elements.Add(ParseExpression());
+                        } while (Match(TokenType.Comma));
+                        Consume(TokenType.RParen, "Expected ')' after tuple literal");
+                        return tuple;
+                    }
+                    Consume(TokenType.RParen, "Expected ')' after expression");
+                    return first;
+                }
                 Consume(TokenType.RParen, "Expected ')' after expression");
-                return expr;
+                return new LiteralExpression(0, Previous.Line, Previous.Column);
             }
 
             AddError($"Unexpected token in expression: {Current.Type} ('{Current.Text}')", Current.Line, Current.Column);
@@ -1546,20 +1860,12 @@ namespace Contract.Compiler.Parsing
                 // Stop at semicolons
                 if (Previous.Type == TokenType.Semicolon) return;
 
-                // Stop at statement-starting keywords
-                switch (Current.Type)
-                {
-                    case TokenType.Contract:
-                    case TokenType.Fn:
-                    case TokenType.Import:
-                    case TokenType.If:
-                    case TokenType.While:
-                    case TokenType.Return:
-                    case TokenType.Var:
-                    case TokenType.Let:
-                    case TokenType.Switch:
-                        return;
-                }
+                // Stop at statement-starting keywords (including contextual 'fn')
+                if (Current.Type is TokenType.Contract or TokenType.Import or TokenType.If or TokenType.While or TokenType.Return or TokenType.Var or TokenType.Let or TokenType.Switch or TokenType.For or TokenType.Static or TokenType.Public or TokenType.Private or TokenType.Protected or TokenType.Internal or TokenType.Export)
+                    return;
+                // fn is contextual: only a statement-starter when at the start of a line
+                if (CheckFn())
+                    return;
 
                 // If we've moved to a new line and the current token is an identifier,
                 // it might be the start of a new statement
@@ -1575,6 +1881,24 @@ namespace Contract.Compiler.Parsing
         }
 
         private bool IsAtEnd() => Current.Type == TokenType.EOF;
+
+        /// <summary>
+        /// True when the current token is an identifier with text "fn" followed
+        /// by another identifier — the start of a function declaration. This
+        /// makes <c>fn</c> a contextual keyword: it only acts as a keyword in
+        /// declaration positions (before a function name), and remains a plain
+        /// identifier elsewhere (e.g. <c>var fn = ...</c>).
+        /// </summary>
+        private bool CheckFn()
+            => Current.Type == TokenType.Identifier && Current.Text == "fn"
+               && _current + 1 < _tokens.Count && _tokens[_current + 1].Type == TokenType.Identifier;
+
+        /// <summary>Consumes the current token when it is a contextual "fn" keyword.</summary>
+        private bool MatchFn()
+        {
+            if (CheckFn()) { Advance(); return true; }
+            return false;
+        }
 
         private Token Current => _tokens[_current];
 

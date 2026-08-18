@@ -36,7 +36,9 @@ namespace Contract.Compiler.StandardLibrary
 
     public class SymbolTable
     {
-        private readonly Dictionary<string, Dictionary<string, ExternalMethod>> _externalBindings = new();
+        // Each module maps a method name to its overloads (a list, so
+        // same-name methods with different signatures coexist).
+        private readonly Dictionary<string, Dictionary<string, List<ExternalMethod>>> _externalBindings = new();
         private readonly Dictionary<string, ContractDeclaration> _userContracts = new();
         private readonly Dictionary<string, StructDeclaration> _userStructs = new();
         private readonly List<string> _importedNamespaces = new();
@@ -85,7 +87,9 @@ namespace Contract.Compiler.StandardLibrary
                 if (method.IsSpecialName) continue; // property accessors, operators
                 var methodAttr = method.GetCustomAttribute<MethodBindingAttribute>();
                 string name = methodAttr?.Name ?? method.Name;
-                _externalBindings[className][name] = new ExternalMethod(className, name, method);
+                if (!_externalBindings[className].TryGetValue(name, out var list))
+                    _externalBindings[className][name] = list = new();
+                list.Add(new ExternalMethod(className, name, method));
             }
         }
 
@@ -134,9 +138,9 @@ namespace Contract.Compiler.StandardLibrary
         {
             method = null;
             string? resolved = ResolveModuleName(className);
-            if (resolved != null && _externalBindings[resolved].TryGetValue(methodName, out var m))
+            if (resolved != null && _externalBindings[resolved].TryGetValue(methodName, out var list) && list.Count > 0)
             {
-                method = m;
+                method = list[0];
                 return true;
             }
             
@@ -153,6 +157,49 @@ namespace Contract.Compiler.StandardLibrary
             }
             
             return false;
+        }
+
+        /// <summary>
+        /// Resolves a method by name and argument count, picking the external
+        /// overload whose parameter count matches. Falls back to the first
+        /// overload when no arity matches (so the call still resolves and the
+        /// runtime reports the mismatch). User-contract functions resolve by
+        /// name (no overloads). Returns false when the module or method name
+        /// is unknown.
+        /// </summary>
+        public bool TryResolveMethod(string className, string methodName, int argCount, out object? method)
+        {
+            method = null;
+            string? resolved = ResolveModuleName(className);
+            if (resolved != null && _externalBindings[resolved].TryGetValue(methodName, out var list) && list.Count > 0)
+            {
+                var match = list.FirstOrDefault(m => m.Info.GetParameters().Length == argCount);
+                method = match ?? list[0];
+                return true;
+            }
+
+            if (_userContracts.TryGetValue(className, out var contract))
+            {
+                foreach (var member in contract.Members)
+                {
+                    if (member is FunctionDeclaration func && func.Name == methodName)
+                    {
+                        method = func;
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>All overloads of a method name on a module, or an empty list when unknown.</summary>
+        public IReadOnlyList<ExternalMethod> GetMethodOverloads(string className, string methodName)
+        {
+            string? resolved = ResolveModuleName(className);
+            if (resolved != null && _externalBindings[resolved].TryGetValue(methodName, out var list))
+                return list;
+            return Array.Empty<ExternalMethod>();
         }
 
         public bool TryGetStruct(string structName, out StructDeclaration? structDecl)
@@ -195,7 +242,7 @@ namespace Contract.Compiler.StandardLibrary
         {
             string? resolved = ResolveModuleName(className);
             return resolved != null && _externalBindings.TryGetValue(resolved, out var map)
-                ? map.Values
+                ? map.Values.SelectMany(list => list)
                 : Enumerable.Empty<ExternalMethod>();
         }
     }

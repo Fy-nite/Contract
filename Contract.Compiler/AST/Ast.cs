@@ -63,6 +63,10 @@ namespace Contract.Compiler.AST
         public bool IsExternal { get; set; }
         /// <summary>Namespace-qualified wire name — <c>com.example.Foo</c> or just <c>Foo</c> when unnamed.</summary>
         public string FullName => Namespace == null ? Name : $"{Namespace}.{Name}";
+        /// <summary>Type parameters for <c>contract Box&lt;T&gt;</c> — empty for non-generic contracts.</summary>
+        public List<string> TypeParameters { get; } = new();
+        /// <summary>True when this contract declares type parameters (<c>contract Box&lt;T&gt;</c>).</summary>
+        public bool IsGeneric => TypeParameters.Count > 0;
         public List<ConstructorDeclaration> Constructors { get; } = new();
         public List<StructField> Fields { get; } = new();
         public List<Node> Members { get; } = new();
@@ -163,6 +167,9 @@ namespace Contract.Compiler.AST
         /// <summary>True for <c>static name: type;</c> declarations — shared state on the contract.</summary>
         public bool IsStatic { get; set; }
 
+        /// <summary>Access level from <c>public</c>/<c>private</c>/<c>protected</c>/<c>internal</c> modifiers.</summary>
+        public AccessModifier Access { get; set; } = AccessModifier.Default;
+
         public StructField(string name, TypeDescriptor type, int line, int column) : base(line, column)
         {
             Name = name;
@@ -202,6 +209,17 @@ namespace Contract.Compiler.AST
         public bool IsStatic { get; set; }
         public bool IsInstance { get; set; }
         public AccessModifier Access { get; set; } = AccessModifier.Default;
+        /// <summary>Type parameters for <c>fn identity&lt;T&gt;(x: T) -&gt; T</c> — empty for non-generic functions.</summary>
+        public List<string> TypeParameters { get; } = new();
+        /// <summary>True when this function declares type parameters.</summary>
+        public bool IsGeneric => TypeParameters.Count > 0;
+        /// <summary>
+        /// Concrete contract type arguments for a substituted generic call
+        /// (e.g. <c>b.get()</c> on <c>Box&lt;int&gt;</c> → <c>[int]</c>). Set by
+        /// the analyzer on the substituted symbol; the codegen uses it for the
+        /// materialized declaring name and wire signature.
+        /// </summary>
+        public List<TypeDescriptor> TypeArguments { get; } = new();
         public TypeDescriptor? ReturnType { get; set; }
         public List<AttributeUsage> Attributes { get; } = new();
 
@@ -249,7 +267,13 @@ namespace Contract.Compiler.AST
     {
         public string Name { get; }
         public TypeDescriptor Type { get; set; }
-        public Expression? Initializer { get; }
+        public Expression? Initializer { get; set; }
+        /// <summary>
+        /// When non-empty, this is a destructuring declaration
+        /// (<c>var (a, b) = f();</c>) and <see cref="Name"/> is unused. Each
+        /// element is a variable bound to the corresponding tuple element.
+        /// </summary>
+        public List<string> Names { get; } = new();
 
         public VariableDeclaration(string name, TypeDescriptor type, Expression? initializer, int line, int column) : base(line, column)
         {
@@ -359,6 +383,18 @@ namespace Contract.Compiler.AST
         }
     }
 
+    /// <summary>
+    /// A tuple literal: <c>(a, b, c)</c>. Used as a multi-value return
+    /// (<c>return (true, value);</c>). On the wire it lowers to an
+    /// <c>object[]</c>.
+    /// </summary>
+    public class TupleLiteralExpression : Expression
+    {
+        public List<Expression> Elements { get; } = new();
+
+        public TupleLiteralExpression(int line, int column) : base(line, column) { }
+    }
+
     public class IdentifierExpression : Expression
     {
         public string Name { get; }
@@ -397,10 +433,27 @@ namespace Contract.Compiler.AST
         }
     }
 
+    /// <summary>A ternary expression: <c>cond ? then : else</c>.</summary>
+    public class TernaryExpression : Expression
+    {
+        public Expression Condition { get; }
+        public Expression ThenBranch { get; }
+        public Expression ElseBranch { get; }
+
+        public TernaryExpression(Expression condition, Expression thenBranch, Expression elseBranch, int line, int column) : base(line, column)
+        {
+            Condition = condition;
+            ThenBranch = thenBranch;
+            ElseBranch = elseBranch;
+        }
+    }
+
     public class CallExpression : Expression
     {
         public Expression Callee { get; }
         public List<Expression> Arguments { get; } = new();
+        /// <summary>Explicit type arguments for <c>first&lt;int&gt;(xs)</c> — empty when inferred.</summary>
+        public List<TypeDescriptor> TypeArguments { get; } = new();
 
         public CallExpression(Expression callee, int line, int column) : base(line, column)
         {
@@ -436,6 +489,8 @@ namespace Contract.Compiler.AST
     {
         public string Module { get; }
         public string Member { get; }
+        /// <summary>Explicit type arguments for <c>Box&lt;int&gt;::reset()</c> — empty when inferred.</summary>
+        public List<TypeDescriptor> TypeArguments { get; } = new();
 
         public ScopedAccessExpression(string module, string member, int line, int column) : base(line, column)
         {
@@ -478,6 +533,8 @@ namespace Contract.Compiler.AST
         /// namespace/import resolution runs.
         /// </summary>
         public string TypeName { get; set; }
+        /// <summary>Explicit type arguments for <c>new Box&lt;int&gt;(5)</c> — empty when the type isn't generic.</summary>
+        public List<TypeDescriptor> TypeArguments { get; } = new();
         public Expression? Size { get; set; }
         /// <summary>Constructor arguments — non-null for `new Type(args)`.</summary>
         public List<Expression> Arguments { get; } = new();

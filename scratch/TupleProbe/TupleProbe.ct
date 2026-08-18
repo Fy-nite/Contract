@@ -1,0 +1,20 @@
+Contract Program {
+    static fn divmod(a: int, b: int) -> (int, int) {
+        return (a / b, a % b);
+    }
+
+    static fn Main() {
+        var (q, r) = divmod(17, 5);
+        IO.Println(q);   // 3
+        IO.Println(r);   // 2
+
+        // Dict.TryGetValue returns (bool, object)
+        var dict = Dict.Create();
+        Dict.Set(dict, "name", "Ada");
+        var (ok, value) = Dict.TryGetValue(dict, "name");
+        IO.Println(ok);      // true
+        IO.Println(value);   // Ada
+        var (ok2, v2) = Dict.TryGetValue(dict, "missing");
+        IO.Println(ok2);     // false
+    }
+}
