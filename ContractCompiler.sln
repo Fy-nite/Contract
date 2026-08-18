@@ -33,13 +33,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ObjectRT.VM", "libs\Objekt-
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ObjectRT.Abstractions", "libs\Objekt-RT\src\ObjectRT.Abstractions\ObjectRT.Abstractions.csproj", "{C86EC17C-67E8-42DB-AFC4-4C8DB39BF8C2}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ReflectProbe", "scratch\ReflectProbe\ReflectProbe.csproj", "{D13C98A6-E5A4-4346-A3AD-4978319BE1A4}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OrbtProbe", "scratch\OrbtProbe\OrbtProbe.csproj", "{97C58A7F-B1C6-4B57-85E9-5D60AB3EEB07}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ObjektRT.Core", "libs\ObjektRT.Core\ObjektRT.Core.csproj", "{10A2F4E3-7A08-4BBB-BC08-6D35BA648242}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StructProbe", "scratch\StructProbe\StructProbe.csproj", "{C778207F-E1AB-4215-A9E5-C8AF2109AA0B}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ObjektRT.Stdlib", "libs\ObjektRT.Stdlib\ObjektRT.Stdlib.csproj", "{5321A786-68F8-4C8B-8212-0637BE36D85A}"
 EndProject

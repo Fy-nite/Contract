@@ -51,7 +51,7 @@ Contract Program {
 ### Install
 
 ```bash
-git clone https://github.com/fy-nite/contract
+git clone https://github.com/fy-nite/contract --recursive
 cd contract
 dotnet build
 ```
@@ -59,8 +59,7 @@ dotnet build
 To make `ccl` available on your PATH:
 
 ```bash
-./install.ps1              # Windows
-dotnet tool install --global cclc
+./install.ps1              # Windows, mac, linux (powershell required)
 ```
 
 ### Usage
