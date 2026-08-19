@@ -274,6 +274,12 @@ namespace Contract.Compiler.AST
         /// element is a variable bound to the corresponding tuple element.
         /// </summary>
         public List<string> Names { get; } = new();
+        /// <summary>
+        /// True for <c>var</c> declarations (mutable), false for <c>let</c>
+        /// (immutable).  Enforced by the semantic analyzer: assigning to a
+        /// let-bound variable is a compile error.
+        /// </summary>
+        public bool IsMutable { get; set; } = true;
 
         public VariableDeclaration(string name, TypeDescriptor type, Expression? initializer, int line, int column) : base(line, column)
         {

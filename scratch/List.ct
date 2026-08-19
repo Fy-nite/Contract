@@ -17,10 +17,16 @@ Contract ValueList<T> {
     fn Set(index: int, value: T) {
         this.items[index] = value;
     }
-
+    
     fn Add(value: T) {
+        if (this.count == this.items.Count) {
+            var newlen: int = count * 2;
+            var newarr: T[] = new T[newlen];
+            Array.Copy(items,0,newarr,0,this.count);
+            this.items = newarr;
+        }
         this.items[this.count] = value;
-        this.count = this.count + 1;
+        this.count += 1;
     }
 
     fn Count() -> int {

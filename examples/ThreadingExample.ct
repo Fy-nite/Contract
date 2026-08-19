@@ -1,0 +1,125 @@
+// ThreadingExample.ct
+// Demonstrates Contract's threading model: Thread.Create, Thread.Spawn,
+// thread handles, closures across threads, and shared mutable state.
+
+Contract Program {
+    static fn Main() {
+        IO.Println("=== Fire-and-Forget (Thread.Spawn) ===");
+
+        // Thread.Spawn runs a lambda on a background thread immediately.
+        Thread.Spawn(fun -> { IO.Println("  [spawn] hello from background"); });
+        Thread.Spawn(fun -> { IO.Println("  [spawn] another message"); });
+        Thread.Sleep(100);
+        IO.Println("  Main continues without waiting");
+
+        IO.Println("");
+        IO.Println("=== Thread Handles (Create, Start, Join) ===");
+
+        // Thread.Create returns a handle; nothing runs until Start.
+        var t = Thread.Create(fun -> {
+            IO.Println("  [handle] thread started");
+            Thread.Sleep(50);
+            IO.Println("  [handle] thread finishing");
+        });
+
+        IO.Print("  IsAlive before start: ");
+        IO.Println(Thread.IsAlive(t));
+
+        Thread.Start(t);
+        IO.Print("  IsAlive after start: ");
+        IO.Println(Thread.IsAlive(t));
+
+        Thread.Join(t);
+        IO.Print("  IsAlive after join: ");
+        IO.Println(Thread.IsAlive(t));
+        IO.Println("  Main: thread joined");
+
+        IO.Println("");
+        IO.Println("=== Shared State via Closures ===");
+
+        // Closures capture variables by reference (C#-style).
+        // A captured variable is shared storage between the creating scope
+        // and the thread.
+        var counter: int = 0;
+        let bump = fun -> { counter += 1; };
+
+        var t1 = Thread.Create(bump);
+        var t2 = Thread.Create(bump);
+        Thread.Start(t1);
+        Thread.Start(t2);
+        Thread.Join(t1);
+        Thread.Join(t2);
+
+        IO.Print("  Counter after 2 bumps: ");
+        IO.Println(counter);
+
+        IO.Println("");
+        IO.Println("=== Multiple Threads, Shared Counter ===");
+
+        var shared: int = 0;
+        let inc = fun -> { shared += 1; };
+
+        var workers = 5;
+        var handles = 0;
+
+        // We'll create a few threads to show shared state
+        var t3 = Thread.Create(inc);
+        var t4 = Thread.Create(inc);
+        var t5 = Thread.Create(inc);
+        Thread.Start(t3);
+        Thread.Start(t4);
+        Thread.Start(t5);
+        Thread.Join(t3);
+        Thread.Join(t4);
+        Thread.Join(t5);
+
+        IO.Print("  Shared counter after 3 more bumps: ");
+        IO.Println(shared);
+
+        IO.Println("");
+        IO.Println("=== Two Lambdas Sharing a Variable ===");
+
+        var m: int = 0;
+        let increment = fun -> { m += 1; };
+        let peek = fun -> {
+            IO.Print("  peeked m = ");
+            IO.Println(m);
+        };
+
+        increment();
+        increment();
+        increment();
+        peek();
+        IO.Println("  (peeked from main scope, same variable)");
+
+        IO.Println("");
+        IO.Println("=== Thread with Computation ===");
+
+        // A thread that does meaningful work using closures
+        var results: int = 0;
+        let compute = fun -> {
+            var i: int = 0;
+            while (i < 1000) {
+                results += i;
+                i += 1;
+            }
+        };
+
+        var t6 = Thread.Create(compute);
+        Thread.Start(t6);
+        IO.Println("  Computing sum of 0..999 in background...");
+        Thread.Join(t6);
+        IO.Print("  Result: ");
+        IO.Println(results);
+
+        IO.Println("");
+        IO.Println("=== Thread.Sleep ===");
+
+        IO.Println("  Before sleep");
+        Thread.Sleep(100);
+        IO.Println("  After 100ms sleep");
+
+        IO.Println("");
+        IO.Println("Done!");
+    }
+}

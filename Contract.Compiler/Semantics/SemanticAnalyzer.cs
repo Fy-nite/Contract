@@ -12,6 +12,8 @@ namespace Contract.Compiler.Semantics
         private readonly DiagnosticBag _diagnostics;
         private readonly TypeRegistry _typeRegistry = new();
         private readonly Stack<Dictionary<string, VariableDeclaration>> _scopes = new();
+        /// <summary>Parallel to <see cref="_scopes"/>: tracks which variables in each scope are mutable (var) vs immutable (let).</summary>
+        private readonly Stack<Dictionary<string, bool>> _varMutability = new();
         /// <summary>In-scope generic type parameters (contract + function bodies).</summary>
         private readonly Stack<HashSet<string>> _typeParamScopes = new();
         private readonly HashSet<string> _definedFunctions = new();
@@ -761,7 +763,9 @@ namespace Contract.Compiler.Semantics
         private void AnalyzeConstructor(ConstructorDeclaration ctor)
         {
             _scopes.Clear();
+            _varMutability.Clear();
             _scopes.Push(new Dictionary<string, VariableDeclaration>());
+            _varMutability.Push(new Dictionary<string, bool>());
             BeginFunctionFrame();
             _currentReturnType = null;
             _currentSourceFile = ctor.SourceFile;
@@ -788,6 +792,7 @@ namespace Contract.Compiler.Semantics
             if (_currentContractName != null && FindGenericContract(_currentContractName) != null)
                 PopTypeParams();
             _scopes.Pop();
+            _varMutability.Pop();
             EndFunctionFrame();
         }
 
@@ -797,7 +802,9 @@ namespace Contract.Compiler.Semantics
             _currentContractName = func.ContractName;
             _currentSourceFile = func.SourceFile;
             _scopes.Clear();
+            _varMutability.Clear();
             _scopes.Push(new Dictionary<string, VariableDeclaration>());
+            _varMutability.Push(new Dictionary<string, bool>());
             BeginFunctionFrame();
             PushTypeParams(func.TypeParameters);
 
@@ -852,10 +859,11 @@ namespace Contract.Compiler.Semantics
             EmitFunctionWarnings(func);
             PopTypeParams();
             _scopes.Pop();
+            _varMutability.Pop();
             EndFunctionFrame();
         }
 
-        private void DeclareVariable(string name, TypeDescriptor type, int line, int column, bool trackUsage = true, bool warnOnShadow = true)
+        private void DeclareVariable(string name, TypeDescriptor type, int line, int column, bool trackUsage = true, bool warnOnShadow = true, bool isMutable = true)
         {
             // Resolve short/dotted type names through namespaces/imports so
             // annotations like `var t: Terminal.Terminal` validate and match
@@ -890,6 +898,9 @@ namespace Contract.Compiler.Semantics
 
                 // We use a dummy VariableDeclaration for tracking
                 currentScope[name] = new VariableDeclaration(name, type, null, line, column);
+
+                // Track mutability for let vs var enforcement.
+                _varMutability.Peek()[name] = isMutable;
 
                 if (trackUsage)
                     _fnDeclared.Add((name, line, column));
@@ -1003,6 +1014,7 @@ namespace Contract.Compiler.Semantics
             {
                 case BlockStatement block:
                     _scopes.Push(new Dictionary<string, VariableDeclaration>());
+                    _varMutability.Push(new Dictionary<string, bool>());
                     bool reachable = true;
                     foreach (var stmt in block.Statements)
                     {
@@ -1017,6 +1029,7 @@ namespace Contract.Compiler.Semantics
                         AnalyzeStatement(stmt);
                     }
                     _scopes.Pop();
+                    _varMutability.Pop();
                     break;
                 case ExpressionStatement exprStmt:
                     AnalyzeExpression(exprStmt.Expression);
@@ -1037,7 +1050,7 @@ namespace Contract.Compiler.Semantics
                             for (int i = 0; i < varDecl.Names.Count; i++)
                             {
                                 var elemType = i < tuple.Elements.Count ? tuple.Elements[i] : TypeDescriptor.Empty;
-                                DeclareVariable(varDecl.Names[i], elemType, varDecl.Line, varDecl.Column);
+                                DeclareVariable(varDecl.Names[i], elemType, varDecl.Line, varDecl.Column, isMutable: varDecl.IsMutable);
                             }
                         }
                         else
@@ -1070,7 +1083,7 @@ namespace Contract.Compiler.Semantics
                         _diagnostics.AddError($"Variable '{varDecl.Name}' must have an explicit type (using 'var name: type').", varDecl.Line, varDecl.Column);
                     }
 
-                    DeclareVariable(varDecl.Name, varDecl.Type, varDecl.Line, varDecl.Column);
+                    DeclareVariable(varDecl.Name, varDecl.Type, varDecl.Line, varDecl.Column, isMutable: varDecl.IsMutable);
                     break;
                 case IfStatement ifStmt:
                     AnalyzeConditionWarnings("if", ifStmt.Condition, ifStmt.Line, ifStmt.Column);
@@ -1092,6 +1105,7 @@ namespace Contract.Compiler.Semantics
                     // The loop variable is scoped to the loop itself (like C),
                     // so two sequential 'for (var i = ...)' loops don't collide.
                     _scopes.Push(new Dictionary<string, VariableDeclaration>());
+                    _varMutability.Push(new Dictionary<string, bool>());
                     if (forStmt.Condition != null)
                         AnalyzeConditionWarnings("for", forStmt.Condition, forStmt.Line, forStmt.Column);
                     if (forStmt.Initializer != null)
@@ -1116,6 +1130,7 @@ namespace Contract.Compiler.Semantics
                     if (forStmt.Update != null)
                         AnalyzeExpression(forStmt.Update);
                     _scopes.Pop();
+                    _varMutability.Pop();
                     if (IsEmptyBlock(forStmt.Body))
                         Warn("Empty loop body — the loop does nothing", forStmt.Line, forStmt.Column);
                     break;
@@ -1196,6 +1211,12 @@ namespace Contract.Compiler.Semantics
                         {
                             _writtenFields.Add((_currentContractName ?? "", assignTarget.Name));
                         }
+                        else if (IsVariableDefined(assignTarget.Name) && !IsVariableMutable(assignTarget.Name))
+                        {
+                            _diagnostics.AddError(
+                                $"Cannot assign to 'let' variable '{assignTarget.Name}' — it is immutable. Use 'var' instead.",
+                                assignTarget.Line, assignTarget.Column);
+                        }
                         else if (!IsVariableDefined(assignTarget.Name)
                                  && !_definedFunctions.Contains(assignTarget.Name)
                                  && !_symbolTable.GetBoundClasses().Contains(assignTarget.Name)
@@ -1219,6 +1240,21 @@ namespace Contract.Compiler.Semantics
                         if (ResolveOwnerContract(memWrite.Object) is { } writeOwner)
                             CheckMemberAccess(writeOwner, memWrite.Property, memWrite.Line, memWrite.Column, checkMethods: false);
                         RecordFieldAccess(memWrite, isWrite: true);
+                        bin.ResolvedType = InferType(bin);
+                        break;
+                    }
+
+                    // Compound assignment to an immutable local: +=, -=, etc.
+                    if (bin.Operator is "+=" or "-=" or "*=" or "/=" or "%="
+                        && bin.Left is IdentifierExpression compoundTarget
+                        && IsVariableDefined(compoundTarget.Name)
+                        && !IsVariableMutable(compoundTarget.Name))
+                    {
+                        AnalyzeExpression(bin.Left);
+                        AnalyzeExpression(bin.Right);
+                        _diagnostics.AddError(
+                            $"Cannot assign to 'let' variable '{compoundTarget.Name}' — it is immutable. Use 'var' instead.",
+                            compoundTarget.Line, compoundTarget.Column);
                         bin.ResolvedType = InferType(bin);
                         break;
                     }
@@ -1496,6 +1532,7 @@ namespace Contract.Compiler.Semantics
                         }
                     }
                     _scopes.Push(new Dictionary<string, VariableDeclaration>());
+                    _varMutability.Push(new Dictionary<string, bool>());
                     foreach (var p in lambda.Parameters)
                     {
                         int pi = lambda.Parameters.IndexOf(p);
@@ -1513,6 +1550,7 @@ namespace Contract.Compiler.Semantics
                         AnalyzeExpression(lambda.Body);
                     }
                     _scopes.Pop();
+                    _varMutability.Pop();
                     break;
             }
         }
@@ -1667,6 +1705,21 @@ namespace Contract.Compiler.Semantics
                 if (scope.ContainsKey(name)) return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// True when the variable was declared with <c>var</c> (mutable).
+        /// Returns true (safe default) when the name is not found — the
+        /// undefined-variable error is raised elsewhere.
+        /// </summary>
+        private bool IsVariableMutable(string name)
+        {
+            foreach (var mutability in _varMutability)
+            {
+                if (mutability.TryGetValue(name, out bool mutable))
+                    return mutable;
+            }
+            return true; // default: don't block assignment for unknowns
         }
 
         private bool IsContractField(string name)

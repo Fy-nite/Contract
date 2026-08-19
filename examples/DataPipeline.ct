@@ -1,0 +1,311 @@
+// DataPipeline.ct
+// A data processing pipeline using Contract's functional features:
+// lambdas, closures, range literals, pipe operator, and composition.
+
+Contract Program {
+    static fn double(x: int) -> int {
+        return x * 2;
+    }
+
+    static fn addOne(x: int) -> int {
+        return x + 1;
+    }
+
+    static fn square(x: int) -> int {
+        return x * x;
+    }
+
+    static fn isEven(n: int) -> bool {
+        return n % 2 == 0;
+    }
+
+    static fn isOdd(n: int) -> bool {
+        return n % 2 != 0;
+    }
+
+    static fn sum(arr: int[]) -> int {
+        var total: int = 0;
+        for (n : arr) {
+            total += n;
+        }
+        return total;
+    }
+
+    static fn max(arr: int[]) -> int {
+        var result: int = arr[0];
+        var i: int = 1;
+        while (i < arr.Length) {
+            if (arr[i] > result) {
+                result = arr[i];
+            }
+            i += 1;
+        }
+        return result;
+    }
+
+    static fn min(arr: int[]) -> int {
+        var result: int = arr[0];
+        var i: int = 1;
+        while (i < arr.Length) {
+            if (arr[i] < result) {
+                result = arr[i];
+            }
+            i += 1;
+        }
+        return result;
+    }
+
+    static fn average(arr: int[]) -> int {
+        if (arr.Length == 0) {
+            return 0;
+        }
+        return sum(arr) / arr.Length;
+    }
+
+    static fn filterEvens(arr: int[]) -> int[] {
+        var count: int = 0;
+        for (n : arr) {
+            if (isEven(n)) {
+                count += 1;
+            }
+        }
+        var result: int[] = new int[count];
+        var idx: int = 0;
+        for (n : arr) {
+            if (isEven(n)) {
+                result[idx] = n;
+                idx += 1;
+            }
+        }
+        return result;
+    }
+
+    static fn filterOdds(arr: int[]) -> int[] {
+        var count: int = 0;
+        for (n : arr) {
+            if (isOdd(n)) {
+                count += 1;
+            }
+        }
+        var result: int[] = new int[count];
+        var idx: int = 0;
+        for (n : arr) {
+            if (isOdd(n)) {
+                result[idx] = n;
+                idx += 1;
+            }
+        }
+        return result;
+    }
+
+    static fn printArray(arr: int[], prefix: string) {
+        IO.Print(prefix);
+        var i: int = 0;
+        while (i < arr.Length) {
+            if (i > 0) {
+                IO.Print(", ");
+            }
+            IO.Print(Convert.ToString(arr[i]));
+            i += 1;
+        }
+        IO.Println("");
+    }
+
+    static fn Main() {
+        IO.Println("=== Number Processing Pipeline ===");
+
+        let data = 1..20;
+        IO.Print("Source: 1..20, length=");
+        IO.Println(Convert.ToString(data.Length));
+
+        // Count even numbers
+        var evenCount: int = 0;
+        for (n : data) {
+            if (isEven(n)) {
+                evenCount += 1;
+            }
+        }
+        IO.Print("Even count: ");
+        IO.Println(Convert.ToString(evenCount));
+
+        // Sum of odd numbers
+        var oddSum: int = 0;
+        for (n : data) {
+            if (isOdd(n)) {
+                oddSum += n;
+            }
+        }
+        IO.Print("Sum of odds: ");
+        IO.Println(Convert.ToString(oddSum));
+
+        // Transform: square each number
+        var squared: int[] = new int[data.Length];
+        var idx: int = 0;
+        for (n : data) {
+            squared[idx] = square(n);
+            idx += 1;
+        }
+        printArray(squared, "Squares: ");
+
+        // Statistics on squared values
+        IO.Print("Sum of squares: ");
+        IO.Println(Convert.ToString(sum(squared)));
+        IO.Print("Max square: ");
+        IO.Println(Convert.ToString(max(squared)));
+        IO.Print("Avg square: ");
+        IO.Println(Convert.ToString(average(squared)));
+
+        IO.Println("");
+        IO.Println("=== Pipeline: Compose Transformations ===");
+
+        // Build composed transformations using closures
+        let doubleAll = fun (arr: int[]) -> {
+            var result: int[] = new int[arr.Length];
+            var i: int = 0;
+            for (n : arr) {
+                result[i] = double(n);
+                i += 1;
+            }
+            return result;
+        };
+
+        let addOneAll = fun (arr: int[]) -> {
+            var result: int[] = new int[arr.Length];
+            var i: int = 0;
+            for (n : arr) {
+                result[i] = addOne(n);
+                i += 1;
+            }
+            return result;
+        };
+
+        // Apply transformations step by step
+        let step1 = filterEvens(1..10);
+        printArray(step1, "Evens from 1..10: ");
+
+        let step2 = doubleAll(step1);
+        printArray(step2, "Doubled: ");
+
+        let step3 = addOneAll(step2);
+        printArray(step3, "AddOne'd: ");
+
+        // Reverse
+        var rev: int[] = new int[step3.Length];
+        var i: int = 0;
+        while (i < step3.Length) {
+            rev[i] = step3[step3.Length - 1 - i];
+            i += 1;
+        }
+        printArray(rev, "Reversed: ");
+
+        IO.Println("");
+        IO.Println("=== Using Pipes for Data Flow ===");
+
+        // Pipe-oriented processing
+        let odds = filterOdds(1..10);
+        printArray(odds, "Odds: ");
+
+        var total: int = 0;
+        for (n : odds) {
+            total += n;
+        }
+        IO.Print("Sum of odds: ");
+        IO.Println(Convert.ToString(total));
+
+        // Build a result step by step
+        let evens = filterEvens(1..20);
+        let doubledEvens = doubleAll(evens);
+        let sumResult = sum(doubledEvens);
+        IO.Print("Sum of doubled evens from 1..20: ");
+        IO.Println(Convert.ToString(sumResult));
+
+        IO.Println("");
+        IO.Println("=== Closures as Accumulators ===");
+
+        // Sum using a closure accumulator
+        var accSum: int = 0;
+        let adder = fun (n: int) -> { accSum += n; };
+        for (n : 1..10) {
+            adder(n);
+        }
+        IO.Print("Closure sum of 1..10: ");
+        IO.Println(Convert.ToString(accSum));
+
+        // Product using a closure accumulator
+        var product: int = 1;
+        let multiplier = fun (n: int) -> { product *= n; };
+        for (n : 1..6) {
+            multiplier(n);
+        }
+        IO.Print("Closure product of 1..6: ");
+        IO.Println(Convert.ToString(product));
+
+        IO.Println("");
+        IO.Println("=== String Processing ===");
+
+        let sentence = "the quick brown fox jumps over the lazy dog";
+        let words = String.Split(sentence, " ");
+        IO.Print("Word count: ");
+        IO.Println(Convert.ToString(words.Length));
+
+        var i2: int = 0;
+        while (i2 < words.Length) {
+            let upper = String.ToUpper(words[i2]);
+            IO.Print("  ");
+            IO.Print(words[i2]);
+            IO.Print(" -> ");
+            IO.Println(upper);
+            i2 += 1;
+        }
+
+        // Count total characters (excluding spaces)
+        var charCount: int = 0;
+        for (w : words) {
+            charCount += String.Length(w);
+        }
+        IO.Print("Total chars (no spaces): ");
+        IO.Println(Convert.ToString(charCount));
+
+        IO.Println("");
+        IO.Println("=== Mathematical Sequences ===");
+
+        // Fibonacci using closures
+        var fibPrev: int = 0;
+        var fibCurr: int = 1;
+        let nextFib = fun -> {
+            let result = fibPrev + fibCurr;
+            fibPrev = fibCurr;
+            fibCurr = result;
+            return result;
+        };
+
+        IO.Print("Fibonacci: ");
+        IO.Print(Convert.ToString(fibPrev));
+        IO.Print(", ");
+        IO.Print(Convert.ToString(fibCurr));
+        var fi: int = 0;
+        while (fi < 10) {
+            IO.Print(", ");
+            IO.Print(Convert.ToString(nextFib()));
+            fi += 1;
+        }
+        IO.Println("");
+
+        // Triangular numbers
+        IO.Print("Triangular: ");
+        var triSum: int = 0;
+        var ti: int = 1;
+        while (ti <= 10) {
+            triSum += ti;
+            if (ti > 1) {
+                IO.Print(", ");
+            }
+            IO.Print(Convert.ToString(triSum));
+            ti += 1;
+        }
+        IO.Println("");
+
+        IO.Println("");
+        IO.Println("Done!");
+    }
+}

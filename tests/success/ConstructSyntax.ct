@@ -1,0 +1,64 @@
+// Construct-style functional syntax: expression-bodied functions and fn lambdas.
+Contract Program {
+    // Expression-bodied member functions (Construct-style `fn name(p) = expr`).
+    static fn double(x: int) -> int = x * 2;
+    static fn add(a: int, b: int) = a + b;
+    static fn square(n: int) -> int = n * n;
+
+    // Expression-bodied with colon return type (Construct-style `fn name(p): Type = expr`).
+    static fn negate(x: int): int = 0 - x;
+
+    // Normal block-bodied functions still work alongside expression-bodied.
+    static fn sumTo(n: int) -> int {
+        var total: int = 0;
+        var i: int = 0;
+        while (i < n) {
+            total += i;
+            i += 1;
+        }
+        return total;
+    }
+
+    // fn anonymous lambda: `fn (params) -> expr` (Construct-style).
+    static fn apply(f: (int) -> int, x: int) -> int = f(x);
+
+    // fn anonymous lambda with block body.
+    static fn makeAdder(base: int) -> (int) -> int {
+        return fn (x: int) -> { return x + base; };
+    }
+
+    static fn Main() {
+        // Expression-bodied functions: basic calls.
+        IO.Println(double(5));           // 10
+        IO.Println(add(3, 4));           // 7
+        IO.Println(square(6));           // 36
+        IO.Println(negate(9));           // -9
+
+        // Composition of expression-bodied functions.
+        let doubleThenSquare = double >> square;
+        IO.Println(doubleThenSquare(3)); // 36  (double(3)=6, square(6)=36)
+
+        // Pipe into expression-bodied functions.
+        IO.Println(5 |> double);         // 10
+        IO.Println(3 |> add(7));         // 10
+
+        // fn anonymous lambda passed to higher-order function.
+        let result = apply(fn (x: int) -> x * 3, 4);
+        IO.Println(result);              // 12
+
+        // fn anonymous lambda with closures.
+        let addTen = fn (x: int) -> x + 10;
+        IO.Println(apply(addTen, 5));    // 15
+
+        // fn lambda returned from a function (closure over `base`).
+        let addFive = makeAdder(5);
+        IO.Println(addFive(3));          // 8
+        IO.Println(addFive(10));         // 15
+
+        // fn lambda in a pipe.
+        IO.Println(7 |> fn (x: int) -> x + 1); // 8
+
+        // Mixed: expression-bodied fn calling block-bodied fn.
+        IO.Println(double(sumTo(5)));    // 20  (sumTo(5)=10, double(10)=20)
+    }
+}

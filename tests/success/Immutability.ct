@@ -1,0 +1,40 @@
+// Immutability enforcement: let = immutable, var = mutable.
+Contract Program {
+    static fn Main() {
+        // var is mutable: assignment and compound assignment work.
+        var x: int = 5;
+        x = 10;
+        IO.Println(x);                  // 10
+        x += 3;
+        IO.Println(x);                  // 13
+        x -= 1;
+        IO.Println(x);                  // 12
+        x *= 2;
+        IO.Println(x);                  // 24
+
+        // let is immutable: reading works, writing should error.
+        let y: int = 42;
+        IO.Println(y);                  // 42
+
+        // let with inferred type.
+        let msg = "hello";
+        IO.Println(msg);                // hello
+
+        // let with expression-bodied function reference.
+        let f = fn (n: int) -> n * 2;
+        IO.Println(f(5));               // 10
+
+        // var with lambda capture: mutation through closure works.
+        var counter: int = 0;
+        let bump = fun -> { counter += 1; return counter; };
+        IO.Println(bump());             // 1
+        IO.Println(bump());             // 2
+        IO.Println(counter);            // 2
+
+        // let binding to an immutable reference — the lambda itself
+        // cannot be reassigned, but captured vars can still mutate
+        // if they were declared with var.
+        let bumpRef = bump;
+        IO.Println(bumpRef());          // 3
+    }
+}

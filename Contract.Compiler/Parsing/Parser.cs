@@ -372,6 +372,73 @@ namespace Contract.Compiler.Parsing
                     function.Access = access;
                     contract.Members.Add(function);
                 }
+                else if (Match(TokenType.Var) || Match(TokenType.Let))
+                {
+                    // Contract-scope let/var: desugar lambda bindings to functions.
+                    //   let name = fn (p) -> body;        → static fn name(p) -> body
+                    //   let name = fun (p) -> body;       → static fn name(p) -> body
+                    //   var name = fn (p) -> body;        → static fn name(p) -> body
+                    var memberLine = Previous.Line;
+                    var memberCol = Previous.Column;
+                    Consume(TokenType.Identifier, "Expected variable name after 'let' or 'var'");
+                    var varName = Previous.Text;
+
+                    // Optional type annotation: let name: Type = expr;
+                    string? explicitReturnType = null;
+                    if (Match(TokenType.Colon))
+                    {
+                        explicitReturnType = ParseType();
+                    }
+
+                    Consume(TokenType.Assign, "Expected '=' after variable name in contract scope");
+
+                    Expression initExpr = ParseExpression();
+                    Consume(TokenType.Semicolon, "Expected ';' after contract-scope variable declaration");
+
+                    if (initExpr is LambdaExpression lambda)
+                    {
+                        // Desugar to a static function declaration.
+                        var function = new FunctionDeclaration(varName, memberLine, memberCol);
+                        function.ContractName = name;
+                        function.IsStatic = true;
+                        function.Access = access;
+                        function.Attributes.AddRange(memberAttributes);
+
+                        // Parameters from the lambda.
+                        for (int i = 0; i < lambda.Parameters.Count; i++)
+                        {
+                            string paramName = lambda.Parameters[i];
+                            string paramType = (i < lambda.ParameterTypes.Count && lambda.ParameterTypes[i] != "")
+                                ? lambda.ParameterTypes[i]
+                                : "int";
+                            function.Parameters.Add(new Parameter(paramName, TypeDescriptor.Parse(paramType), lambda.Line, lambda.Column));
+                        }
+
+                        // Return type: explicit annotation wins.
+                        if (explicitReturnType != null)
+                        {
+                            function.ReturnType = TypeDescriptor.Parse(explicitReturnType);
+                        }
+
+                        // Body: wrap expression body in a return, or use block body directly.
+                        if (lambda.Body != null)
+                        {
+                            var block = new BlockStatement(lambda.Body.Line, lambda.Body.Column);
+                            block.Statements.Add(new ReturnStatement(lambda.Body, lambda.Body.Line, lambda.Body.Column));
+                            function.Body = block;
+                        }
+                        else if (lambda.BlockBody != null)
+                        {
+                            function.Body = lambda.BlockBody;
+                        }
+
+                        contract.Members.Add(function);
+                    }
+                    else
+                    {
+                        AddError($"Contract-scope variable initializer must be a lambda expression (use 'static fn' for method declarations)", initExpr.Line, initExpr.Column);
+                    }
+                }
                 else if (Match(TokenType.Identifier))
                 {
                     if (memberAttributes.Count > 0)
@@ -514,9 +581,33 @@ namespace Contract.Compiler.Parsing
 
             Consume(TokenType.RParen, "Expected ')' after parameters");
 
-            if (Match(TokenType.Arrow))
+            // Expression body: fn name(params) = expr  (Construct-style)
+            // Checked before return type so `fn f(x) = x + 1` is unambiguous.
+            if (Match(TokenType.Assign))
+            {
+                var exprBody = ParseExpression();
+                Consume(TokenType.Semicolon, "Expected ';' after expression-bodied function");
+                var block = new BlockStatement(line, column);
+                block.Statements.Add(new ReturnStatement(exprBody, exprBody.Line, exprBody.Column));
+                function.Body = block;
+                return function;
+            }
+
+            // Return type annotation: fn name(params) -> Type  or  fn name(params): Type
+            if (Match(TokenType.Arrow) || Match(TokenType.Colon))
             {
                 function.ReturnType = TypeDescriptor.Parse(ParseType());
+
+                // Expression body after return type: fn name(p) -> Type = expr
+                if (Match(TokenType.Assign))
+                {
+                    var exprBody = ParseExpression();
+                    Consume(TokenType.Semicolon, "Expected ';' after expression-bodied function");
+                    var block = new BlockStatement(line, column);
+                    block.Statements.Add(new ReturnStatement(exprBody, exprBody.Line, exprBody.Column));
+                    function.Body = block;
+                    return function;
+                }
             }
 
             if (Match(TokenType.LBrace))
@@ -525,7 +616,7 @@ namespace Contract.Compiler.Parsing
             }
             else
             {
-                Consume(TokenType.Semicolon, "Expected '{' or ';' after function declaration");
+                Consume(TokenType.Semicolon, "Expected '{', '=', '->', ':' or ';' after function declaration");
             }
 
             return function;
@@ -694,11 +785,12 @@ namespace Contract.Compiler.Parsing
         {
             int line = Previous.Line;
             int column = Previous.Column;
+            bool isMutable = Previous.Text == "var";
 
             // Destructuring: var (a, b) = f(); — binds each tuple element.
             if (Match(TokenType.LParen))
             {
-                var decl = new VariableDeclaration("", TypeDescriptor.Empty, null, line, column);
+                var decl = new VariableDeclaration("", TypeDescriptor.Empty, null, line, column) { IsMutable = isMutable };
                 if (!Check(TokenType.RParen))
                 {
                     do
@@ -736,7 +828,7 @@ namespace Contract.Compiler.Parsing
 
             Consume(TokenType.Semicolon, "Expected ';' after variable declaration");
 
-            return new VariableDeclaration(name, TypeDescriptor.Parse(type), initializer, line, column);
+            return new VariableDeclaration(name, TypeDescriptor.Parse(type), initializer, line, column) { IsMutable = isMutable };
         }
 
         private IfStatement ParseIfStatement()
@@ -1647,6 +1739,55 @@ namespace Contract.Compiler.Parsing
                 var body = ParseExpression();
                 return new LambdaExpression(parameters, paramTypes, body, null, line, column);
             }
+            else if (CheckFnLambda())
+            {
+                // Construct-style anonymous lambda: fn (x: int) -> x + 1
+                // Syntactically identical to `fun`, just uses the `fn` keyword.
+                Advance(); // consume 'fn'
+                int line = Previous.Line;
+                int column = Previous.Column;
+
+                var parameters = new List<string>();
+                var paramTypes = new List<string>();
+
+                if (Match(TokenType.LParen))
+                {
+                    if (!Check(TokenType.RParen))
+                    {
+                        do
+                        {
+                            Consume(TokenType.Identifier, "Expected parameter name");
+                            parameters.Add(Previous.Text);
+                            string pt = "";
+                            if (Match(TokenType.Colon)) pt = ParseType();
+                            paramTypes.Add(pt);
+                        } while (Match(TokenType.Comma));
+                    }
+                    Consume(TokenType.RParen, "Expected ')' after lambda parameters");
+                }
+                else
+                {
+                    while (Check(TokenType.Identifier))
+                    {
+                        parameters.Add(Advance().Text);
+                        paramTypes.Add("");
+                    }
+                }
+
+                if (!Match(TokenType.Arrow))
+                {
+                    AddError("Expected '->' after lambda parameters", Previous.Line, Previous.Column);
+                }
+
+                if (Match(TokenType.LBrace))
+                {
+                    var blockBody = ParseBlock();
+                    return new LambdaExpression(parameters, paramTypes, null, blockBody, line, column);
+                }
+
+                var fnBody = ParseExpression();
+                return new LambdaExpression(parameters, paramTypes, fnBody, null, line, column);
+            }
             else if (Match(TokenType.New))
             {
                 int line = Previous.Line;
@@ -1820,6 +1961,29 @@ namespace Contract.Compiler.Parsing
             return _tokens[_current + 1].Type == type;
         }
 
+        /// <summary>
+        /// Best-effort type inference from an expression for contract-scope lambda desugaring.
+        /// Returns null when the type cannot be inferred.
+        /// </summary>
+        private string? InferTypeFromExpression(Expression expr)
+        {
+            return expr switch
+            {
+                LiteralExpression lit => lit.Value switch
+                {
+                    int => "int",
+                    double => "double",
+                    string => "string",
+                    bool => "bool",
+                    _ => null
+                },
+                BinaryExpression b => InferTypeFromExpression(b.Left),
+                UnaryExpression u => InferTypeFromExpression(u.Operand),
+                IdentifierExpression id => id.Name,
+                _ => null
+            };
+        }
+
         private Token Advance()
         {
             if (!IsAtEnd()) _current++;
@@ -1899,6 +2063,16 @@ namespace Contract.Compiler.Parsing
             if (CheckFn()) { Advance(); return true; }
             return false;
         }
+
+        /// <summary>
+        /// True when the current token is "fn" followed by <c>(</c> — the start
+        /// of an anonymous lambda using the Construct-style <c>fn</c> keyword
+        /// (e.g. <c>fn (x) -> x + 1</c>).  Distinguished from a function
+        /// declaration by the <c>(</c> instead of an identifier.
+        /// </summary>
+        private bool CheckFnLambda()
+            => Current.Type == TokenType.Identifier && Current.Text == "fn"
+               && _current + 1 < _tokens.Count && _tokens[_current + 1].Type == TokenType.LParen;
 
         private Token Current => _tokens[_current];
 

@@ -1,0 +1,305 @@
+// ControlFlowAndPatterns.ct
+// Demonstrates Contract's control flow: if/else, while, for,
+// break/continue, switch (int and string), and compound assignment.
+
+Contract Program {
+    static fn classify(n: int) -> string {
+        if (n < 0) {
+            return "negative";
+        }
+        if (n == 0) {
+            return "zero";
+        }
+        return "positive";
+    }
+
+    static fn describeDay(day: int) -> string {
+        switch (day) {
+            case 1: return "Monday";
+            case 2: return "Tuesday";
+            case 3: return "Wednesday";
+            case 4: return "Thursday";
+            case 5: return "Friday";
+            case 6: return "Saturday";
+            case 7: return "Sunday";
+            else: return "invalid";
+        }
+    }
+
+    static fn Main() {
+        IO.Println("=== If/Else ===");
+
+        var x: int = 42;
+        if (x > 0) {
+            IO.Print(Convert.ToString(x));
+            IO.Println(" is positive");
+        } else {
+            IO.Println("not positive");
+        }
+
+        IO.Print("classify(-5): ");
+        IO.Println(classify(-5));
+        IO.Print("classify(0): ");
+        IO.Println(classify(0));
+        IO.Print("classify(7): ");
+        IO.Println(classify(7));
+
+        // Nested if/else
+        var age: int = 25;
+        if (age < 13) {
+            IO.Println("child");
+        } else if (age < 18) {
+            IO.Println("teenager");
+        } else if (age < 65) {
+            IO.Println("adult");
+        } else {
+            IO.Println("senior");
+        }
+
+        IO.Println("");
+        IO.Println("=== While Loops ===");
+
+        var i: int = 0;
+        while (i < 5) {
+            IO.Print("  ");
+            IO.Print(Convert.ToString(i));
+            i += 1;
+        }
+        IO.Println("");
+
+        // While with break
+        var n: int = 0;
+        while (true) {
+            if (n == 5) {
+                break;
+            }
+            n += 1;
+        }
+        IO.Print("  Break at: ");
+        IO.Println(Convert.ToString(n));
+
+        IO.Println("");
+        IO.Println("=== For Loops ===");
+
+        // C-style for loop
+        IO.Print("  Count 0..4: ");
+        for (var j: int = 0; j < 5; j = j + 1) {
+            if (j > 0) {
+                IO.Print(", ");
+            }
+            IO.Print(Convert.ToString(j));
+        }
+        IO.Println("");
+
+        // For with break
+        var found: int = -1;
+        for (var k: int = 0; k < 100; k = k + 1) {
+            if (k * k > 50) {
+                found = k;
+                break;
+            }
+        }
+        IO.Print("  First k where k^2 > 50: ");
+        IO.Println(Convert.ToString(found));
+
+        // For with continue
+        IO.Print("  Skip multiples of 3 (0..9): ");
+        for (var m: int = 0; m < 10; m = m + 1) {
+            if (m % 3 == 0) {
+                continue;
+            }
+            IO.Print(Convert.ToString(m));
+            IO.Print(" ");
+        }
+        IO.Println("");
+
+        IO.Println("");
+        IO.Println("=== Foreach (for item : collection) ===");
+
+        var words: string[] = String.Split("hello world from contract", " ");
+        IO.Print("  Words: ");
+        for (w : words) {
+            IO.Print(w);
+            IO.Print(" ");
+        }
+        IO.Println("");
+
+        var nums: int[] = [10, 20, 30, 40, 50];
+        var total: int = 0;
+        for (n : nums) {
+            total += n;
+        }
+        IO.Print("  Sum of [10..50]: ");
+        IO.Println(Convert.ToString(total));
+
+        // Foreach over a range
+        var rangeSum: int = 0;
+        for (n : 1..10) {
+            rangeSum += n;
+        }
+        IO.Print("  Sum of 1..10: ");
+        IO.Println(Convert.ToString(rangeSum));
+
+        IO.Println("");
+        IO.Println("=== Switch (Integers) ===");
+
+        for (var day: int = 1; day <= 7; day = day + 1) {
+            IO.Print("  Day ");
+            IO.Print(Convert.ToString(day));
+            IO.Print(": ");
+            IO.Println(describeDay(day));
+        }
+
+        // Switch with else
+        var code: int = 200;
+        switch (code) {
+            case 200: IO.Println("  200: OK");
+            case 404: IO.Println("  404: Not Found");
+            case 500: IO.Println("  500: Server Error");
+            else: IO.Println("  Unknown status code");
+        }
+
+        IO.Println("");
+        IO.Println("=== Switch (Strings) ===");
+
+        var command: string = "start";
+        switch (command) {
+            case "start": IO.Println("  Starting engine...");
+            case "stop": IO.Println("  Stopping engine...");
+            case "pause": IO.Println("  Pausing...");
+            case "quit": IO.Println("  Quitting program");
+            else: IO.Println("  Unknown command");
+        }
+
+        var cmd2: string = "unknown";
+        switch (cmd2) {
+            case "start": IO.Println("  Starting...");
+            case "stop": IO.Println("  Stopping...");
+            else: IO.Println("  Command not recognized: " + cmd2);
+        }
+
+        IO.Println("");
+        IO.Println("=== Compound Assignment ===");
+
+        var a: int = 10;
+        IO.Print("  a = ");
+        IO.Print(Convert.ToString(a));
+
+        a += 5;
+        IO.Print(", a += 5 -> ");
+        IO.Print(Convert.ToString(a));
+
+        a -= 3;
+        IO.Print(", a -= 3 -> ");
+        IO.Print(Convert.ToString(a));
+
+        a *= 2;
+        IO.Print(", a *= 2 -> ");
+        IO.Print(Convert.ToString(a));
+
+        a /= 4;
+        IO.Print(", a /= 4 -> ");
+        IO.Print(Convert.ToString(a));
+
+        a %= 3;
+        IO.Print(", a %= 3 -> ");
+        IO.Println(Convert.ToString(a));
+
+        IO.Println("");
+        IO.Println("=== Arithmetic ===");
+
+        IO.Print("  7 + 3 = ");
+        IO.Println(Convert.ToString(7 + 3));
+        IO.Print("  7 - 3 = ");
+        IO.Println(Convert.ToString(7 - 3));
+        IO.Print("  7 * 3 = ");
+        IO.Println(Convert.ToString(7 * 3));
+        IO.Print("  7 / 2 = ");
+        IO.Println(Convert.ToString(7 / 2));
+        IO.Print("  7 % 3 = ");
+        IO.Println(Convert.ToString(7 % 3));
+        IO.Print("  -(42) = ");
+        IO.Println(Convert.ToString(-42));
+
+        IO.Println("");
+        IO.Println("=== Boolean Logic ===");
+
+        var t: bool = true;
+        var f: bool = false;
+        IO.Print("  true && false = ");
+        IO.Println(t && f);
+        IO.Print("  true || false = ");
+        IO.Println(t || f);
+        IO.Print("  !true = ");
+        IO.Println(!t);
+
+        // Practical: voting eligibility
+        var age2: int = 20;
+        var citizen: bool = true;
+        if (age2 >= 18 && citizen) {
+            IO.Println("  Eligible to vote");
+        } else {
+            IO.Println("  Not eligible");
+        }
+
+        IO.Println("");
+        IO.Println("=== Nested Loops ===");
+
+        // Multiplication table (1..5)
+        IO.Println("  Multiplication table:");
+        for (var row: int = 1; row <= 5; row = row + 1) {
+            IO.Print("    ");
+            for (var col: int = 1; col <= 5; col = col + 1) {
+                var product: int = row * col;
+                if (product < 10) {
+                    IO.Print(" ");
+                }
+                IO.Print(Convert.ToString(product));
+                IO.Print(" ");
+            }
+            IO.Println("");
+        }
+
+        IO.Println("");
+        IO.Println("=== Pattern: Sum Until Threshold ===");
+
+        var sum: int = 0;
+        var added: int = 0;
+        for (var v: int = 1; v <= 100; v = v + 1) {
+            if (sum + v > 100) {
+                break;
+            }
+            sum += v;
+            added += 1;
+        }
+        IO.Print("  Sum of 1..");
+        IO.Print(Convert.ToString(added));
+        IO.Print(" = ");
+        IO.Println(Convert.ToString(sum));
+
+        IO.Println("");
+        IO.Println("=== Pattern: Finding Primes ===");
+
+        // Find primes up to 30
+        IO.Print("  Primes up to 30: ");
+        for (var p: int = 2; p <= 30; p = p + 1) {
+            var isPrime: bool = true;
+            var d: int = 2;
+            while (d * d <= p) {
+                if (p % d == 0) {
+                    isPrime = false;
+                    break;
+                }
+                d += 1;
+            }
+            if (isPrime) {
+                IO.Print(Convert.ToString(p));
+                IO.Print(" ");
+            }
+        }
+        IO.Println("");
+
+        IO.Println("");
+        IO.Println("Done!");
+    }
+}

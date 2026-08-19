@@ -1,0 +1,228 @@
+// StdlibShowcase.ct
+// Demonstrates Contract's standard library modules:
+// String, Math, Convert, Random, List, Dict, Array, and more.
+
+Contract Program {
+    static fn Main() {
+        IO.Println("=== String Module ===");
+
+        var s: string = "  Hello, Contract World!  ";
+
+        IO.Print("Original: [");
+        IO.Print(s);
+        IO.Println("]");
+        IO.Print("Length: ");
+        IO.Println(Convert.ToString(String.Length(s)));
+
+        let trimmed = String.Trim(s);
+        IO.Print("Trimmed: [");
+        IO.Print(trimmed);
+        IO.Println("]");
+
+        let upper = String.ToUpper(trimmed);
+        IO.Print("ToUpper: ");
+        IO.Println(upper);
+
+        let lower = String.ToLower(trimmed);
+        IO.Print("ToLower: ");
+        IO.Println(lower);
+
+        let sub = String.Substring(trimmed, 7, 6);
+        IO.Print("Substring(7, 6): ");
+        IO.Println(sub);
+
+        IO.Print("StartsWith '  Hel': ");
+        IO.Println(String.StartsWith(s, "  Hel"));
+        IO.Print("EndsWith '!  ': ");
+        IO.Println(String.EndsWith(s, "!  "));
+
+        let replaced = String.Replace(trimmed, "Contract", "Amazing");
+        IO.Print("Replace: ");
+        IO.Println(replaced);
+
+        let parts = String.Split("one,two,three,four", ",");
+        IO.Print("Split length: ");
+        IO.Println(Convert.ToString(parts.Length));
+        IO.Print("Parts: ");
+        IO.Print(parts[0]);
+        IO.Print(", ");
+        IO.Print(parts[1]);
+        IO.Print(", ");
+        IO.Print(parts[2]);
+        IO.Print(", ");
+        IO.Println(parts[3]);
+
+        let idx = String.IndexOf("hello world", "world");
+        IO.Print("IndexOf 'world': ");
+        IO.Println(Convert.ToString(idx));
+
+        IO.Println("");
+        IO.Println("=== Math Module ===");
+
+        IO.Print("Abs(-42): ");
+        IO.Println(Convert.ToString(Math.Abs(-42)));
+        IO.Print("Min(3, 9): ");
+        IO.Println(Convert.ToString(Math.Min(3, 9)));
+        IO.Print("Max(3, 9): ");
+        IO.Println(Convert.ToString(Math.Max(3, 9)));
+        IO.Print("Clamp(15, 0, 10): ");
+        IO.Println(Convert.ToString(Math.Clamp(15, 0, 10)));
+        IO.Print("Sign(-5): ");
+        IO.Println(Convert.ToString(Math.Sign(-5)));
+        IO.Print("Truncate(3.7): ");
+        IO.Println(Convert.ToString(Math.Truncate(3.7)));
+
+        IO.Println("");
+        IO.Println("=== Convert Module ===");
+
+        var n: int = Convert.ToInt32("42");
+        IO.Print("ToInt32('42'): ");
+        IO.Println(Convert.ToString(n));
+
+        var s2: string = Convert.ToString(7);
+        IO.Print("ToString(7): ");
+        IO.Println(s2);
+
+        var b: bool = Convert.ToBool("true");
+        IO.Print("ToBool('true'): ");
+        IO.Println(b);
+
+        var hex: string = Convert.ToHexString(255);
+        IO.Print("ToHexString(255): ");
+        IO.Println(hex);
+
+        var fromHex: int = Convert.FromHexString("FF");
+        IO.Print("FromHexString('FF'): ");
+        IO.Println(Convert.ToString(fromHex));
+
+        IO.Println("");
+        IO.Println("=== Random Module ===");
+
+        IO.Print("Random.NextInt(100): ");
+        IO.Println(Convert.ToString(Random.NextInt(100)));
+        IO.Print("Random.NextInt(100): ");
+        IO.Println(Convert.ToString(Random.NextInt(100)));
+        IO.Print("Random.NextInt(100): ");
+        IO.Println(Convert.ToString(Random.NextInt(100)));
+
+        // Roll a die
+        var die: int = Random.NextInt(6) + 1;
+        IO.Print("Die roll: ");
+        IO.Println(Convert.ToString(die));
+
+        IO.Println("");
+        IO.Println("=== List Module (Generic) ===");
+
+        var list: List<int> = List.Create();
+        List.Add(list, 10);
+        List.Add(list, 20);
+        List.Add(list, 30);
+        List.Add(list, 40);
+
+        IO.Print("List count: ");
+        IO.Println(Convert.ToString(List.Count(list)));
+        IO.Print("Get(0): ");
+        IO.Println(Convert.ToString(List.Get(list, 0)));
+        IO.Print("Get(2): ");
+        IO.Println(Convert.ToString(List.Get(list, 2)));
+
+        List.Set(list, 1, 99);
+        IO.Print("After Set(1, 99), Get(1): ");
+        IO.Println(Convert.ToString(List.Get(list, 1)));
+
+        List.RemoveAt(list, 0);
+        IO.Print("After RemoveAt(0), count: ");
+        IO.Println(Convert.ToString(List.Count(list)));
+        IO.Print("New first: ");
+        IO.Println(Convert.ToString(List.Get(list, 0)));
+
+        IO.Println("");
+        IO.Println("=== Dict Module (Generic) ===");
+
+        var scores: Dict<string, int> = Dict.Create();
+        Dict.Set(scores, "Alice", 95);
+        Dict.Set(scores, "Bob", 87);
+        Dict.Set(scores, "Carol", 92);
+
+        IO.Print("Dict count: ");
+        IO.Println(Convert.ToString(Dict.Count(scores)));
+        IO.Print("Alice: ");
+        IO.Println(Convert.ToString(Dict.Get(scores, "Alice")));
+        IO.Print("Bob: ");
+        IO.Println(Convert.ToString(Dict.Get(scores, "Bob")));
+        IO.Print("Has 'Dave': ");
+        IO.Println(Dict.ContainsKey(scores, "Dave"));
+        IO.Print("Has 'Alice': ");
+        IO.Println(Dict.ContainsKey(scores, "Alice"));
+
+        Dict.Remove(scores, "Bob");
+        IO.Print("After remove Bob, count: ");
+        IO.Println(Convert.ToString(Dict.Count(scores)));
+        IO.Print("Has 'Bob': ");
+        IO.Println(Dict.ContainsKey(scores, "Bob"));
+
+        IO.Println("");
+        IO.Println("=== Array Module ===");
+
+        var arr: int[] = [5, 3, 8, 1, 9, 2];
+        IO.Print("Array length: ");
+        IO.Println(Convert.ToString(Array.Length(arr)));
+
+        IO.Print("Array.Get(2): ");
+        IO.Println(Convert.ToString(Array.Get(arr, 2)));
+
+        Array.Set(arr, 0, 99);
+        IO.Print("After Set(0, 99), Get(0): ");
+        IO.Println(Convert.ToString(Array.Get(arr, 0)));
+
+        // Manual array join
+        var joined: string = "";
+        var i: int = 0;
+        while (i < arr.Length) {
+            if (i > 0) {
+                joined = String.Concat(joined, ", ");
+            }
+            joined = String.Concat(joined, Convert.ToString(arr[i]));
+            i += 1;
+        }
+        IO.Print("Joined: ");
+        IO.Println(joined);
+
+        IO.Println("");
+        IO.Println("=== Type Conversion Patterns ===");
+
+        // Int to string and back
+        var original: int = 42;
+        var asString: string = Convert.ToString(original);
+        var backToInt: int = Convert.ToInt32(asString);
+        IO.Print("Round-trip 42: ");
+        IO.Print(Convert.ToString(backToInt));
+        IO.Print(" == ");
+        IO.Print(Convert.ToString(original));
+        IO.Print(" -> ");
+        IO.Println(backToInt == original);
+
+        // Float conversion
+        var pi: double = 3.14159;
+        var piStr: string = Convert.ToString(pi);
+        IO.Print("Pi as string: ");
+        IO.Println(piStr);
+
+        IO.Println("");
+        IO.Println("=== String Concatenation and Interpolation ===");
+
+        var name: string = "Contract";
+        var version: int = 1;
+
+        // Concatenation with +
+        var greeting: string = "Hello, " + name + " v" + Convert.ToString(version) + "!";
+        IO.Println(greeting);
+
+        // Interpolation with {name}
+        var msg = "Language: {name}, Version: {version}";
+        IO.Println(msg);
+
+        IO.Println("");
+        IO.Println("Done!");
+    }
+}

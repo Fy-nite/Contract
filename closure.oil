@@ -1,0 +1,302 @@
+module Program version 1.0.0
+
+class Program {
+    static method apply(f: Delegate, x: int32) -> int32 {
+        // #line 3:18 "return f(x);"
+        ldarg 1
+        // #line 3:16 "return f(x);"
+        ldarg 0
+        // #line 3:16 "return f(x);"
+        callvirt Delegate.Invoke(int32) -> int32
+        // #line 3:16 "return f(x);"
+        ret
+    }
+
+    static method makeCounter(start: int32) -> object {
+        local __display: object
+
+        newobj __display_0.constructor()
+        stloc __display
+        // #line 7:9 "var n: int = start;"
+        ldloc __display
+        // #line 7:9 "var n: int = start;"
+        dup
+        // #line 7:22 "var n: int = start;"
+        ldarg 0
+        // #line 7:22 "var n: int = start;"
+        stfld __display_0::n
+        // #line 7:22 "var n: int = start;"
+        pop
+        // #line 8:16 "return fun () -> { n += 1; return n; };"
+        newobj Delegate.constructor()
+        // #line 8:16 "return fun () -> { n += 1; return n; };"
+        dup
+        // #line 8:16 "return fun () -> { n += 1; return n; };"
+        ldloc __display
+        // #line 8:16 "return fun () -> { n += 1; return n; };"
+        stfld Delegate::closure
+        // #line 8:16 "return fun () -> { n += 1; return n; };"
+        dup
+        // #line 8:16 "return fun () -> { n += 1; return n; };"
+        ldstr Global.__lambda_0
+        // #line 8:16 "return fun () -> { n += 1; return n; };"
+        stfld Delegate::target
+        // #line 8:16 "return fun () -> { n += 1; return n; };"
+        ret
+    }
+
+    static method Main() -> void {
+        local __display: object
+        local double: object
+        local addBase: object
+        local bump: object
+        local c1: object
+        local c2: object
+
+        newobj __display_1.constructor()
+        stloc __display
+        // #line 13:9 "let double = fun (x: int) -> { return x * 2; };"
+        newobj Delegate.constructor()
+        // #line 13:9 "let double = fun (x: int) -> { return x * 2; };"
+        dup
+        // #line 13:9 "let double = fun (x: int) -> { return x * 2; };"
+        ldstr Global.__lambda_1
+        // #line 13:9 "let double = fun (x: int) -> { return x * 2; };"
+        stfld Delegate::target
+        // #line 13:9 "let double = fun (x: int) -> { return x * 2; };"
+        stloc double
+        // #line 14:27 "IO.Println(double(5));            // 10"
+        ldc.i4 5
+        // #line 14:27 "IO.Println(double(5));            // 10"
+        call Global.__lambda_1(int32) -> int32
+        // #line 14:27 "IO.Println(double(5));            // 10"
+        call IO.Println(object) -> void
+        // #line 14:27 "IO.Println(double(5));            // 10"
+        pop
+        // #line 17:9 "var base: int = 10;"
+        ldloc __display
+        // #line 17:9 "var base: int = 10;"
+        dup
+        // #line 17:25 "var base: int = 10;"
+        ldc.i4 10
+        // #line 17:25 "var base: int = 10;"
+        stfld __display_1::base
+        // #line 17:25 "var base: int = 10;"
+        pop
+        // #line 18:9 "let addBase = fun x -> x + base;"
+        newobj Delegate.constructor()
+        // #line 18:9 "let addBase = fun x -> x + base;"
+        dup
+        // #line 18:9 "let addBase = fun x -> x + base;"
+        ldloc __display
+        // #line 18:9 "let addBase = fun x -> x + base;"
+        stfld Delegate::closure
+        // #line 18:9 "let addBase = fun x -> x + base;"
+        dup
+        // #line 18:9 "let addBase = fun x -> x + base;"
+        ldstr Global.__lambda_2
+        // #line 18:9 "let addBase = fun x -> x + base;"
+        stfld Delegate::target
+        // #line 18:9 "let addBase = fun x -> x + base;"
+        stloc addBase
+        // #line 19:28 "IO.Println(addBase(1));           // 11"
+        ldc.i4 1
+        // #line 19:20 "IO.Println(addBase(1));           // 11"
+        ldloc addBase
+        // #line 19:20 "IO.Println(addBase(1));           // 11"
+        callvirt Delegate.Invoke(int32) -> int32
+        // #line 19:20 "IO.Println(addBase(1));           // 11"
+        call IO.Println(object) -> void
+        // #line 19:20 "IO.Println(addBase(1));           // 11"
+        pop
+        // #line 20:26 "IO.Println(apply(addBase, 5));    // 15"
+        ldloc addBase
+        // #line 20:35 "IO.Println(apply(addBase, 5));    // 15"
+        ldc.i4 5
+        // #line 20:35 "IO.Println(apply(addBase, 5));    // 15"
+        call Program.apply(Delegate, int32) -> int32
+        // #line 20:35 "IO.Println(apply(addBase, 5));    // 15"
+        call IO.Println(object) -> void
+        // #line 20:35 "IO.Println(apply(addBase, 5));    // 15"
+        pop
+        // #line 23:9 "var count: int = 0;"
+        ldloc __display
+        // #line 23:9 "var count: int = 0;"
+        dup
+        // #line 23:26 "var count: int = 0;"
+        ldc.i4 0
+        // #line 23:26 "var count: int = 0;"
+        stfld __display_1::count
+        // #line 23:26 "var count: int = 0;"
+        pop
+        // #line 24:9 "let bump = fun -> { count += 1; return count; };"
+        newobj Delegate.constructor()
+        // #line 24:9 "let bump = fun -> { count += 1; return count; };"
+        dup
+        // #line 24:9 "let bump = fun -> { count += 1; return count; };"
+        ldloc __display
+        // #line 24:9 "let bump = fun -> { count += 1; return count; };"
+        stfld Delegate::closure
+        // #line 24:9 "let bump = fun -> { count += 1; return count; };"
+        dup
+        // #line 24:9 "let bump = fun -> { count += 1; return count; };"
+        ldstr Global.__lambda_3
+        // #line 24:9 "let bump = fun -> { count += 1; return count; };"
+        stfld Delegate::target
+        // #line 24:9 "let bump = fun -> { count += 1; return count; };"
+        stloc bump
+        // #line 25:20 "IO.Println(bump());               // 1"
+        ldloc bump
+        // #line 25:20 "IO.Println(bump());               // 1"
+        callvirt Delegate.Invoke() -> int32
+        // #line 25:20 "IO.Println(bump());               // 1"
+        call IO.Println(object) -> void
+        // #line 25:20 "IO.Println(bump());               // 1"
+        pop
+        // #line 26:20 "IO.Println(bump());               // 2"
+        ldloc bump
+        // #line 26:20 "IO.Println(bump());               // 2"
+        callvirt Delegate.Invoke() -> int32
+        // #line 26:20 "IO.Println(bump());               // 2"
+        call IO.Println(object) -> void
+        // #line 26:20 "IO.Println(bump());               // 2"
+        pop
+        // #line 29:30 "let c1 = makeCounter(10);"
+        ldc.i4 10
+        // #line 29:30 "let c1 = makeCounter(10);"
+        call Program.makeCounter(int32) -> object
+        // #line 29:30 "let c1 = makeCounter(10);"
+        stloc c1
+        // #line 30:30 "let c2 = makeCounter(100);"
+        ldc.i4 100
+        // #line 30:30 "let c2 = makeCounter(100);"
+        call Program.makeCounter(int32) -> object
+        // #line 30:30 "let c2 = makeCounter(100);"
+        stloc c2
+        // #line 31:20 "IO.Println(c1());                 // 11"
+        ldloc c1
+        // #line 31:20 "IO.Println(c1());                 // 11"
+        callvirt Delegate.Invoke() -> int32
+        // #line 31:20 "IO.Println(c1());                 // 11"
+        call IO.Println(object) -> void
+        // #line 31:20 "IO.Println(c1());                 // 11"
+        pop
+        // #line 32:20 "IO.Println(c1());                 // 12"
+        ldloc c1
+        // #line 32:20 "IO.Println(c1());                 // 12"
+        callvirt Delegate.Invoke() -> int32
+        // #line 32:20 "IO.Println(c1());                 // 12"
+        call IO.Println(object) -> void
+        // #line 32:20 "IO.Println(c1());                 // 12"
+        pop
+        // #line 33:20 "IO.Println(c2());                 // 101"
+        ldloc c2
+        // #line 33:20 "IO.Println(c2());                 // 101"
+        callvirt Delegate.Invoke() -> int32
+        // #line 33:20 "IO.Println(c2());                 // 101"
+        call IO.Println(object) -> void
+        // #line 33:20 "IO.Println(c2());                 // 101"
+        pop
+        // #line 34:20 "IO.Println(c1());                 // 13  (independent from c2)"
+        ldloc c1
+        // #line 34:20 "IO.Println(c1());                 // 13  (independent from c2)"
+        callvirt Delegate.Invoke() -> int32
+        // #line 34:20 "IO.Println(c1());                 // 13  (independent from c2)"
+        call IO.Println(object) -> void
+        // #line 34:20 "IO.Println(c1());                 // 13  (independent from c2)"
+        pop
+        // #line 34:20 "IO.Println(c1());                 // 13  (independent from c2)"
+        ret
+    }
+}
+
+class __display_0 {
+    public field n: int32
+}
+
+class Delegate {
+    public field target: string
+    public field closure: object
+}
+
+class __display_1 {
+    public field base: int32
+    public field count: int32
+}
+
+class Global {
+    static method __lambda_0(__closure: object) -> int32 {
+        // #line 8:30 "return fun () -> { n += 1; return n; };"
+        ldarg 0
+        // #line 8:30 "return fun () -> { n += 1; return n; };"
+        dup
+        // #line 8:30 "return fun () -> { n += 1; return n; };"
+        dup
+        // #line 8:30 "return fun () -> { n += 1; return n; };"
+        ldfld __display_0::n
+        // #line 8:33 "return fun () -> { n += 1; return n; };"
+        ldc.i4 1
+        // #line 8:33 "return fun () -> { n += 1; return n; };"
+        add
+        // #line 8:33 "return fun () -> { n += 1; return n; };"
+        stfld __display_0::n
+        // #line 8:33 "return fun () -> { n += 1; return n; };"
+        pop
+        // #line 8:43 "return fun () -> { n += 1; return n; };"
+        ldarg 0
+        // #line 8:43 "return fun () -> { n += 1; return n; };"
+        ldfld __display_0::n
+        // #line 8:43 "return fun () -> { n += 1; return n; };"
+        ret
+    }
+
+    static method __lambda_1(x: int32) -> int32 {
+        // #line 13:47 "let double = fun (x: int) -> { return x * 2; };"
+        ldarg 0
+        // #line 13:51 "let double = fun (x: int) -> { return x * 2; };"
+        ldc.i4 2
+        // #line 13:51 "let double = fun (x: int) -> { return x * 2; };"
+        mul
+        // #line 13:51 "let double = fun (x: int) -> { return x * 2; };"
+        ret
+    }
+
+    static method __lambda_2(__closure: object, x: int32) -> int32 {
+        // #line 18:32 "let addBase = fun x -> x + base;"
+        ldarg 1
+        // #line 18:36 "let addBase = fun x -> x + base;"
+        ldarg 0
+        // #line 18:36 "let addBase = fun x -> x + base;"
+        ldfld __display_1::base
+        // #line 18:36 "let addBase = fun x -> x + base;"
+        add
+        // #line 18:36 "let addBase = fun x -> x + base;"
+        ret
+    }
+
+    static method __lambda_3(__closure: object) -> int32 {
+        // #line 24:35 "let bump = fun -> { count += 1; return count; };"
+        ldarg 0
+        // #line 24:35 "let bump = fun -> { count += 1; return count; };"
+        dup
+        // #line 24:35 "let bump = fun -> { count += 1; return count; };"
+        dup
+        // #line 24:35 "let bump = fun -> { count += 1; return count; };"
+        ldfld __display_1::count
+        // #line 24:38 "let bump = fun -> { count += 1; return count; };"
+        ldc.i4 1
+        // #line 24:38 "let bump = fun -> { count += 1; return count; };"
+        add
+        // #line 24:38 "let bump = fun -> { count += 1; return count; };"
+        stfld __display_1::count
+        // #line 24:38 "let bump = fun -> { count += 1; return count; };"
+        pop
+        // #line 24:48 "let bump = fun -> { count += 1; return count; };"
+        ldarg 0
+        // #line 24:48 "let bump = fun -> { count += 1; return count; };"
+        ldfld __display_1::count
+        // #line 24:48 "let bump = fun -> { count += 1; return count; };"
+        ret
+    }
+}
+

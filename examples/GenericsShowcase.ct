@@ -1,0 +1,238 @@
+// GenericsShowcase.ct
+// Demonstrates Contract's generic types and functions:
+// generic contracts, generic functions, type inference, and runtime
+// materialization.
+
+Contract Program {
+    // Generic function: T inferred from argument
+    static fn identity<T>(x: T) -> T {
+        return x;
+    }
+
+    // Generic function over arrays
+    static fn first<T>(xs: T[]) -> T {
+        return xs[0];
+    }
+
+    static fn last<T>(xs: T[]) -> T {
+        return xs[xs.Length - 1];
+    }
+
+    // Generic function: swap two values (via two-box trick)
+    static fn makePair<A, B>(a: A, b: B) -> Pair<A, B> {
+        return new Pair<A, B>(a, b);
+    }
+
+    static fn Main() {
+        IO.Println("=== Generic Contract: Box<T> ===");
+
+        // Box<int>
+        var intBox = new Box<int>(42);
+        IO.Print("Box<int>(42).get(): ");
+        IO.Println(intBox.get());
+        IO.Print("Box<int>.value: ");
+        IO.Println(Convert.ToString(intBox.value));
+        IO.Print("Box<int>.double(): ");
+        IO.Println(Convert.ToString(intBox.double()));
+
+        // Box<string>
+        var strBox = new Box<string>("hello");
+        IO.Print("Box<string>('hello').get(): ");
+        IO.Println(strBox.get());
+
+        // Generic static method
+        IO.Print("Box<int>.wrap(99): ");
+        IO.Println(Convert.ToString(Box.wrap(99)));
+        IO.Print("Box<string>.wrap('hi'): ");
+        IO.Println(Box.wrap("hi"));
+
+        IO.Println("");
+        IO.Println("=== Generic Contract: Pair<A, B> ===");
+
+        var pair1 = new Pair<int, string>(1, "one");
+        IO.Print("Pair<int,string>(1, 'one').first: ");
+        IO.Println(Convert.ToString(pair1.first));
+        IO.Print("Pair<int,string>(1, 'one').second: ");
+        IO.Println(pair1.second);
+
+        var pair2 = new Pair<string, int>("age", 30);
+        IO.Print("Pair<string,int>('age', 30).first: ");
+        IO.Println(pair2.first);
+        IO.Print("Pair<string,int>('age', 30).second: ");
+        IO.Println(Convert.ToString(pair2.second));
+
+        IO.Println("");
+        IO.Println("=== Generic Contract: Triple<T, U, V> ===");
+
+        var triple = new Triple<int, string, bool>(42, "answer", true);
+        IO.Print("Triple.first: ");
+        IO.Println(Convert.ToString(triple.first));
+        IO.Print("Triple.second: ");
+        IO.Println(triple.second);
+        IO.Print("Triple.third: ");
+        IO.Println(triple.third);
+
+        IO.Println("");
+        IO.Println("=== Generic Functions ===");
+
+        // Type inference
+        IO.Print("identity(42): ");
+        IO.Println(Convert.ToString(identity(42)));
+        IO.Print("identity('hello'): ");
+        IO.Println(identity("hello"));
+        IO.Print("identity(true): ");
+        IO.Println(identity(true));
+
+        // Explicit type arguments
+        IO.Print("identity<int>(42): ");
+        IO.Println(Convert.ToString(identity<int>(42)));
+        IO.Print("identity<string>('world'): ");
+        IO.Println(identity<string>("world"));
+
+        // first / last
+        var nums: int[] = [10, 20, 30, 40, 50];
+        IO.Print("first([10..50]): ");
+        IO.Println(Convert.ToString(first(nums)));
+        IO.Print("last([10..50]): ");
+        IO.Println(Convert.ToString(last(nums)));
+
+        var words: string[] = ["alpha", "beta", "gamma"];
+        IO.Print("first(['alpha'..'gamma']): ");
+        IO.Println(first(words));
+        IO.Print("last(['alpha'..'gamma']): ");
+        IO.Println(last(words));
+
+        IO.Println("");
+        IO.Println("=== Generic Functions on Generic Contracts ===");
+
+        // pair with explicit and inferred type args
+        IO.Print("Pair.pair<int,string>(7, 'x'): ");
+        var p = Box.pair("a", "b");
+        IO.Println(p);
+
+        IO.Println("");
+        IO.Println("=== Static Fields on Generics ===");
+
+        // Each specialization has its own static state
+        Box<int>::reset();
+        Box<string>::reset();
+
+        var b1 = new Box<int>(1);
+        var b2 = new Box<int>(2);
+        var b3 = new Box<int>(3);
+
+        IO.Print("Box<int> count after 3 creates: ");
+        IO.Println(Convert.ToString(Box<int>::count()));
+
+        var s1 = new Box<string>("a");
+        IO.Print("Box<string> count after 1 create: ");
+        IO.Println(Convert.ToString(Box<string>::count()));
+
+        IO.Print("Box<int> count unchanged: ");
+        IO.Println(Convert.ToString(Box<int>::count()));
+
+        Box<int>::bump();
+        Box<int>::bump();
+        IO.Print("Box<int> after 2 bumps: ");
+        IO.Println(Convert.ToString(Box<int>::count()));
+        IO.Print("Box<string> still: ");
+        IO.Println(Convert.ToString(Box<string>::count()));
+
+        IO.Println("");
+        IO.Println("=== Generic Types in Fields ===");
+
+        var holder = new Holder(99);
+        IO.Print("Holder.box.get(): ");
+        IO.Println(Convert.ToString(holder.box.get()));
+
+        IO.Println("");
+        IO.Println("=== Materialization Proof ===");
+
+        // The VM lazily clones Box for each concrete type at first use
+        IO.Print("Has Box<int32>: ");
+        IO.Println(Reflect.HasType("Box<int32>"));
+        IO.Print("Has Box<string>: ");
+        IO.Println(Reflect.HasType("Box<string>"));
+        IO.Print("Has Pair<int32, string>: ");
+        IO.Println(Reflect.HasType("Pair<int32, string>"));
+        IO.Print("Has Holder: ");
+        IO.Println(Reflect.HasType("Holder"));
+
+        IO.Println("");
+        IO.Println("Done!");
+    }
+}
+
+// Generic contract with one type parameter
+Contract Box<T> {
+    public value: T;
+    static count: int;
+
+    constructor(v: T) {
+        this.value = v;
+        count = count + 1;
+    }
+
+    fn get() -> T {
+        return this.value;
+    }
+
+    fn double() -> int {
+        return this.get() * 2;
+    }
+
+    static fn reset() {
+        count = 0;
+    }
+
+    static fn bump() {
+        count = count + 1;
+    }
+
+    static fn count() -> int {
+        return count;
+    }
+
+    // Generic static method on a generic contract
+    static fn wrap(v: T) -> T {
+        return v;
+    }
+
+    // Multi-parameter generic method
+    static fn pair<U>(t: T, u: U) -> U {
+        return u;
+    }
+}
+
+// Generic contract with two type parameters
+Contract Pair<A, B> {
+    public first: A;
+    public second: B;
+
+    constructor(a: A, b: B) {
+        this.first = a;
+        this.second = b;
+    }
+}
+
+// Generic contract with three type parameters
+Contract Triple<T, U, V> {
+    public first: T;
+    public second: U;
+    public third: V;
+
+    constructor(a: T, b: U, c: V) {
+        this.first = a;
+        this.second = b;
+        this.third = c;
+    }
+}
+
+// Contract that uses a generic type as a field
+Contract Holder {
+    public box: Box<int>;
+
+    constructor(v: int) {
+        this.box = new Box<int>(v);
+    }
+}

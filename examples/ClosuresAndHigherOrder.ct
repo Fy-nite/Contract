@@ -1,0 +1,305 @@
+// ClosuresAndHigherOrder.ct
+// Deep dive into closures (by-reference capture), closure factories,
+// higher-order functions, and function types.
+
+Contract Program {
+    // -- Closure Factories --
+
+    // Creates an adder: a lambda that adds `base` to its argument.
+    static fn makeAdder(base: int) -> (int) -> int {
+        return fun x -> x + base;
+    }
+
+    // Creates a multiplier: a lambda that multiplies by `factor`.
+    static fn makeMultiplier(factor: int) -> (int) -> int {
+        return fun x -> x * factor;
+    }
+
+    // Creates a clamp function bounded to [lo, hi].
+    static fn makeClamp(lo: int, hi: int) -> (int) -> int {
+        return fun x -> {
+            if (x < lo) {
+                return lo;
+            }
+            if (x > hi) {
+                return hi;
+            }
+            return x;
+        };
+    }
+
+    // Creates an accumulator closure. Each returned lambda maintains its own
+    // internal state — calling it repeatedly returns a running total.
+    static fn makeAccumulator(start: int) -> (int) -> int {
+        var total: int = start;
+        return fun (n: int) -> {
+            total += n;
+            return total;
+        };
+    }
+
+    // Creates a counter that increments from `start` on each call.
+    static fn makeCounter(start: int) -> () -> int {
+        var n: int = start;
+        return fun () -> {
+            n += 1;
+            return n;
+        };
+    }
+
+    // Creates a "state machine": returns a pair of lambdas (tick, reset)
+    // that share the same mutable state. Demonstrates multiple closures
+    // capturing the same variable.
+    static fn makeState(initial: int) -> (string) -> int {
+        var state: int = initial;
+        return fun (cmd: string) -> {
+            switch (cmd) {
+                case "tick": state += 1;
+                case "reset": state = initial;
+                case "get": { return state; }
+            }
+            return state;
+        };
+    }
+
+    // -- Higher-Order Functions --
+
+    // Applies a function to a value.
+    static fn apply(f: (int) -> int, x: int) -> int {
+        return f(x);
+    }
+
+    // Applies a function twice.
+    static fn twice(f: (int) -> int, x: int) -> int {
+        return f(f(x));
+    }
+
+    // Applies a function n times.
+    static fn applyNTimes(f: (int) -> int, n: int, x: int) -> int {
+        var result: int = x;
+        var i: int = 0;
+        while (i < n) {
+            result = f(result);
+            i = i + 1;
+        }
+        return result;
+    }
+
+    // Takes a predicate and a value; returns true if the value passes the test.
+    static fn satisfies(p: (int) -> bool, x: int) -> bool {
+        return p(x);
+    }
+
+    // Takes a function and transforms its result through another function.
+    static fn transform(g: (int) -> int, f: (int) -> int, x: int) -> int {
+        return g(f(x));
+    }
+
+    // Composes two functions: returns fun x -> g(f(x)).
+    static fn compose(f: (int) -> int, g: (int) -> int) -> (int) -> int {
+        return fun x -> g(f(x));
+    }
+
+    // -- Static helpers used inline --
+
+    static fn double(x: int) -> int {
+        return x * 2;
+    }
+
+    static fn addOne(x: int) -> int {
+        return x + 1;
+    }
+
+    static fn square(x: int) -> int {
+        return x * x;
+    }
+
+    static fn isEven(n: int) -> bool {
+        return n % 2 == 0;
+    }
+
+    static fn isPositive(n: int) -> bool {
+        return n > 0;
+    }
+
+    static fn Main() {
+        IO.Println("=== Closure Factories ===");
+
+        let add5 = makeAdder(5);
+        let add10 = makeAdder(10);
+        IO.Println(add5(3));        // 8
+        IO.Println(add10(3));       // 13
+
+        let triple = makeMultiplier(3);
+        IO.Println(triple(7));      // 21
+        IO.Println(triple(-2));     // -6
+
+        let clamp0100 = makeClamp(0, 100);
+        IO.Println(clamp0100(50));  // 50
+        IO.Println(clamp0100(-10)); // 0
+        IO.Println(clamp0100(200)); // 100
+
+        IO.Println("");
+        IO.Println("=== Accumulators (Independent State) ===");
+
+        let acc1 = makeAccumulator(0);
+        let acc2 = makeAccumulator(100);
+        IO.Println(acc1(10));   // 10
+        IO.Println(acc1(20));   // 30
+        IO.Println(acc2(5));    // 105  — independent from acc1
+        IO.Println(acc1(5));    // 35   — acc1 unaffected
+
+        IO.Println("");
+        IO.Println("=== Counters ===");
+
+        let c1 = makeCounter(0);
+        let c2 = makeCounter(100);
+        IO.Println(c1());  // 1
+        IO.Println(c1());  // 2
+        IO.Println(c2());  // 101  — independent counter
+
+        IO.Println("");
+        IO.Println("=== State Machines (Shared Capture) ===");
+
+        let sm = makeState(0);
+        IO.Println(sm("tick"));   // 1
+        IO.Println(sm("tick"));   // 2
+        IO.Println(sm("tick"));   // 3
+        IO.Println(sm("get"));    // 3
+        IO.Println(sm("reset"));  // 0
+        IO.Println(sm("tick"));   // 1
+        IO.Println(sm("get"));    // 1
+
+        IO.Println("");
+        IO.Println("=== Mutable Capture by Reference ===");
+
+        // C#-style: captured variables are shared, not copied
+        var x: int = 0;
+        let increment = fun -> { x += 1; };
+        let decrement = fun -> { x -= 1; };
+        let show = fun -> { IO.Println("x = " + Convert.ToString(x)); };
+
+        increment();
+        increment();
+        increment();
+        show();  // x = 3
+        decrement();
+        show();  // x = 2
+
+        // Both lambdas see the same x
+        increment();
+        increment();
+        show();  // x = 4
+
+        IO.Println("");
+        IO.Println("=== Higher-Order Functions ===");
+
+        IO.Println(apply(double, 5));           // 10
+        IO.Println(apply(square, 5));           // 25
+        IO.Println(apply(fun x -> x + 100, 5)); // 105
+
+        IO.Println(twice(double, 3));           // 12
+        IO.Println(twice(addOne, 5));           // 7
+        IO.Println(twice(square, 3));           // 81
+
+        IO.Println(applyNTimes(addOne, 10, 0));  // 10
+        IO.Println(applyNTimes(double, 4, 1));   // 16
+        IO.Println(applyNTimes(square, 3, 2));   // 256  — ((2^2)^2)^2
+
+        IO.Println("");
+        IO.Println("=== Predicates and Composition ===");
+
+        IO.Println(satisfies(isEven, 4));       // true
+        IO.Println(satisfies(isEven, 7));       // false
+        IO.Println(satisfies(isPositive, -3));  // false
+
+        // Compose: double then add one
+        let doubleThenInc = compose(double, addOne);
+        IO.Println(apply(doubleThenInc, 5));    // 11
+
+        // Compose: square then double
+        let squareThenDouble = compose(square, double);
+        IO.Println(apply(squareThenDouble, 4)); // 32
+
+        // Chain three via nested compose
+        let pipeline = compose(double, compose(addOne, square));
+        IO.Println(apply(pipeline, 3));         // 49  — (3*2+1)^2
+
+        // Using transform directly
+        IO.Println(transform(double, square, 5)); // 50  — double(square(5))
+
+        IO.Println("");
+        IO.Println("=== Function Types with Named Parameters ===");
+
+        // Named function types: (x:int) -> int and (int) -> int are the same type
+        let add5typed: (x:int) -> int = makeAdder(5);
+        let add5unnamed: (int) -> int = makeAdder(5);
+        IO.Println(add5typed(10));    // 15
+        IO.Println(add5unnamed(10));  // 15
+
+        // Multi-parameter function types
+        let myAdd: (a:int, b:int) -> int = fun x y -> x + y;
+        IO.Println(myAdd(3, 4));      // 7
+
+        IO.Println("");
+        IO.Println("=== Delegate<T> Interop ===");
+
+        // Delegate<T> and bare function types are interchangeable
+        var fn: (int) -> int = double;
+        var del: Delegate<(int) -> int> = double;
+        IO.Println(fn(5));   // 10
+        IO.Println(del(5));  // 10
+
+        // Assign a lambda to a Delegate<T> field
+        var box = new ClosureBox();
+        box.setFn(add5);
+        IO.Println(box.run(10));  // 15
+
+        IO.Println("");
+        IO.Println("=== Nested Lambdas ===");
+
+        // A lambda that creates and calls an inner lambda
+        var counter: int = 0;
+        let outer = fun -> {
+            let inner = fun -> { counter += 1; };
+            inner();
+            inner();
+            inner();
+        };
+        outer();
+        IO.Println(counter);  // 3
+
+        // Double nesting: outer creates middle, middle creates inner
+        let makeMiddle = fun -> {
+            var midState: int = 0;
+            return fun -> {
+                midState += 10;
+                return midState;
+            };
+        };
+
+        let middle = makeMiddle();
+        IO.Println(middle());  // 10
+        IO.Println(middle());  // 20
+
+        IO.Println("");
+        IO.Println("Done!");
+    }
+}
+
+// A contract with a function-typed field.
+Contract ClosureBox {
+    public fn: Delegate<(int) -> int>;
+
+    constructor() {
+        this.fn = fun x -> x;
+    }
+
+    fn setFn(f: Delegate<(int) -> int>) {
+        this.fn = f;
+    }
+
+    fn run(x: int) -> int {
+        return this.fn(x);
+    }
+}

@@ -1,0 +1,359 @@
+// OOPShowcase.ct
+// Demonstrates Contract's object-oriented features:
+// contracts with fields, constructors, instance methods, inheritance,
+// static fields, access modifiers, and structs.
+
+Contract Program {
+    static fn Main() {
+        IO.Println("=== Contracts as Classes ===");
+
+        var p = new Point(3, 4);
+        IO.Print("Point: ");
+        IO.Print(Convert.ToString(p.GetX()));
+        IO.Print(", ");
+        IO.Println(Convert.ToString(p.GetY()));
+        IO.Print("Distance from origin (squared): ");
+        IO.Println(Convert.ToString(p.DistanceSquared()));
+
+        IO.Println("");
+        IO.Println("=== Inheritance ===");
+
+        var d = new Dog("Rex", "German Shepherd");
+        IO.Print("Dog: ");
+        IO.Print(d.GetName());
+        IO.Print(" the ");
+        IO.Println(d.breed);
+        IO.Print("Speaks: ");
+        IO.Println(d.speak());
+        IO.Print("Fetches: ");
+        IO.Println(d.fetch());
+
+        var cat = new Cat("Whiskers", 9);
+        IO.Print("Cat: ");
+        IO.Print(cat.GetName());
+        IO.Print(", ");
+        IO.Print(Convert.ToString(cat.lives));
+        IO.Println(" lives");
+        IO.Print("Speaks: ");
+        IO.Println(cat.speak());
+        IO.Print("Purrs: ");
+        IO.Println(cat.purr());
+
+        IO.Println("");
+        IO.Println("=== Static Fields (Shared State) ===");
+
+        Widget.Reset();
+        var w1 = new Widget("alpha");
+        var w2 = new Widget("beta");
+        var w3 = new Widget("gamma");
+        IO.Print("Widgets made: ");
+        IO.Println(Convert.ToString(Widget.GetCount()));
+        IO.Print("w1 serial: ");
+        IO.Println(Convert.ToString(w1.Serial()));
+        IO.Print("w2 serial: ");
+        IO.Println(Convert.ToString(w2.Serial()));
+
+        IO.Println("");
+        IO.Println("=== Access Modifiers ===");
+
+        var vault = new Vault();
+        vault.store(42);
+        IO.Print("Public field: ");
+        IO.Println(Convert.ToString(vault.opened));
+        IO.Print("Peek (uses private): ");
+        IO.Println(Convert.ToString(vault.peek()));
+
+        IO.Println("");
+        IO.Println("=== Structs (Value Types) ===");
+
+        // Positional construction: new Type(args) assigns fields in order
+        var c = new Color(255, 128, 0, 255);
+        IO.Print("Color: r=");
+        IO.Print(Convert.ToString(c.r));
+        IO.Print(" g=");
+        IO.Print(Convert.ToString(c.g));
+        IO.Print(" b=");
+        IO.Print(Convert.ToString(c.b));
+        IO.Print(" a=");
+        IO.Println(Convert.ToString(c.a));
+
+        // Default construction: all fields get zero values
+        var defaultColor = new Color();
+        IO.Print("Default color r=");
+        IO.Println(Convert.ToString(defaultColor.r));
+
+        IO.Println("");
+        IO.Println("=== Nested Structs ===");
+
+        var origin = new PointData(0, 0);
+        var farCorner = new PointData(100, 50);
+        IO.Print("Origin: ");
+        IO.Print(Convert.ToString(origin.x));
+        IO.Print(", ");
+        IO.Println(Convert.ToString(origin.y));
+        IO.Print("Far corner: ");
+        IO.Print(Convert.ToString(farCorner.x));
+        IO.Print(", ");
+        IO.Println(Convert.ToString(farCorner.y));
+
+        IO.Println("");
+        IO.Println("=== Instance Methods ===");
+
+        var counter = new Counter();
+        counter.increment();
+        counter.increment();
+        counter.increment();
+        counter.increment();
+        counter.increment();
+        IO.Print("Counter value: ");
+        IO.Println(Convert.ToString(counter.value()));
+
+        var named = new NamedCounter("step");
+        named.increment();
+        named.increment();
+        named.increment();
+        IO.Print("NamedCounter '");
+        IO.Print(named.GetName());
+        IO.Print("' value: ");
+        IO.Println(Convert.ToString(named.value()));
+
+        IO.Println("");
+        IO.Println("=== Enums ===");
+
+        IO.Print("ColorValue.Red = ");
+        IO.Println(Convert.ToString(ColorValue.Red));
+        IO.Print("ColorValue.Green = ");
+        IO.Println(Convert.ToString(ColorValue.Green));
+        IO.Print("ColorValue.Blue = ");
+        IO.Println(Convert.ToString(ColorValue.Blue));
+
+        switch (ColorValue.Green) {
+            case 0: IO.Println("Red selected");
+            case 1: IO.Println("Green selected");
+            case 2: IO.Println("Blue selected");
+            else: IO.Println("Unknown color");
+        }
+
+        IO.Println("");
+        IO.Println("=== Cross-Instance Field Access ===");
+
+        var a = new Point(10, 20);
+        var b = new Point(30, 40);
+        IO.Print("a.x = ");
+        IO.Print(Convert.ToString(a.x));
+        IO.Print(", b.x = ");
+        IO.Println(Convert.ToString(b.x));
+
+        // Modify through one, read from another
+        a.x = 99;
+        IO.Print("After a.x = 99: a.x = ");
+        IO.Print(Convert.ToString(a.x));
+        IO.Print(", b.x = ");
+        IO.Println(Convert.ToString(b.x));
+
+        IO.Println("");
+        IO.Println("=== :: Scoped Access ===");
+
+        IO.Println(Utils::Triple(5));
+        IO.Println(Utils.Triple(10));
+
+        IO.Println("");
+        IO.Println("Done!");
+    }
+}
+
+// -- Point (contract with constructor and methods) --
+
+Contract Point {
+    public x: int;
+    public y: int;
+
+    constructor(x: int, y: int) {
+        this.x = x;
+        this.y = y;
+    }
+
+    fn GetX() -> int {
+        return x;
+    }
+
+    fn GetY() -> int {
+        return y;
+    }
+
+    fn DistanceSquared() -> int {
+        return x * x + y * y;
+    }
+}
+
+// -- Animal base class --
+
+Contract Animal {
+    private name: string;
+
+    constructor(name: string) {
+        this.name = name;
+    }
+
+    fn GetName() -> string {
+        return name;
+    }
+
+    fn speak() -> string {
+        return "...";
+    }
+}
+
+// -- Dog (inherits Animal) --
+
+Contract Dog : Animal {
+    public breed: string;
+
+    constructor(name: string, breed: string) {
+        this.breed = breed;
+    }
+
+    fn speak() -> string {
+        return "Woof!";
+    }
+
+    fn fetch() -> string {
+        return "fetches the ball";
+    }
+}
+
+// -- Cat (inherits Animal) --
+
+Contract Cat : Animal {
+    public lives: int;
+
+    constructor(name: string, lives: int) {
+        this.lives = lives;
+    }
+
+    fn speak() -> string {
+        return "Meow!";
+    }
+
+    fn purr() -> string {
+        return "purrrr...";
+    }
+}
+
+// -- Widget (static field demo) --
+
+Contract Widget {
+    static count: int;
+    public name: string;
+    public serial: int;
+
+    constructor(name: string) {
+        this.name = name;
+        count = count + 1;
+        this.serial = count;
+    }
+
+    fn Serial() -> int {
+        return serial;
+    }
+
+    static fn Reset() {
+        count = 0;
+    }
+
+    static fn GetCount() -> int {
+        return count;
+    }
+}
+
+// -- Vault (access modifiers demo) --
+
+Contract Vault {
+    private secret: int;
+    public opened: int;
+
+    private fn hidden() -> int {
+        return 42;
+    }
+
+    public fn peek() -> int {
+        return secret + hidden();
+    }
+
+    public fn store(v: int) {
+        secret = v;
+        opened = v;
+    }
+}
+
+// -- Color struct --
+
+struct Color {
+    r: byte;
+    g: byte;
+    b: byte;
+    a: byte;
+}
+
+// -- Simple data struct --
+
+struct PointData {
+    x: int;
+    y: int;
+}
+
+// -- Simple Counter --
+
+Contract Counter {
+    count: int;
+
+    constructor() {
+        this.count = 0;
+    }
+
+    fn increment() {
+        this.count += 1;
+    }
+
+    fn value() -> int {
+        return this.count;
+    }
+}
+
+// -- Named Counter --
+
+Contract NamedCounter {
+    count: int;
+    private label: string;
+
+    constructor(label: string) {
+        this.label = label;
+        this.count = 0;
+    }
+
+    fn increment() {
+        this.count += 1;
+    }
+
+    fn value() -> int {
+        return this.count;
+    }
+
+    fn GetName() -> string {
+        return label;
+    }
+}
+
+// -- Utility contract --
+
+Contract Utils {
+    static fn Triple(x: int) -> int {
+        return x * 3;
+    }
+}
+
+// -- Enum --
+
+enum ColorValue {
+    Red, Green, Blue
+}

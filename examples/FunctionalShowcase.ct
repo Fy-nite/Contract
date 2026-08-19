@@ -1,0 +1,393 @@
+// FunctionalShowcase.ct
+// A comprehensive tour of Contract's functional programming features:
+// lambdas, closures, pipe operator, composition, implicit lambdas,
+// higher-order functions, range literals, and Delegate<T>.
+
+Contract Program {
+    // -- Helper functions used by the examples --
+
+    static fn double(x: int) -> int {
+        return x * 2;
+    }
+
+    static fn addOne(x: int) -> int {
+        return x + 1;
+    }
+
+    static fn negate(x: int) -> int {
+        return -x;
+    }
+
+    static fn square(x: int) -> int {
+        return x * x;
+    }
+
+    static fn halve(x: int) -> int {
+        return x / 2;
+    }
+
+    static fn isPositive(x: int) -> bool {
+        return x > 0;
+    }
+
+    static fn abs(x: int) -> int {
+        if (x < 0) {
+            return -x;
+        }
+        return x;
+    }
+
+    // Higher-order: takes a function and applies it twice.
+    static fn twice(f: (int) -> int, x: int) -> int {
+        return f(f(x));
+    }
+
+    // Higher-order: takes a function and a value, applies f to value n times.
+    static fn applyNTimes(f: (int) -> int, n: int, x: int) -> int {
+        var result: int = x;
+        var i: int = 0;
+        while (i < n) {
+            result = f(result);
+            i = i + 1;
+        }
+        return result;
+    }
+
+    // Returns a lambda that adds `base` to its argument (closure factory).
+    static fn makeAdder(base: int) -> (int) -> int {
+        return fun x -> x + base;
+    }
+
+    // Returns a lambda that multiplies its argument by `factor`.
+    static fn makeMultiplier(factor: int) -> (int) -> int {
+        return fun x -> x * factor;
+    }
+
+    // Returns a lambda that clamps to [lo, hi].
+    static fn makeClamp(lo: int, hi: int) -> (int) -> int {
+        return fun x -> {
+            if (x < lo) {
+                return lo;
+            }
+            if (x > hi) {
+                return hi;
+            }
+            return x;
+        };
+    }
+
+    // A function that takes a function type and returns its result.
+    static fn apply5(f: (int) -> int) -> int {
+        return f(5);
+    }
+
+    static fn Main() {
+        IO.Println("=== 1. Lambda Basics ===");
+
+        // Simple lambda: fun x -> expr
+        let inc = fun x -> x + 1;
+        IO.Println(inc(10));            // 11
+
+        // Multi-parameter lambda
+        let add = fun a b -> a + b;
+        IO.Println(add(3, 4));          // 7
+
+        // Block-bodied lambda
+        let doubleThenAdd = fun (x: int) -> {
+            let d = x * 2;
+            return d + 1;
+        };
+        IO.Println(doubleThenAdd(5));   // 11
+
+        // Lambda with no parameters
+        let greet = fun -> { return "hello"; };
+        IO.Println(greet());            // hello
+
+        IO.Println("");
+        IO.Println("=== 2. Pipe Operator ===");
+
+        // Pipe passes left value as first argument to right function
+        IO.Println(10 |> inc);          // 11
+        IO.Println(5 |> double);        // 10
+        IO.Println(3 |> square);        // 9
+
+        // Chaining pipes (left-to-right data flow)
+        let result = 3 |> addOne |> square;
+        IO.Println(result);             // 16  — (3+1)^2
+
+        // Three-step pipeline
+        let r2 = 2 |> double |> addOne |> square;
+        IO.Println(r2);                 // 25  — ((2*2)+1)^2
+
+        // Pipe into a module member
+        let upper = "hello" |> String.ToUpper;
+        IO.Println(upper);              // HELLO
+
+        // Pipe into a contract static
+        let d = 21 |> double;
+        IO.Println(d);                  // 42
+
+        IO.Println("");
+        IO.Println("=== 3. Implicit Lambdas with _ ===");
+
+        // _ in a let initializer makes an implicit lambda
+        let incr = _ + 1;
+        IO.Println(10 |> incr);         // 11
+
+        // _ in a pipe RHS
+        let sq = 7 |> _ * _;
+        IO.Println(sq);                 // 49
+
+        // The _ marker is the parameter; used multiple times
+        let cube = _ * _ * _;
+        IO.Println(3 |> cube);          // 27
+
+        // Nested implicit lambda
+        let addTen = _ + 10;
+        IO.Println(5 |> addTen);        // 15
+
+        IO.Println("");
+        IO.Println("=== 4. Pipe Holes ===");
+
+        // A bare _ in a call argument marks where the piped value lands
+        let padded = "hi" |> String.Concat(_, "!");
+        IO.Println(padded);             // hi!
+
+        // Value goes into the second slot
+        let stamp = "5" |> String.Concat("x", _);
+        IO.Println(stamp);              // x5
+
+        // Without a hole, piped value is prepended
+        let upper2 = "hello" |> String.ToUpper;
+        IO.Println(upper2);             // HELLO
+
+        IO.Println("");
+        IO.Println("=== 5. Function Composition with >> ===");
+
+        // f >> g means fun x -> g(f(x))
+        let doubleThenInc = double >> addOne;
+        IO.Println(4 |> doubleThenInc); // 9  — (4*2)+1
+
+        // Chain multiple compositions
+        let pipeline = double >> double >> addOne;
+        IO.Println(3 |> pipeline);      // 13  — ((3*2)*2)+1
+
+        // Composition with module members
+        let lenOfUpper = String.ToUpper >> String.Length;
+        IO.Println(lenOfUpper("hey"));  // 3
+
+        // Compose a custom function with stdlib
+        let absThenDouble = abs >> double;
+        IO.Println((-5) |> absThenDouble); // 10
+
+        IO.Println("");
+        IO.Println("=== 6. Range Literals ===");
+
+        // Inclusive integer range (lowers to an array)
+        let nums = 1..5;
+        IO.Println(nums.Length);         // 5
+        IO.Println(nums[0]);             // 1
+        IO.Println(nums[4]);             // 5
+
+        // Descending range
+        let rev = 3..1;
+        IO.Println(rev[0]);              // 3
+        IO.Println(rev[2]);              // 1
+
+        // Single-element range
+        let one = 7..7;
+        IO.Println(one.Length);          // 1
+        IO.Println(one[0]);              // 7
+
+        IO.Println("");
+        IO.Println("=== 7. Closures ===");
+
+        // Closure capturing a local variable
+        var base: int = 10;
+        let addBase = fun x -> x + base;
+        IO.Println(addBase(1));          // 11
+        IO.Println(addBase(5));          // 15
+
+        // Closure with mutable capture (shared state)
+        var count: int = 0;
+        let bump = fun -> {
+            count += 1;
+            return count;
+        };
+        IO.Println(bump());              // 1
+        IO.Println(bump());              // 2
+        IO.Println(bump());              // 3
+        IO.Println(count);               // 3 — visible from outer scope
+
+        // Closure factory: each call returns an independent closure
+        let add5 = makeAdder(5);
+        let add10 = makeAdder(10);
+        IO.Println(add5(3));             // 8
+        IO.Println(add10(3));            // 13
+
+        let triple = makeMultiplier(3);
+        IO.Println(triple(7));           // 21
+
+        // Independent counters via closures
+        let counter1 = makeAdder(0);
+        let counter2 = makeAdder(0);
+
+        IO.Println(counter1(1));         // 1  — these are independent closures
+        IO.Println(counter1(1));         // 2
+        IO.Println(counter2(1));         // 1  — separate from counter1
+
+        IO.Println("");
+        IO.Println("=== 8. Higher-Order Functions ===");
+
+        // Pass lambdas as arguments
+        IO.Println(apply5(inc));         // 6
+        IO.Println(apply5(double));      // 10
+        IO.Println(apply5(fun x -> x * x)); // 25
+
+        // twice: apply a function twice
+        IO.Println(twice(addOne, 5));    // 7
+        IO.Println(twice(double, 3));    // 12
+
+        // applyNTimes: apply n times
+        IO.Println(applyNTimes(addOne, 10, 0));   // 10
+        IO.Println(applyNTimes(double, 4, 1));    // 16
+        IO.Println(applyNTimes(square, 2, 3));    // 81  — (3^2)^2
+
+        // Lambda passed directly (no local binding)
+        IO.Println(apply5(fun x -> x + 100)); // 105
+
+        // Clamping via closure factory
+        let clamp0100 = makeClamp(0, 100);
+        IO.Println(clamp0100(50));       // 50
+        IO.Println(clamp0100(-10));      // 0
+        IO.Println(clamp0100(200));      // 100
+
+        IO.Println("");
+        IO.Println("=== 9. Delegate<T> ===");
+
+        // Delegate<T> is interchangeable with function types
+        var myFunc: Delegate<(int) -> int> = inc;
+        IO.Println(myFunc(9));           // 10
+
+        // Double-call: invoke a function that returns a delegate
+        IO.Println(makeAdder(100)(5));   // 105
+
+        // Assign a lambda to a Delegate<T> local
+        var doubler: Delegate<(int) -> int> = double;
+        IO.Println(doubler(25));         // 50
+
+        // Delegate as a contract field
+        var box = new MathBox();
+        box.setOperation(double);
+        IO.Println(box.compute(6));      // 12
+        box.setOperation(square);
+        IO.Println(box.compute(6));      // 36
+
+        IO.Println("");
+        IO.Println("=== 10. Nested Lambdas ===");
+
+        // Lambda inside a lambda
+        var calls: int = 0;
+        let outer = fun -> {
+            let inner = fun -> {
+                calls += 1;
+            };
+            inner();
+            inner();
+        };
+        outer();
+        outer();
+        IO.Println(calls);              // 4  — inner called twice per outer
+
+        // Closures capturing closures
+        let makeAccumulator = fun (start: int) -> {
+            var total: int = start;
+            return fun (n: int) -> {
+                total += n;
+                return total;
+            };
+        };
+
+        var acc = makeAccumulator(0);
+        IO.Println(acc(10));             // 10
+        IO.Println(acc(20));             // 30
+        IO.Println(acc(5));              // 35
+
+        IO.Println("");
+        IO.Println("=== 11. Putting It All Together ===");
+
+        // A mini data transformation pipeline
+        let data = 1..10;
+
+        // Sum using functional style
+        var sum: int = 0;
+        for (n : data) {
+            sum += n;
+        }
+        IO.Println("Sum of 1..10: " + Convert.ToString(sum));
+
+        // Transform: double each, then negate
+        for (n : data) {
+            let transformed = n |> double |> negate;
+            if (n <= 3) {
+                IO.Println("  " + Convert.ToString(n) + " -> " + Convert.ToString(transformed));
+            }
+        }
+
+        // Count even numbers in 1..20
+        var evenCount: int = 0;
+        for (n : 1..20) {
+            if (n % 2 == 0) {
+                evenCount += 1;
+            }
+        }
+        IO.Println("Even numbers in 1..20: " + Convert.ToString(evenCount));
+
+        // Factorial using a closure
+        var factorial: (int) -> int = fun n -> {
+            if (n <= 1) {
+                return 1;
+            }
+            return n |> applyNTimes(fun x -> x - 1, n - 1) |> fun x -> {
+                // manual factorial via loop since we can't recurse with closures easily
+                return 0;
+            };
+        };
+        // Simple iterative factorial
+        let fact = fun n -> {
+            var result: int = 1;
+            var i: int = 1;
+            while (i <= n) {
+                result *= i;
+                i += 1;
+            }
+            return result;
+        };
+        IO.Println("5! = " + Convert.ToString(fact(5)));       // 120
+        IO.Println("10! = " + Convert.ToString(fact(10)));     // 3628800
+
+        // Compose factorial and double
+        let factThenDouble = fact >> double;
+        IO.Println("fact(5)*2 = " + Convert.ToString(factThenDouble(5))); // 240
+
+        IO.Println("");
+        IO.Println("Done!");
+    }
+}
+
+// A contract with a Delegate<T> field, showing functional + OOP interop.
+Contract MathBox {
+    public operation: Delegate<(int) -> int>;
+
+    constructor() {
+        this.operation = fun x -> x;
+    }
+
+    fn setOperation(op: Delegate<(int) -> int>) {
+        this.operation = op;
+    }
+
+    fn compute(x: int) -> int {
+        return this.operation(x);
+    }
+}

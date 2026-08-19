@@ -2155,7 +2155,7 @@ public class IRCodeGenerator
                         break;
                     }
                     GenerateExpression(ib, mem.Object, paramMap);
-                    if (mem.Property == "Length")
+                    if (mem.Property is "Length" or "Count")
                     {
                         // Array length
                         ib.Ldlen();

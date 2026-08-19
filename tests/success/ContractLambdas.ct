@@ -1,0 +1,30 @@
+Contract Math {
+    // fn anonymous lambda (Construct-style)
+    let add = fn (a: int, b: int) -> a + b;
+
+    // fun keyword
+    let mul = fun (a: int, b: int) -> a * b;
+
+    // Block body
+    let abs = fn (x: int) -> {
+        if (x < 0) { return 0 - x; }
+        return x;
+    };
+
+    // Explicit return type annotation
+    let negate: int = fn (x: int) -> 0 - x;
+
+    // No param type annotations (defaults to int)
+    let inc = fn (x) -> x + 1;
+}
+
+Contract Program {
+    static fn Main() {
+        IO.Println(Math.add(3, 4));          // 7
+        IO.Println(Math.mul(3, 4));          // 12
+        IO.Println(Math.abs(-5));            // 5
+        IO.Println(Math.abs(5));             // 5
+        IO.Println(Math.negate(10));         // -10
+        IO.Println(Math.inc(99));            // 100
+    }
+}
