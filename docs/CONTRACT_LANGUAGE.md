@@ -358,6 +358,37 @@ static fn Main() {
 }
 ```
 
+### Entry Point & Command-Line Arguments
+
+An executable program's entry point is a static `Main`. Like C#, it may take
+either no parameters or a single `string[]` that receives the command-line
+arguments passed to the program:
+
+```ct
+Contract Program {
+    static fn Main(args: string[]) {
+        IO.Println("arg count: " + Convert.ToString(args.Length));
+        for (var i = 0; i < args.Length; i = i + 1) {
+            IO.Println(Convert.ToString(i) + ": " + args[i]);
+        }
+    }
+}
+```
+
+Arguments after the source file are forwarded to `Main`:
+
+```
+ccl app.ct hello world 42
+# arg count: 3
+# 0: hello
+# 1: world
+# 2: 42
+```
+
+A `Main()` with no parameters is still valid — any arguments passed are simply
+ignored. The compiler rejects a `Main` that declares more than one parameter,
+or a single parameter that isn't a `string[]`.
+
 `::` is the same scoped-access operator used for stdlib modules (`IO::Println`).
 
 ### Functions with No Parameters

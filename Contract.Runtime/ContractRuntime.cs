@@ -176,13 +176,37 @@ public class ContractRuntime : IReflectHost, IHostedRuntime
 
     /// <summary>Loads and runs a module, then returns the entry method's result.</summary>
     public object? RunModule(ORBTModule module)
+        => RunModule(module, null);
+
+    /// <summary>
+    /// Loads and runs a module, then returns the entry method's result. If the
+    /// entry declares a C#-style <c>Main(string[] args)</c> parameter, the
+    /// command-line arguments are passed through; otherwise they're ignored.
+    /// </summary>
+    public object? RunModule(ORBTModule module, string[]? args)
     {
         PrepareModule(module);
         _runtime.LoadModule(module);
         var entry = FindEntry(module);
         if (entry == null)
             throw new InvalidOperationException("No entry point (class with static method Main) found.");
-        return _runtime.CallMethod<object?>(entry);
+        return _runtime.CallMethod<object?>(entry, EntryTakesArgs(module)
+            ? new object?[] { args ?? Array.Empty<string>() }
+            : Array.Empty<object?>());
+    }
+
+    /// <summary>True when the static Main entry declares a parameter (C#-style <c>Main(string[] args)</c>).</summary>
+    private static bool EntryTakesArgs(ORBTModule module)
+    {
+        foreach (var t in module.Types)
+        {
+            foreach (var m in t.Methods)
+            {
+                if (module.Resolve(m.NameIndex) == "Main")
+                    return m.ParamCount > 0;
+            }
+        }
+        return false;
     }
 
     /// <summary>

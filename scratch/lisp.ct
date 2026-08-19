@@ -218,9 +218,11 @@ Contract Lisp {
 
     static fn valueToString(v: Value) -> string {
         if (v.kind == "atom") {
+
             return v.atomVal;
         }
         if (v.kind == "lambda") {
+            Console.WriteLine(v);
             return "<lambda>";
         }
         if (v.kind == "list") {
@@ -320,7 +322,6 @@ Contract Lisp {
         tests.Add("(list 1 2 3 4 5 6 7 8 9 10)");
         tests.Add("(let ((x 10000)) (+ x x x x x x x x x x))");
         tests.Add("(lambda (n) (if (< n 2) 1 (* n n)))");
-
         var testCount = tests.Count();
         for (var i = 0; i < testCount; i = i + 1) {
             var input = tests.Get(i);

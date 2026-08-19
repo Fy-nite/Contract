@@ -19,7 +19,7 @@ Contract Program {
 Compile it:
 
 ```powershell
-dotnet run --project .\Contract.Cli\ -- .\hello.ct
+ccl .\hello.ct
 ```
 
 You'll see `Bytecode written to: .\hello.oir`.

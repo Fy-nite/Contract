@@ -812,6 +812,26 @@ namespace Contract.Compiler.Semantics
                 DeclareVariable(param.Name, param.Type, param.Line, param.Column, trackUsage: false);
             }
 
+            // C#-style entry point: `Main()` or `Main(args: string[])`.
+            if (func.Name == "Main" && func.IsStatic)
+            {
+                if (func.Parameters.Count > 1)
+                {
+                    _diagnostics.AddError("Entry point 'Main' may take at most one parameter (a string[] of command-line arguments)", func.Line, func.Column);
+                }
+                else if (func.Parameters.Count == 1)
+                {
+                    var p = func.Parameters[0];
+                    bool isStringArray = p.Type is TypeDescriptor.ArrayOf arr
+                        && arr.Element is TypeDescriptor.Named en
+                        && en.Name.Equals("string", StringComparison.OrdinalIgnoreCase);
+                    if (!isStringArray)
+                    {
+                        _diagnostics.AddError("Entry point 'Main' parameter must be of type 'string[]'", p.Line, p.Column);
+                    }
+                }
+            }
+
             if (func.ReturnType != null)
             {
                 if (func.ReturnType is TypeDescriptor.Named rn && !rn.IsEmpty)

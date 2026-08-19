@@ -202,7 +202,7 @@ namespace Contract.Cli
                     }
                     else
                     {
-                        rt.RunModule(module);
+                        rt.RunModule(module, files.Skip(1).ToArray());
                     }
                     if (callCounts != null) EmitCallgraph(callCounts);
                     return 0;
@@ -253,7 +253,7 @@ namespace Contract.Cli
                 }
                 else
                 {
-                    rt.RunModule(runModule);
+                    rt.RunModule(runModule, files.Skip(1).ToArray());
                 }
                 if (callCounts != null) EmitCallgraph(callCounts);
                 return 0;
@@ -373,6 +373,7 @@ Project commands:
 
 Examples:
   contract hello.ct                      Compile + run
+  contract hello.ct a b c                Compile + run, passing a b c to Main(string[] args)
   contract -c hello.ct -o hello.orbt     Compile to binary (default)
   contract -c hello.ct -f oil            Compile to .oil text
   contract run hello.orbt                Run precompiled binary

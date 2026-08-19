@@ -46,7 +46,7 @@ thing.
 
 ## Type inference
 
-You can leave the type off when the initializer makes it obvious:
+You can leave the type off when the initial value makes it obvious:
 
 ```ct
 let answer = 42;        // int
