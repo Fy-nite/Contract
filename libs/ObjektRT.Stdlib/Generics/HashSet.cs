@@ -1,9 +1,12 @@
+using ObjektRT.Core.Attributes;
+
 namespace ObjektRT.Stdlib.Generics;
 
 /// <summary>
 /// HashSet helpers over object-backed sets (unique elements). A generic
 /// ObjektRT stdlib module. The runtime stores sets as opaque object handles.
 /// </summary>
+[ClassBinding("HashSet")]
 public static class HashSet
 {
     /// <summary>Creates a new empty set.</summary>

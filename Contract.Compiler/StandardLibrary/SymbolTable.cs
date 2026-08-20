@@ -3,23 +3,10 @@ using System.Reflection;
 using System.Collections.Generic;
 using System.Linq;
 using Contract.Compiler.AST;
+using ObjektRT.Core.Attributes;
 
 namespace Contract.Compiler.StandardLibrary
 {
-    [AttributeUsage(AttributeTargets.Class)]
-    public class ClassBindingAttribute : Attribute
-    {
-        public string Name { get; }
-        public ClassBindingAttribute(string name) => Name = name;
-    }
-
-    [AttributeUsage(AttributeTargets.Method)]
-    public class MethodBindingAttribute : Attribute
-    {
-        public string? Name { get; }
-        public MethodBindingAttribute(string? name = null) => Name = name;
-    }
-
     public class ExternalMethod
     {
         public string ClassName { get; }

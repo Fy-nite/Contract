@@ -1,6 +1,9 @@
+using ObjektRT.Core.Attributes;
+
 namespace ObjektRT.Stdlib.System;
 
 /// <summary>Directory operations. A generic ObjektRT stdlib module.</summary>
+[ClassBinding("Directory")]
 public static class Directory
 {
     /// <summary>True when a directory exists at <paramref name="path"/>.</summary>

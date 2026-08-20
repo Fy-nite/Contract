@@ -1,6 +1,9 @@
+using ObjektRT.Core.Attributes;
+
 namespace ObjektRT.Stdlib.Math;
 
 /// <summary>Numeric helpers. A generic ObjektRT stdlib module.</summary>
+[ClassBinding("Math")]
 public static class Numbers
 {
     /// <summary>Absolute value of an integer.</summary>

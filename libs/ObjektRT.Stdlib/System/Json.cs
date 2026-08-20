@@ -1,3 +1,5 @@
+using ObjektRT.Core.Attributes;
+
 namespace ObjektRT.Stdlib.System;
 
 /// <summary>
@@ -8,6 +10,7 @@ namespace ObjektRT.Stdlib.System;
 /// become string / int / double / bool / null. Round-trips through
 /// <see cref="Serialize"/> and <see cref="Parse"/>.
 /// </summary>
+[ClassBinding("Json")]
 public static class Json
 {
     /// <summary>Serializes a value (Dict/List handle or scalar) to a JSON string.</summary>

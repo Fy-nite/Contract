@@ -374,6 +374,45 @@ namespace Contract.Compiler.AST
         }
     }
 
+    // ── Error handling ─────────────────────────────────────────────
+
+    public class CatchClause : Node
+    {
+        public string? ExceptionType { get; }
+        public string ExceptionVar { get; }
+        public BlockStatement Body { get; }
+
+        public CatchClause(string? exceptionType, string exceptionVar, BlockStatement body, int line, int column)
+            : base(line, column)
+        {
+            ExceptionType = exceptionType;
+            ExceptionVar = exceptionVar;
+            Body = body;
+        }
+    }
+
+    public class TryStatement : Statement
+    {
+        public BlockStatement TryBlock { get; }
+        public List<CatchClause> CatchClauses { get; } = new();
+        public BlockStatement? FinallyBlock { get; set; }
+
+        public TryStatement(BlockStatement tryBlock, int line, int column) : base(line, column)
+        {
+            TryBlock = tryBlock;
+        }
+    }
+
+    public class ThrowStatement : Statement
+    {
+        public Expression Value { get; }
+
+        public ThrowStatement(Expression value, int line, int column) : base(line, column)
+        {
+            Value = value;
+        }
+    }
+
     public abstract class Expression : Node
     {
         protected Expression(int line, int column) : base(line, column) { }

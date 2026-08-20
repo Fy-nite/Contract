@@ -506,3 +506,4 @@ scratch/StructProbe/*.oil
 scratch/StructProbe/emit/
 .sourcedive/sourcedive.db
 .sourcedive/sourcedive.db.writer.lock
+docs/ROADMAP.md

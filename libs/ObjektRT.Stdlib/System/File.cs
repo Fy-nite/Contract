@@ -1,6 +1,9 @@
+using ObjektRT.Core.Attributes;
+
 namespace ObjektRT.Stdlib.System;
 
 /// <summary>File system I/O. A generic ObjektRT stdlib module.</summary>
+[ClassBinding("File")]
 public static class File
 {
     /// <summary>Reads the entire file at <paramref name="path"/> as a string.</summary>

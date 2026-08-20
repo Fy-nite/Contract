@@ -1,9 +1,12 @@
+using ObjektRT.Core.Attributes;
+
 namespace ObjektRT.Stdlib.System;
 
 /// <summary>
 /// String helpers. A generic ObjektRT stdlib module — the language's string
 /// '+' operator lowers to <see cref="Concat"/>.
 /// </summary>
+[ClassBinding("String")]
 public static class String
 {
     /// <summary>Returns the number of characters in <paramref name="str"/>.</summary>

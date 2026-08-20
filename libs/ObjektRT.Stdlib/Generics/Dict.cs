@@ -1,9 +1,12 @@
+using ObjektRT.Core.Attributes;
+
 namespace ObjektRT.Stdlib.Generics;
 
 /// <summary>
 /// Dict helpers over object-backed dictionaries. A generic ObjektRT stdlib
 /// module. The runtime stores dicts as opaque object handles.
 /// </summary>
+[ClassBinding("Dict")]
 public static class Dict
 {
     /// <summary>Creates a new empty dictionary.</summary>

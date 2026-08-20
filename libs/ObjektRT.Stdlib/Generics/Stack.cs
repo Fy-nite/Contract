@@ -1,9 +1,12 @@
+using ObjektRT.Core.Attributes;
+
 namespace ObjektRT.Stdlib.Generics;
 
 /// <summary>
 /// Stack helpers over object-backed stacks (LIFO). A generic ObjektRT stdlib
 /// module. The runtime stores stacks as opaque object handles.
 /// </summary>
+[ClassBinding("Stack")]
 public static class Stack
 {
     /// <summary>Creates a new empty stack.</summary>

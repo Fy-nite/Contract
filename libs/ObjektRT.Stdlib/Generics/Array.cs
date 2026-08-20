@@ -1,6 +1,9 @@
+using ObjektRT.Core.Attributes;
+
 namespace ObjektRT.Stdlib.Generics;
 
 /// <summary>Array helpers over object-backed arrays. A generic ObjektRT stdlib module.</summary>
+[ClassBinding("Array")]
 public static class Array
 {
     /// <summary>Number of elements in the array.</summary>

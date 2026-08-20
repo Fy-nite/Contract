@@ -1,6 +1,9 @@
+using ObjektRT.Core.Attributes;
+
 namespace ObjektRT.Stdlib.System;
 
 /// <summary>Globally-unique identifier helpers. A generic ObjektRT stdlib module.</summary>
+[ClassBinding("Guid")]
 public static class Guid
 {
     /// <summary>Returns a new random GUID as a string (e.g. "xxxxxxxx-xxxx-...").</summary>

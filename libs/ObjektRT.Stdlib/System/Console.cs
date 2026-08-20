@@ -1,9 +1,12 @@
+using ObjektRT.Core.Attributes;
+
 namespace ObjektRT.Stdlib.System;
 
 /// <summary>
 /// Console control: colors, cursor, and key input. A generic ObjektRT stdlib
 /// module. Complements the <c>IO</c> module (which handles plain text output).
 /// </summary>
+[ClassBinding("Console")]
 public static class Console
 {
     /// <summary>Sets the foreground text color. Names: black, darkblue, darkgreen, darkcyan, darkred, darkmagenta, darkyellow, gray, darkgray, blue, green, cyan, red, magenta, yellow, white.</summary>

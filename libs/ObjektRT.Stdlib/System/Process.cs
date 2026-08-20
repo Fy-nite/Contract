@@ -1,6 +1,9 @@
+using ObjektRT.Core.Attributes;
+
 namespace ObjektRT.Stdlib.System;
 
 /// <summary>Process execution. A generic ObjektRT stdlib module.</summary>
+[ClassBinding("Process")]
 public static class Process
 {
     /// <summary>Runs a command with arguments and returns its standard output (trimmed of the trailing newline).</summary>

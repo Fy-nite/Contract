@@ -9,4 +9,8 @@
     <RootNamespace>ObjektRT.Stdlib</RootNamespace>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\ObjektRT.Core\ObjektRT.Core.csproj" />
+  </ItemGroup>
+
 </Project>

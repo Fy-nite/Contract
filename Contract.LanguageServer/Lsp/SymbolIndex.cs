@@ -1265,4 +1265,75 @@ public class SymbolIndex
         if (_enums.Any(e => e.Name == name)) return SymbolCategory.Enum;
         return null;
     }
+
+    // ── Workspace symbols ─────────────────────────────────────────────────
+
+    /// <summary>Searches all indexed symbols by name substring (case-insensitive).</summary>
+    public List<SymbolInformation> WorkspaceSymbols(string query, string? stdlibModuleFilter = null)
+    {
+        var results = new List<SymbolInformation>();
+        foreach (var s in _all)
+        {
+            if (query.Length > 0
+                && !s.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+                && !(s.FullName != null && s.FullName.Contains(query, StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            results.Add(new SymbolInformation
+            {
+                Name = s.Name,
+                Kind = s.Category switch
+                {
+                    SymbolCategory.Contract => SymbolKind.Class,
+                    SymbolCategory.Struct => SymbolKind.Struct,
+                    SymbolCategory.Enum => SymbolKind.Enum,
+                    SymbolCategory.Function => s.Parent != null ? SymbolKind.Method : SymbolKind.Function,
+                    SymbolCategory.Constructor => SymbolKind.Constructor,
+                    SymbolCategory.Field => SymbolKind.Field,
+                    SymbolCategory.Parameter => SymbolKind.Variable,
+                    _ => SymbolKind.Variable,
+                },
+                Location = new Location { Uri = s.Uri, Range = s.SelectionRange },
+                ContainerName = s.Parent?.Name,
+            });
+        }
+        return results;
+    }
+
+    // ── Inlay hints ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Returns inlay hints for variable/field declarations that have an explicit
+    /// type in the AST but no type annotation in source (inferred bindings).
+    /// </summary>
+    public List<InlayHint> InlayHints(string uri, Range range)
+    {
+        var hints = new List<InlayHint>();
+        if (!_byUri.TryGetValue(uri, out var tops)) return hints;
+
+        foreach (var top in tops)
+            CollectInlayHints(top, range, hints);
+        return hints;
+    }
+
+    private void CollectInlayHints(SymbolInfo sym, Range range, List<InlayHint> hints)
+    {
+        if (sym.VarType != null && !sym.VarType.IsEmpty
+            && sym.Category is SymbolCategory.Field or SymbolCategory.Local)
+        {
+            if (range.Contains(sym.SelectionRange.Start))
+            {
+                hints.Add(new InlayHint
+                {
+                    Position = new Position(sym.Line - 1, sym.Column - 1 + sym.Length),
+                    Label = $": {sym.VarType}",
+                    Kind = InlayHintKind.Type,
+                });
+            }
+        }
+        foreach (var child in sym.Children)
+            CollectInlayHints(child, range, hints);
+        foreach (var local in sym.Locals)
+            CollectInlayHints(local, range, hints);
+    }
 }

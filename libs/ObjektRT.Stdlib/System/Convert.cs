@@ -1,6 +1,9 @@
+using ObjektRT.Core.Attributes;
+
 namespace ObjektRT.Stdlib.System;
 
 /// <summary>Type conversion helpers. A generic ObjektRT stdlib module.</summary>
+[ClassBinding("Convert")]
 public static class Convert
 {
     /// <summary>Parses <paramref name="value"/> as a base-10 integer.</summary>

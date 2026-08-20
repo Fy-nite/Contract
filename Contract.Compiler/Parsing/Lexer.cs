@@ -10,6 +10,7 @@ namespace Contract.Compiler.Parsing
         Contract, Fn, If, Else, While, For, Switch, Case, Return, Var, Let, Static,
         Public, Private, Protected, Internal, Null, Import, Constructor, Struct, Export, Fun, Types, Type, New,
         Break, Continue, True, False, Enum, Namespace,
+        Try, Catch, Finally, Throw,
         
         // Literals
         Identifier, IntLiteral, FloatLiteral, StringLiteral, InterpolatedString,
@@ -90,7 +91,11 @@ namespace Contract.Compiler.Parsing
             ["true"] = TokenType.True,
             ["false"] = TokenType.False,
             ["enum"] = TokenType.Enum,
-            ["namespace"] = TokenType.Namespace
+            ["namespace"] = TokenType.Namespace,
+            ["try"] = TokenType.Try,
+            ["catch"] = TokenType.Catch,
+            ["finally"] = TokenType.Finally,
+            ["throw"] = TokenType.Throw
         };
 
         public Lexer(string source, DiagnosticBag diagnostics, string? sourceFile = null)

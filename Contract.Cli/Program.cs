@@ -41,6 +41,37 @@ namespace Contract.Cli
                 return BuildProject(args.Skip(1).ToArray());
             }
 
+            if (args.Length > 0 && args[0] == "doc")
+            {
+                // Generate API documentation: ccl doc [--format html|md] [--output dir] [--title title]
+                return GenerateDocs(args.Skip(1).ToArray());
+            }
+
+            if (args.Length > 0 && args[0] == "install")
+            {
+                return InstallPackage(args.Skip(1).ToArray());
+            }
+
+            if (args.Length > 0 && args[0] == "remove")
+            {
+                return RemovePackage(args.Skip(1).ToArray());
+            }
+
+            if (args.Length > 0 && args[0] == "search")
+            {
+                return SearchPackages(args.Skip(1).ToArray());
+            }
+
+            if (args.Length > 0 && args[0] == "list")
+            {
+                return ListPackages(args.Skip(1).ToArray());
+            }
+
+            if (args.Length > 0 && args[0] == "debug")
+            {
+                return DebugProject(args.Skip(1).ToArray());
+            }
+
             var compileOnly = false;
             var debug = false;
             var verbose = false;
@@ -342,6 +373,7 @@ Usage:
   contract new [name] [options]         Scaffold a project (creates contract.ctproj + src/)
   contract build [options]              Build the project in the current directory
   contract lsp [--trace]                Run the language server (LSP over stdio)
+  contract debug [file.ct]              Run the debug adapter (DAP over stdio)
   contract --test                       Run the compiler test suite
 
 Options:
@@ -370,6 +402,12 @@ Project commands:
   contract build [--run] [--output path]
                          Read ./contract.ctproj, compile the main file
                          (exe → .orbt binary; lib → .oil text module)
+  contract doc [--format html|md]  Generate API docs from /// comments
+  contract install <pkg[@ver]>    Install a package from the Purr registry
+  contract remove <pkg>           Remove an installed package
+  contract search <query>         Search the Purr registry
+  contract list                   List installed packages
+  contract debug [file.ct]        Launch DAP debug server for VSCode
 
 Examples:
   contract hello.ct                      Compile + run
@@ -385,12 +423,13 @@ Examples:
 """);
         }
 
-        /// <summary>Scaffolds a new project: `ccl new [name] [--type exe|lib] [--namespace ns]`.</summary>
+        /// <summary>Scaffolds a new project: `ccl new [name] [--type exe|lib] [--namespace ns] [--version ver]`.</summary>
         static int NewProject(string[] args)
         {
             string? name = null;
             string type = "exe";
             string? ns = null;
+            string? version = null;
             for (int i = 0; i < args.Length; i++)
             {
                 switch (args[i])
@@ -403,6 +442,10 @@ Examples:
                     case "--namespace":
                         if (++i >= args.Length) { Error("--namespace requires a dotted name"); return 1; }
                         ns = args[i];
+                        break;
+                    case "--version":
+                        if (++i >= args.Length) { Error("--version requires a semver string"); return 1; }
+                        version = args[i];
                         break;
                     case "-h" or "--help": Help(); return 0;
                     default:
@@ -427,6 +470,9 @@ Examples:
                 Name = name ?? Path.GetFileName(fullRoot),
                 Type = type,
                 Namespace = ns,
+                Version = version ?? "0.1.0",
+                Description = $"A Contract {(type == "lib" ? "library" : "application")}",
+                Tags = new() { type == "lib" ? "library" : "application" }
             };
             project.Save(fullRoot);
 
@@ -547,6 +593,303 @@ Examples:
             {
                 Console.WriteLine("(library project — nothing to run)");
             }
+            return 0;
+        }
+
+        /// <summary>Generates API documentation: `ccl doc [--format html|md] [--output dir] [--title title]`.</summary>
+        static int GenerateDocs(string[] args)
+        {
+            string format = "html";
+            string? output = null;
+            string? title = null;
+            for (int i = 0; i < args.Length; i++)
+            {
+                switch (args[i])
+                {
+                    case "--format":
+                        if (++i >= args.Length) { Error("--format requires html|md"); return 1; }
+                        format = args[i].ToLowerInvariant();
+                        if (format is not ("html" or "md")) { Error("--format must be html or md"); return 1; }
+                        break;
+                    case "-o" or "--output":
+                        if (++i >= args.Length) { Error("--output requires a path"); return 1; }
+                        output = args[i];
+                        break;
+                    case "--title":
+                        if (++i >= args.Length) { Error("--title requires a string"); return 1; }
+                        title = args[i];
+                        break;
+                    case "-h" or "--help":
+                        Console.WriteLine("Usage: ccl doc [options]");
+                        Console.WriteLine();
+                        Console.WriteLine("Options:");
+                        Console.WriteLine("  --format html|md   Output format (default: html)");
+                        Console.WriteLine("  -o, --output DIR   Output directory (default: docs/)");
+                        Console.WriteLine("  --title TEXT       Project title");
+                        Console.WriteLine("  -h, --help         Show this help");
+                        return 0;
+                    default:
+                        if (args[i].StartsWith('-')) { Error($"Unknown option: {args[i]}"); return 1; }
+                        break;
+                }
+            }
+
+            // Load project for metadata
+            Contract.Compiler.ContractProject? project = null;
+            try { project = Contract.Compiler.ContractProject.Load(Directory.GetCurrentDirectory()); }
+            catch (FormatException ex) { Error(ex.Message); return 1; }
+
+            string projectRoot = project?.RootPath ?? Directory.GetCurrentDirectory();
+            string mainFile = project?.MainPath ?? Path.Combine(projectRoot, "src", "main.ct");
+
+            // Collect all .ct files in the project
+            var sourceFiles = Directory.GetFiles(projectRoot, "*.ct", SearchOption.AllDirectories)
+                .Where(f => !f.Contains(Path.Combine("bin", "")) && !f.Contains(Path.Combine(".purr", "")))
+                .ToList();
+
+            if (sourceFiles.Count == 0)
+            {
+                Error("No .ct source files found in this project.");
+                return 1;
+            }
+
+            Console.WriteLine($"Scanning {sourceFiles.Count} source file(s)...");
+
+            // Extract doc comments from each file
+            var fileDocs = new Dictionary<string, List<Contract.Compiler.Documentation.DocCommentExtractor.DocBlock>>();
+            foreach (var file in sourceFiles)
+            {
+                string source = File.ReadAllText(file);
+                string relPath = Path.GetRelativePath(projectRoot, file);
+                var docs = Contract.Compiler.Documentation.DocCommentExtractor.ExtractFromSource(source, relPath);
+
+                // Assign namespace from the project or file path
+                string ns = project?.Namespace ?? "";
+                if (docs.Count > 0 && string.IsNullOrEmpty(docs[0].Namespace))
+                {
+                    // Try to infer namespace from file path
+                    string dir = Path.GetDirectoryName(relPath) ?? "";
+                    if (dir.StartsWith("src")) dir = dir.Substring(3).TrimStart(Path.DirectorySeparatorChar, '/');
+                    if (!string.IsNullOrEmpty(dir))
+                        ns = dir.Replace(Path.DirectorySeparatorChar, '.').Replace('/', '.');
+                    foreach (var doc in docs)
+                        doc.Namespace = ns;
+                }
+
+                if (docs.Count > 0)
+                    fileDocs[relPath] = docs;
+            }
+
+            int totalDocs = fileDocs.Values.Sum(d => d.Count);
+            if (totalDocs == 0)
+            {
+                Console.WriteLine("No doc comments found. Add /// comments above declarations to generate docs.");
+                return 0;
+            }
+
+            Console.WriteLine($"Found {totalDocs} documented declaration(s).");
+
+            var genOptions = new Contract.Compiler.Documentation.DocGenerator.Options
+            {
+                Title = title ?? project?.Name ?? "Contract API",
+                OutputDir = output ?? Path.Combine(projectRoot, "docs"),
+                Format = format,
+                Version = project?.Version,
+                Description = project?.Description
+            };
+
+            var generator = new Contract.Compiler.Documentation.DocGenerator(genOptions);
+            generator.Generate(fileDocs);
+
+            Console.WriteLine($"Documentation generated: {genOptions.OutputDir}/ ({format})");
+            return 0;
+        }
+
+        /// <summary>Installs a package: `ccl install [name[@version]]`.</summary>
+        static int InstallPackage(string[] args)
+        {
+            if (args.Length == 0 || args[0] is "-h" or "--help")
+            {
+                Console.WriteLine("Usage: ccl install <package[@version]>");
+                Console.WriteLine();
+                Console.WriteLine("Examples:");
+                Console.WriteLine("  ccl install ObjektRT            Install latest version");
+                Console.WriteLine("  ccl install ObjektRT@1.2.0      Install specific version");
+                return 0;
+            }
+
+            string packageName = args[0];
+            Contract.Compiler.ContractProject? project = null;
+            try { project = Contract.Compiler.ContractProject.Load(Directory.GetCurrentDirectory()); }
+            catch (FormatException ex) { Error(ex.Message); return 1; }
+
+            string projectRoot = project?.RootPath ?? Directory.GetCurrentDirectory();
+            using var client = new PurrClient();
+            var resolver = new PackageResolver(client, projectRoot);
+
+            var info = resolver.InstallAsync(packageName).GetAwaiter().GetResult();
+            if (info == null) return 1;
+
+            // Add to .ctproj dependencies
+            if (project != null)
+            {
+                project.Dependencies ??= new();
+                if (!project.Dependencies.Any(d => d.Name.Equals(info.Name, StringComparison.OrdinalIgnoreCase)))
+                {
+                    project.Dependencies.Add(new Contract.Compiler.PackageDependency
+                    {
+                        Name = info.Name,
+                        Version = info.Version
+                    });
+                    project.Save(projectRoot);
+                    Console.WriteLine($"Added {info.Name}@{info.Version} to dependencies");
+                }
+            }
+
+            Console.WriteLine("Done.");
+            return 0;
+        }
+
+        /// <summary>Removes a package: `ccl remove <name>`.</summary>
+        static int RemovePackage(string[] args)
+        {
+            if (args.Length == 0 || args[0] is "-h" or "--help")
+            {
+                Console.WriteLine("Usage: ccl remove <package>");
+                return 0;
+            }
+
+            string packageName = args[0];
+            Contract.Compiler.ContractProject? project = null;
+            try { project = Contract.Compiler.ContractProject.Load(Directory.GetCurrentDirectory()); }
+            catch (FormatException ex) { Error(ex.Message); return 1; }
+
+            string projectRoot = project?.RootPath ?? Directory.GetCurrentDirectory();
+            using var client = new PurrClient();
+            var resolver = new PackageResolver(client, projectRoot);
+
+            if (resolver.Remove(packageName))
+            {
+                Console.WriteLine($"Removed {packageName}");
+
+                // Remove from .ctproj dependencies
+                if (project?.Dependencies != null)
+                {
+                    project.Dependencies.RemoveAll(d => d.Name.Equals(packageName, StringComparison.OrdinalIgnoreCase));
+                    project.Save(projectRoot);
+                }
+                return 0;
+            }
+            else
+            {
+                Error($"Package '{packageName}' is not installed.");
+                return 1;
+            }
+        }
+
+        /// <summary>Searches the Purr registry: `ccl search <query>`.</summary>
+        static int SearchPackages(string[] args)
+        {
+            if (args.Length == 0 || args[0] is "-h" or "--help")
+            {
+                Console.WriteLine("Usage: ccl search <query>");
+                return 0;
+            }
+
+            string query = string.Join(" ", args);
+            using var client = new PurrClient();
+
+            Console.Write($"Searching for '{query}'...");
+            var results = client.SearchAsync(query).GetAwaiter().GetResult();
+
+            if (results.Count == 0)
+            {
+                Console.WriteLine(" no results.");
+                return 0;
+            }
+
+            Console.WriteLine($" {results.Count} result(s):");
+            Console.WriteLine();
+            foreach (var pkg in results)
+            {
+                Console.Write($"  {pkg.Name}@{pkg.Version}");
+                if (pkg.Author != null) Console.Write($" by {pkg.Author}");
+                Console.WriteLine();
+                if (pkg.Description != null)
+                    Console.WriteLine($"    {pkg.Description}");
+                if (pkg.Tags != null && pkg.Tags.Count > 0)
+                    Console.WriteLine($"    tags: {string.Join(", ", pkg.Tags)}");
+                Console.WriteLine($"    downloads: {pkg.Downloads}");
+            }
+            return 0;
+        }
+
+        /// <summary>Lists installed packages: `ccl list`.</summary>
+        static int ListPackages(string[] args)
+        {
+            Contract.Compiler.ContractProject? project = null;
+            try { project = Contract.Compiler.ContractProject.Load(Directory.GetCurrentDirectory()); }
+            catch (FormatException ex) { Error(ex.Message); return 1; }
+
+            string projectRoot = project?.RootPath ?? Directory.GetCurrentDirectory();
+            using var client = new PurrClient();
+            var resolver = new PackageResolver(client, projectRoot);
+
+            var installed = resolver.ListInstalled();
+            if (installed.Count == 0)
+            {
+                Console.WriteLine("No packages installed. Use `ccl install <package>` to add one.");
+                return 0;
+            }
+
+            Console.WriteLine("Installed packages:");
+            foreach (var pkg in installed)
+                Console.WriteLine($"  {pkg.Name} v{pkg.Version}");
+
+            return 0;
+        }
+
+        /// <summary>Launches the DAP debug server: `ccl debug [file.ct]`.</summary>
+        static int DebugProject(string[] args)
+        {
+            string? file = null;
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (args[i] is "-h" or "--help")
+                {
+                    Console.WriteLine("Usage: ccl debug [file.ct]");
+                    Console.WriteLine();
+                    Console.WriteLine("Launches the Debug Adapter Protocol (DAP) server over stdin/stdout.");
+                    Console.WriteLine("Intended to be launched by VSCode's launch.json configuration.");
+                    return 0;
+                }
+                if (!args[i].StartsWith('-'))
+                    file = args[i];
+            }
+
+            // If no file given, try loading from project
+            if (file == null)
+            {
+                Contract.Compiler.ContractProject? project = null;
+                try { project = Contract.Compiler.ContractProject.Load(Directory.GetCurrentDirectory()); }
+                catch (FormatException ex) { Error(ex.Message); return 1; }
+                file = project?.MainPath;
+                if (file == null || !File.Exists(file))
+                {
+                    Error("No source file specified and no project found. Usage: ccl debug <file.ct>");
+                    return 1;
+                }
+            }
+
+            if (!File.Exists(file))
+            {
+                Error($"File not found: {file}");
+                return 1;
+            }
+
+            // DAP server communicates over stdin/stdout using Content-Length headers
+            var server = new Contract.LanguageServer.Dap.DapServer(Console.In, Console.Out);
+            server.RunAsync().GetAwaiter().GetResult();
             return 0;
         }
     }

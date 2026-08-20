@@ -1,8 +1,8 @@
 {
   "name": "contract-language-support",
   "displayName": "Contract Language Support",
-  "description": "Language support for the Contract language: syntax highlighting, diagnostics, hover, go-to-definition and document symbols via the Contract language server.",
-  "version": "0.1.0",
+  "description": "Language support for the Contract language: syntax highlighting, diagnostics, hover, go-to-definition, document symbols, rename, formatting, code lens, inlay hints and workspace symbol search via the Contract language server.",
+  "version": "0.2.0",
   "publisher": "contractir",
   "license": "MIT",
   "engines": {
@@ -27,7 +27,53 @@
         "extensions": [
           ".ct"
         ],
-        "configuration": "./language-configuration.json"
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/ct.svg",
+          "dark": "./icons/ct.svg"
+        }
+      },
+      {
+        "id": "orbt",
+        "aliases": [
+          "ObjectRT Binary",
+          "orbt"
+        ],
+        "extensions": [
+          ".orbt"
+        ],
+        "icon": {
+          "light": "./icons/orbt.svg",
+          "dark": "./icons/orbt.svg"
+        }
+      },
+      {
+        "id": "oil",
+        "aliases": [
+          "ObjectIL",
+          "oil"
+        ],
+        "extensions": [
+          ".oil"
+        ],
+        "icon": {
+          "light": "./icons/oil.svg",
+          "dark": "./icons/oil.svg"
+        }
+      },
+      {
+        "id": "ctproj",
+        "aliases": [
+          "Contract Project",
+          "ctproj"
+        ],
+        "extensions": [
+          ".ctproj"
+        ],
+        "icon": {
+          "light": "./icons/ctproj.svg",
+          "dark": "./icons/ctproj.svg"
+        }
       }
     ],
     "grammars": [
@@ -35,6 +81,23 @@
         "language": "contract",
         "scopeName": "source.contract",
         "path": "./syntaxes/contract.tmLanguage.json"
+      },
+      {
+        "language": "oil",
+        "scopeName": "source.oil",
+        "path": "./syntaxes/oil.tmLanguage.json"
+      },
+      {
+        "language": "ctproj",
+        "scopeName": "source.ctproj",
+        "path": "./syntaxes/ctproj.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "contract.showReferences",
+        "title": "Show References",
+        "category": "Contract"
       }
     ],
     "configuration": {
@@ -53,9 +116,60 @@
           ],
           "default": "off",
           "description": "Trace LSP protocol traffic to the 'Contract Language Server' output channel."
+        },
+        "contract.debugger.path": {
+          "type": "string",
+          "default": "",
+          "description": "Optional explicit path to the CLI binary for debugging. If empty, the extension runs 'ccl debug' from PATH."
         }
       }
-    }
+    },
+    "debuggers": [
+      {
+        "type": "contract",
+        "label": "Contract",
+        "languages": ["contract"],
+        "configurationAttributes": {
+          "launch": {
+            "required": ["program"],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Path to the Contract source file to debug.",
+                "default": "${file}"
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Working directory for the debug session.",
+                "default": "${workspaceFolder}"
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "name": "Debug Contract",
+            "type": "contract",
+            "request": "launch",
+            "program": "${file}",
+            "cwd": "${workspaceFolder}"
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "Contract: Debug",
+            "description": "Debug a Contract program",
+            "body": {
+              "name": "Debug Contract",
+              "type": "contract",
+              "request": "launch",
+              "program": "${file}",
+              "cwd": "${workspaceFolder}"
+            }
+          }
+        ]
+      }
+    ]
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"

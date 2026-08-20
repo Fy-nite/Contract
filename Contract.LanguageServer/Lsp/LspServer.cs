@@ -47,6 +47,12 @@ public class LspServer
         rpc.OnRequest("textDocument/foldingRange", FoldingRanges);
         rpc.OnRequest("textDocument/semanticTokens/full", SemanticTokens);
         rpc.OnRequest("textDocument/codeAction", CodeActions);
+        rpc.OnRequest("textDocument/rename", Rename);
+        rpc.OnRequest("textDocument/prepareRename", PrepareRename);
+        rpc.OnRequest("textDocument/formatting", FormatDocument);
+        rpc.OnRequest("workspace/symbol", WorkspaceSymbols);
+        rpc.OnRequest("textDocument/codeLens", CodeLens);
+        rpc.OnRequest("textDocument/inlayHint", InlayHints);
         rpc.OnNotification("initialized", (_, _) => Task.CompletedTask);
         rpc.OnNotification("exit", Exit);
         rpc.OnNotification("textDocument/didOpen", DidOpen);
@@ -97,6 +103,12 @@ public class LspServer
                 {
                     CodeActionKinds = new List<string> { CodeActionKind.QuickFix },
                 },
+                RenameProvider = true,
+                PrepareRenameProvider = true,
+                DocumentFormattingProvider = true,
+                WorkspaceSymbolProvider = true,
+                CodeLensProvider = new CodeLensOptions { ResolveProvider = false },
+                InlayHintProvider = true,
             },
             ServerInfo = new ServerInfo { Name = "contract-language-server", Version = "0.2.0" },
         };
@@ -381,5 +393,188 @@ public class LspServer
             }
         }
         return Task.FromResult<object?>(actions.Count > 0 ? actions : null);
+    }
+
+    // ── Rename ───────────────────────────────────────────────────────────────
+
+    private async Task<object?> PrepareRename(JsonElement p, CancellationToken _)
+    {
+        var prms = p.Deserialize<TextDocumentPositionParams>(LspJson.Options);
+        if (prms == null) return null;
+        var doc = await EnsureCompiledAsync(prms.TextDocument.Uri) as Document;
+        if (doc?.LastCompilation == null) return null;
+
+        var target = _index.Resolve(doc.LastCompilation, prms.Position);
+        if (target?.Symbol == null) return null;
+
+        return new PrepareRenameResult
+        {
+            Range = target.Symbol.SelectionRange,
+            PlaceHolder = target.Symbol.Name,
+        };
+    }
+
+    private async Task<object?> Rename(JsonElement p, CancellationToken _)
+    {
+        var prms = p.Deserialize<RenameParams>(LspJson.Options);
+        if (prms == null) return null;
+        var doc = await EnsureCompiledAsync(prms.TextDocument.Uri) as Document;
+        if (doc?.LastCompilation == null) return null;
+
+        var target = _index.Resolve(doc.LastCompilation, prms.Position);
+        if (target?.Symbol == null) return null;
+
+        var refs = _index.References(doc.LastCompilation, prms.Position, true);
+        if (refs.Count == 0) return null;
+
+        var changes = new Dictionary<string, List<TextEdit>>();
+        foreach (var loc in refs)
+        {
+            if (!changes.TryGetValue(loc.Uri, out var edits))
+            {
+                edits = new List<TextEdit>();
+                changes[loc.Uri] = edits;
+            }
+            edits.Add(new TextEdit
+            {
+                Range = loc.Range,
+                NewText = prms.NewName,
+            });
+        }
+        return new WorkspaceEdit { Changes = changes };
+    }
+
+    // ── Formatting ───────────────────────────────────────────────────────────
+
+    private async Task<object?> FormatDocument(JsonElement p, CancellationToken _)
+    {
+        var prms = p.Deserialize<DocumentFormattingParams>(LspJson.Options);
+        if (prms == null) return null;
+        var doc = await EnsureCompiledAsync(prms.TextDocument.Uri) as Document;
+        if (doc?.LastCompilation == null) return null;
+
+        string formatted = ContractFormatter.Format(
+            doc.Text, doc.LastCompilation.MainTokens, prms.Options);
+
+        int lastLine = 0;
+        int lastCol = 0;
+        if (doc.Tokens != null && doc.Tokens.Count > 0)
+        {
+            var last = doc.Tokens[doc.Tokens.Count - 1];
+            lastLine = last.Line - 1;
+            lastCol = last.Column - 1 + last.Length;
+        }
+
+        return new List<TextEdit>
+        {
+            new TextEdit
+            {
+                Range = new Range(new Position(0, 0), new Position(lastLine, lastCol)),
+                NewText = formatted,
+            },
+        };
+    }
+
+    // ── Workspace symbols ────────────────────────────────────────────────────
+
+    private Task<object?> WorkspaceSymbols(JsonElement p, CancellationToken _)
+    {
+        var prms = p.Deserialize<WorkspaceSymbolParams>(LspJson.Options);
+        if (prms == null) return Task.FromResult<object?>(null);
+
+        var results = _index.WorkspaceSymbols(prms.Query);
+        return Task.FromResult<object?>(results.Count > 0 ? results : null);
+    }
+
+    // ── Code lens ────────────────────────────────────────────────────────────
+
+    private async Task<object?> CodeLens(JsonElement p, CancellationToken _)
+    {
+        var prms = p.Deserialize<CodeLensParams>(LspJson.Options);
+        if (prms == null) return null;
+        var doc = await EnsureCompiledAsync(prms.TextDocument.Uri) as Document;
+        if (doc?.LastCompilation == null) return null;
+
+        var lenses = new List<CodeLens>();
+        var symbols = _index.DocumentSymbols(prms.TextDocument.Uri);
+
+        foreach (var sym in symbols)
+            CollectCodeLenses(sym, prms.TextDocument.Uri, doc.LastCompilation, lenses);
+
+        return lenses.Count > 0 ? lenses : null;
+    }
+
+    private void CollectCodeLenses(DocumentSymbol sym, string uri, CompilationResult result, List<CodeLens> lenses)
+    {
+        if (sym.Kind is SymbolKind.Function or SymbolKind.Method
+            or SymbolKind.Class or SymbolKind.Struct
+            or SymbolKind.Field or SymbolKind.Enum)
+        {
+            var refs = _index.References(result, sym.SelectionRange.Start, false);
+            if (refs.Count > 0)
+            {
+                lenses.Add(new CodeLens
+                {
+                    Range = sym.SelectionRange,
+                    Command = new Command
+                    {
+                        Title = $"{refs.Count} reference{(refs.Count == 1 ? "" : "s")}",
+                        CommandId = "contract.showReferences",
+                        Arguments = new List<object>
+                        {
+                            uri,
+                            sym.SelectionRange.Start,
+                            refs,
+                        },
+                    },
+                });
+            }
+        }
+
+        if (sym.Children != null)
+            foreach (var child in sym.Children)
+                CollectCodeLenses(child, uri, result, lenses);
+    }
+
+    // ── Inlay hints ──────────────────────────────────────────────────────────
+
+    private async Task<object?> InlayHints(JsonElement p, CancellationToken _)
+    {
+        var prms = p.Deserialize<InlayHintParams>(LspJson.Options);
+        if (prms == null) return null;
+        var doc = await EnsureCompiledAsync(prms.TextDocument.Uri) as Document;
+        if (doc?.LastCompilation == null) return null;
+
+        var hints = _index.InlayHints(prms.TextDocument.Uri, prms.Range);
+
+        // Filter out hints where the type annotation is already visible in source
+        // (i.e. a Colon token immediately follows the name token).
+        if (doc.Tokens != null)
+        {
+            var filtered = new List<InlayHint>();
+            foreach (var hint in hints)
+            {
+                int line = hint.Position.Line + 1;
+                int col = hint.Position.Character + 1;
+                var tok = TextUtility.FindTokenAt(doc.Tokens, line, col);
+                if (tok != null && tok.Type == TokenType.Identifier)
+                {
+                    bool hasColonAfter = false;
+                    for (int ti = 0; ti < doc.Tokens.Count; ti++)
+                    {
+                        if (ReferenceEquals(doc.Tokens[ti], tok) && ti + 1 < doc.Tokens.Count)
+                        {
+                            hasColonAfter = doc.Tokens[ti + 1].Type == TokenType.Colon;
+                            break;
+                        }
+                    }
+                    if (hasColonAfter) continue;
+                }
+                filtered.Add(hint);
+            }
+            hints = filtered;
+        }
+
+        return hints.Count > 0 ? hints : null;
     }
 }

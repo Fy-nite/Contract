@@ -1,0 +1,94 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Contract Project",
+  "scopeName": "source.ctproj",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#constants" },
+    { "include": "#properties" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.ctproj",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.ctproj",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.ctproj",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.ctproj",
+          "match": "\\b\\d+\\.\\d+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.ctproj",
+          "match": "\\b\\d+\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.ctproj",
+          "match": "\\b(true|false|null)\\b"
+        }
+      ]
+    },
+    "properties": {
+      "patterns": [
+        {
+          "name": "support.type.property-name.ctproj",
+          "match": "\"[^\"]+\"(?=\\s*:)"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.definition.block.begin.ctproj",
+          "match": "\\{"
+        },
+        {
+          "name": "punctuation.definition.block.end.ctproj",
+          "match": "\\}"
+        },
+        {
+          "name": "punctuation.definition.array.begin.ctproj",
+          "match": "\\["
+        },
+        {
+          "name": "punctuation.definition.array.end.ctproj",
+          "match": "\\]"
+        },
+        {
+          "name": "punctuation.separator.key-value.ctproj",
+          "match": ":"
+        },
+        {
+          "name": "punctuation.separator.comma.ctproj",
+          "match": ","
+        }
+      ]
+    }
+  }
+}

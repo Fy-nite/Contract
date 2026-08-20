@@ -1,6 +1,7 @@
 using System.Linq;
 using System.Reflection;
 using Contract.Compiler.StandardLibrary;
+using ObjektRT.Core.Attributes;
 using ObjektRT.Core.Model;
 using ObjektRT.Core.Parsing;
 using ObjektRT.Core.Serialization;
@@ -49,67 +50,20 @@ public class ContractRuntime : IReflectHost, IHostedRuntime
 
     /// <summary>
     /// Registers every binding in the standard library. The implementations
-    /// live in the generic ObjektRT.Stdlib project and are callable from
-    /// Contract as <c>Module.Method(...)</c> under their short names
-    /// (<c>IO.Println</c>) or fully-qualified names
-    /// (<c>ObjektRT.Stdlib.System.IO.Println</c>).
+    /// live in the generic ObjektRT.Stdlib project and are auto-discovered
+    /// via <c>[ClassBinding]</c> attributes on each type. Adding a new
+    /// stdlib module requires only the attribute — no catalog update needed.
     /// </summary>
     public void RegisterDefaultBindings()
     {
-        // Short names — the everyday surface: IO.Println, String.Length, ...
-        RegisterBinding("IO", typeof(ObjektRT.Stdlib.System.IO));
-        RegisterBinding("String", typeof(ObjektRT.Stdlib.System.String));
-        RegisterBinding("Convert", typeof(ObjektRT.Stdlib.System.Convert));
-        RegisterBinding("Random", typeof(ObjektRT.Stdlib.System.Random));
-        RegisterBinding("File", typeof(ObjektRT.Stdlib.System.File));
-        RegisterBinding("Environment", typeof(ObjektRT.Stdlib.System.Environment));
-        RegisterBinding("GC", typeof(ObjektRT.Stdlib.System.GC));
-        RegisterBinding("Debug", typeof(ObjektRT.Stdlib.System.Debug));
-        RegisterBinding("Time", typeof(ObjektRT.Stdlib.System.Time));
-        RegisterBinding("Math", typeof(ObjektRT.Stdlib.Math.Numbers));
-        RegisterBinding("Thread", typeof(ObjektRT.Stdlib.Threading.Thread));
-        RegisterBinding("Array", typeof(ObjektRT.Stdlib.Generics.Array));
-        RegisterBinding("List", typeof(ObjektRT.Stdlib.Generics.List));
-        RegisterBinding("Dict", typeof(ObjektRT.Stdlib.Generics.Dict));
-        // Phase 2 additions
-        RegisterBinding("Json", typeof(ObjektRT.Stdlib.System.Json));
-        RegisterBinding("Path", typeof(ObjektRT.Stdlib.System.Path));
-        RegisterBinding("Directory", typeof(ObjektRT.Stdlib.System.Directory));
-        RegisterBinding("Process", typeof(ObjektRT.Stdlib.System.Process));
-        RegisterBinding("Guid", typeof(ObjektRT.Stdlib.System.Guid));
-        RegisterBinding("Base64", typeof(ObjektRT.Stdlib.System.Base64));
-        RegisterBinding("Console", typeof(ObjektRT.Stdlib.System.Console));
-        RegisterBinding("Stack", typeof(ObjektRT.Stdlib.Generics.Stack));
-        RegisterBinding("Queue", typeof(ObjektRT.Stdlib.Generics.Queue));
-        RegisterBinding("HashSet", typeof(ObjektRT.Stdlib.Generics.HashSet));
-
-        // Fully-qualified names — the official stdlib surface:
-        // ObjektRT.Stdlib.System.IO.Println, ...
-        RegisterBinding("ObjektRT.Stdlib.System.IO", typeof(ObjektRT.Stdlib.System.IO));
-        RegisterBinding("ObjektRT.Stdlib.System.String", typeof(ObjektRT.Stdlib.System.String));
-        RegisterBinding("ObjektRT.Stdlib.System.Convert", typeof(ObjektRT.Stdlib.System.Convert));
-        RegisterBinding("ObjektRT.Stdlib.System.Random", typeof(ObjektRT.Stdlib.System.Random));
-        RegisterBinding("ObjektRT.Stdlib.System.File", typeof(ObjektRT.Stdlib.System.File));
-        RegisterBinding("ObjektRT.Stdlib.System.Environment", typeof(ObjektRT.Stdlib.System.Environment));
-        RegisterBinding("ObjektRT.Stdlib.System.GC", typeof(ObjektRT.Stdlib.System.GC));
-        RegisterBinding("ObjektRT.Stdlib.System.Debug", typeof(ObjektRT.Stdlib.System.Debug));
-        RegisterBinding("ObjektRT.Stdlib.System.Time", typeof(ObjektRT.Stdlib.System.Time));
-        RegisterBinding("ObjektRT.Stdlib.Math.Numbers", typeof(ObjektRT.Stdlib.Math.Numbers));
-        RegisterBinding("ObjektRT.Stdlib.Threading.Thread", typeof(ObjektRT.Stdlib.Threading.Thread));
-        RegisterBinding("ObjektRT.Stdlib.Generics.Array", typeof(ObjektRT.Stdlib.Generics.Array));
-        RegisterBinding("ObjektRT.Stdlib.Generics.List", typeof(ObjektRT.Stdlib.Generics.List));
-        RegisterBinding("ObjektRT.Stdlib.Generics.Dict", typeof(ObjektRT.Stdlib.Generics.Dict));
-        // Phase 2 additions (fully-qualified)
-        RegisterBinding("ObjektRT.Stdlib.System.Json", typeof(ObjektRT.Stdlib.System.Json));
-        RegisterBinding("ObjektRT.Stdlib.System.Path", typeof(ObjektRT.Stdlib.System.Path));
-        RegisterBinding("ObjektRT.Stdlib.System.Directory", typeof(ObjektRT.Stdlib.System.Directory));
-        RegisterBinding("ObjektRT.Stdlib.System.Process", typeof(ObjektRT.Stdlib.System.Process));
-        RegisterBinding("ObjektRT.Stdlib.System.Guid", typeof(ObjektRT.Stdlib.System.Guid));
-        RegisterBinding("ObjektRT.Stdlib.System.Base64", typeof(ObjektRT.Stdlib.System.Base64));
-        RegisterBinding("ObjektRT.Stdlib.System.Console", typeof(ObjektRT.Stdlib.System.Console));
-        RegisterBinding("ObjektRT.Stdlib.Generics.Stack", typeof(ObjektRT.Stdlib.Generics.Stack));
-        RegisterBinding("ObjektRT.Stdlib.Generics.Queue", typeof(ObjektRT.Stdlib.Generics.Queue));
-        RegisterBinding("ObjektRT.Stdlib.Generics.HashSet", typeof(ObjektRT.Stdlib.Generics.HashSet));
+        // Auto-discover stdlib types via [ClassBinding] attribute scanning.
+        var stdlibAssembly = typeof(ObjektRT.Stdlib.System.IO).Assembly;
+        foreach (var type in TypeLoader.GetLoadableTypes(stdlibAssembly))
+        {
+            var attr = type.GetCustomAttribute<ClassBindingAttribute>();
+            if (attr != null)
+                RegisterBinding(attr.Name, type);
+        }
 
         // In-language reflection bridge (Contract-specific host).
         RegisterBinding("Reflect", typeof(Contract.Compiler.StandardLibrary.ReflectModule));
@@ -125,7 +79,7 @@ public class ContractRuntime : IReflectHost, IHostedRuntime
 
     /// <summary>
     /// Registers every class in an assembly annotated with
-    /// <see cref="Contract.Compiler.StandardLibrary.ClassBindingAttribute"/>,
+    /// <see cref="ObjektRT.Core.Attributes.ClassBindingAttribute"/>,
     /// keyed by the attribute's binding name. Useful for custom binding
     /// assemblies. Types whose dependencies are missing in this process are
     /// skipped (see <see cref="TypeLoader.GetLoadableTypes"/>).
@@ -134,7 +88,7 @@ public class ContractRuntime : IReflectHost, IHostedRuntime
     {
         foreach (var type in TypeLoader.GetLoadableTypes(assembly))
         {
-            var attr = type.GetCustomAttribute<Contract.Compiler.StandardLibrary.ClassBindingAttribute>();
+            var attr = type.GetCustomAttribute<ClassBindingAttribute>();
             if (attr != null)
                 RegisterBinding(attr.Name, type);
         }

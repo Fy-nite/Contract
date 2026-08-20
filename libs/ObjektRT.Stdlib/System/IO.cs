@@ -1,3 +1,5 @@
+using ObjektRT.Core.Attributes;
+
 namespace ObjektRT.Stdlib.System;
 
 /// <summary>
@@ -5,6 +7,7 @@ namespace ObjektRT.Stdlib.System;
 /// under any name (e.g. "ObjektRT.Stdlib.System.IO" or a short alias) via the
 /// runtime's CLR type registry.
 /// </summary>
+[ClassBinding("IO")]
 public static class IO
 {
     /// <summary>Prints a value to standard output without a trailing newline.</summary>

@@ -1597,6 +1597,33 @@ public class IRCodeGenerator
                     }
                 });
                 break;
+
+            case Contract.Compiler.AST.TryStatement tryStmt:
+                ib.Try(
+                    tryBody => GenerateStatement(tryBody, tryStmt.TryBlock, paramMap),
+                    catchBuilder =>
+                    {
+                        foreach (var cc in tryStmt.CatchClauses)
+                        {
+                            catchBuilder.Catch(cc.ExceptionType, cc.ExceptionVar, body =>
+                            {
+                                // Declare the exception local and store the thrown value
+                                body.Local(cc.ExceptionVar, new TypeRef("object"));
+                                body.Stloc(cc.ExceptionVar);
+                                GenerateStatement(body, cc.Body, paramMap);
+                            });
+                        }
+                    },
+                    tryStmt.FinallyBlock != null
+                        ? finBody => GenerateStatement(finBody, tryStmt.FinallyBlock!, paramMap)
+                        : null
+                );
+                break;
+
+            case Contract.Compiler.AST.ThrowStatement throwStmt:
+                GenerateExpression(ib, throwStmt.Value, paramMap);
+                ib.Throw();
+                break;
         }
     }
 

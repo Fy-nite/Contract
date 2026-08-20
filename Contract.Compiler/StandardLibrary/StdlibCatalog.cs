@@ -1,56 +1,32 @@
-using Contract.Compiler.StandardLibrary;
+using System.Reflection;
+using ObjektRT.Core.Attributes;
 
 namespace Contract.Compiler.StandardLibrary;
 
 /// <summary>
-/// Registers the <c>ObjektRT.Stdlib</c> modules into a
-/// <see cref="SymbolTable"/>. The stdlib project itself is free of
-/// Contract-specific attributes — this catalog is the Contract-side mapping
-/// from language module names to CLR types. Each module is registered under
-/// its fully-qualified dotted name (so <c>ObjektRT.Stdlib.System.IO.Println</c>
-/// and <c>import ObjektRT.Stdlib.System;</c> short forms resolve) and under
-/// its short name (so <c>IO.Println</c> works without an import). Hosts
-/// register the same types with the runtime's generic <c>RegisterClrType</c>.
+/// Auto-discovers <c>ObjektRT.Stdlib</c> types annotated with
+/// <see cref="ClassBindingAttribute"/> and registers them into a
+/// <see cref="SymbolTable"/>. Each type is registered under both its
+/// short name (e.g. <c>"IO"</c>) and the <c>__builtin.std.</c> prefix
+/// (e.g. <c>"__builtin.std.IO"</c>). Adding a new stdlib module now
+/// requires only the <c>[ClassBinding]</c> attribute on the type — no
+/// catalog update needed.
 /// </summary>
 public static class StdlibCatalog
 {
-    private static readonly (string Short, System.Type Type)[] Modules =
-    {
-        ("IO", typeof(ObjektRT.Stdlib.System.IO)),
-        ("String", typeof(ObjektRT.Stdlib.System.String)),
-        ("Convert", typeof(ObjektRT.Stdlib.System.Convert)),
-        ("Random", typeof(ObjektRT.Stdlib.System.Random)),
-        ("File", typeof(ObjektRT.Stdlib.System.File)),
-        ("Environment", typeof(ObjektRT.Stdlib.System.Environment)),
-        ("GC", typeof(ObjektRT.Stdlib.System.GC)),
-        ("Debug", typeof(ObjektRT.Stdlib.System.Debug)),
-        ("Time", typeof(ObjektRT.Stdlib.System.Time)),
-        ("Math", typeof(ObjektRT.Stdlib.Math.Numbers)),
-        ("Thread", typeof(ObjektRT.Stdlib.Threading.Thread)),
-        ("Array", typeof(ObjektRT.Stdlib.Generics.Array)),
-        ("List", typeof(ObjektRT.Stdlib.Generics.List)),
-        ("Dict", typeof(ObjektRT.Stdlib.Generics.Dict)),
-        // Phase 2 additions
-        ("Json", typeof(ObjektRT.Stdlib.System.Json)),
-        ("Path", typeof(ObjektRT.Stdlib.System.Path)),
-        ("Directory", typeof(ObjektRT.Stdlib.System.Directory)),
-        ("Process", typeof(ObjektRT.Stdlib.System.Process)),
-        ("Guid", typeof(ObjektRT.Stdlib.System.Guid)),
-        ("Base64", typeof(ObjektRT.Stdlib.System.Base64)),
-        ("Console", typeof(ObjektRT.Stdlib.System.Console)),
-        ("Stack", typeof(ObjektRT.Stdlib.Generics.Stack)),
-        ("Queue", typeof(ObjektRT.Stdlib.Generics.Queue)),
-        ("HashSet", typeof(ObjektRT.Stdlib.Generics.HashSet)),
-    };
-
     public static void RegisterInto(SymbolTable table)
     {
-        // Fully-qualified names: ObjektRT.Stdlib.System.IO, ...
-        foreach (var (_, type) in Modules)
-            table.RegisterExternalType(type.FullName!, type);
+        var assembly = typeof(ObjektRT.Stdlib.System.IO).Assembly;
+        foreach (var type in assembly.GetExportedTypes())
+        {
+            var attr = type.GetCustomAttribute<ClassBindingAttribute>();
+            if (attr == null) continue;
 
-        // Short names: IO, String, Math, ... (no import needed).
-        foreach (var (shortName, type) in Modules)
-            table.RegisterExternalType(shortName, type);
+            // Short name: IO, String, Math, ... (requires import __builtin.std;)
+            table.RegisterExternalType(attr.Name, type);
+
+            // Qualified name: __builtin.std.IO, __builtin.std.Math, ...
+            table.RegisterExternalType($"__builtin.std.{attr.Name}", type);
+        }
     }
 }

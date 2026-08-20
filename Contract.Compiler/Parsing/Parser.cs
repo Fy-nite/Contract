@@ -771,6 +771,14 @@ namespace Contract.Compiler.Parsing
             {
                 return ParseReturnStatement();
             }
+            else if (Match(TokenType.Try))
+            {
+                return ParseTryStatement();
+            }
+            else if (Match(TokenType.Throw))
+            {
+                return ParseThrowStatement();
+            }
             else if (Match(TokenType.LBrace))
             {
                 return ParseBlock();
@@ -1084,6 +1092,69 @@ namespace Contract.Compiler.Parsing
             Consume(TokenType.Semicolon, "Expected ';' after return statement");
 
             return new ReturnStatement(value, line, column);
+        }
+
+        private TryStatement ParseTryStatement()
+        {
+            int line = Previous.Line;
+            int column = Previous.Column;
+
+            Consume(TokenType.LBrace, "Expected '{' after 'try'");
+            var tryBlock = ParseBlock();
+            var stmt = new TryStatement(tryBlock, line, column);
+
+            while (Match(TokenType.Catch))
+            {
+                string? excType = null;
+                string excVar = "e";
+
+                // Optional type annotation: catch (TypeError e) or catch (e)
+                if (Check(TokenType.LParen))
+                {
+                    Advance();
+                    if (!Check(TokenType.RParen))
+                    {
+                        // First identifier is the variable unless a second follows (type var)
+                        if (Match(TokenType.Identifier))
+                        {
+                            string first = Previous.Text;
+                            if (Match(TokenType.Identifier))
+                            {
+                                excType = first;
+                                excVar = Previous.Text;
+                            }
+                            else
+                            {
+                                excVar = first;
+                            }
+                        }
+                    }
+                    Consume(TokenType.RParen, "Expected ')' after catch parameter");
+                }
+
+                Consume(TokenType.LBrace, "Expected '{' after catch");
+                var catchBody = ParseBlock();
+                stmt.CatchClauses.Add(new CatchClause(excType, excVar, catchBody, line, column));
+            }
+
+            if (Match(TokenType.Finally))
+            {
+                Consume(TokenType.LBrace, "Expected '{' after 'finally'");
+                stmt.FinallyBlock = ParseBlock();
+            }
+
+            return stmt;
+        }
+
+        private ThrowStatement ParseThrowStatement()
+        {
+            int line = Previous.Line;
+            int column = Previous.Column;
+
+            var value = ParseExpression();
+            Consume(TokenType.Semicolon, "Expected ';' after throw expression");
+
+            return new ThrowStatement(value, line, column);
         }
 
         private ExpressionStatement ParseExpressionStatement()

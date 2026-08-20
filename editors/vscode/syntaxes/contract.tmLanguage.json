@@ -37,7 +37,7 @@
     "keywords": {
       "patterns": [
         {
-          "match": "\\b(Contract|fn|if|else|while|for|switch|case|return|var|let|fun|static|public|private|protected|internal|null|import|constructor|struct|export|Types|type|new|break|continue|true|false)\\b",
+          "match": "\\b(Contract|fn|if|else|while|for|switch|case|return|var|let|fun|static|public|private|protected|internal|null|import|constructor|struct|export|Types|type|new|break|continue|true|false|try|catch|finally|throw)\\b",
           "name": "keyword.control.contract"
         }
       ]

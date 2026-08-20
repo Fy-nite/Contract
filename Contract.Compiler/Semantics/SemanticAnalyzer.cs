@@ -993,6 +993,10 @@ namespace Contract.Compiler.Semantics
             SwitchStatement sw => !(sw.Cases.Count > 0
                 && sw.Cases.Any(c => !CanFallThrough(c.Statements))
                 && sw.Cases.Any(c => (c.Value == null && c.StringValue == null) && !CanFallThrough(c.Statements))),
+            ThrowStatement => false,
+            TryStatement t => CanFallThrough(t.TryBlock)
+                || t.CatchClauses.Count > 0
+                || (t.FinallyBlock != null && CanFallThrough(t.FinallyBlock)),
             _ => true,
         };
 
@@ -1158,6 +1162,31 @@ namespace Contract.Compiler.Semantics
                     }
                     if (sw.Cases.Count == 0)
                         Warn("Switch statement has no cases", sw.Line, sw.Column);
+                    break;
+                case TryStatement tryStmt:
+                    AnalyzeStatement(tryStmt.TryBlock);
+                    foreach (var cc in tryStmt.CatchClauses)
+                    {
+                        // Register the exception variable in its own scope so
+                        // references resolve and unused-var analysis is scoped.
+                        _scopes.Push(new Dictionary<string, VariableDeclaration>());
+                        _varMutability.Push(new Dictionary<string, bool>());
+                        if (!string.IsNullOrEmpty(cc.ExceptionVar))
+                        {
+                            var decl = new VariableDeclaration(cc.ExceptionVar, new TypeDescriptor.Named("object"), null,
+                                cc.Line, cc.Column) { IsMutable = false };
+                            _scopes.Peek()[cc.ExceptionVar] = decl;
+                            _varMutability.Peek()[cc.ExceptionVar] = false;
+                        }
+                        AnalyzeStatement(cc.Body);
+                        _scopes.Pop();
+                        _varMutability.Pop();
+                    }
+                    if (tryStmt.FinallyBlock != null)
+                        AnalyzeStatement(tryStmt.FinallyBlock);
+                    break;
+                case ThrowStatement throwStmt:
+                    AnalyzeExpression(throwStmt.Value);
                     break;
             }
         }

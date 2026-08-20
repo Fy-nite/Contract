@@ -1,3 +1,5 @@
+using ObjektRT.Core.Attributes;
+
 namespace Contract.Compiler.StandardLibrary;
 
 /// <summary>

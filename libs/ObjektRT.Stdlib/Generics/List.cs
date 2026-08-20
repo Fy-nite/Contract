@@ -1,9 +1,12 @@
+using ObjektRT.Core.Attributes;
+
 namespace ObjektRT.Stdlib.Generics;
 
 /// <summary>
 /// List helpers over object-backed lists. A generic ObjektRT stdlib module.
 /// The runtime stores lists as opaque object handles.
 /// </summary>
+[ClassBinding("List")]
 public static class List
 {
     /// <summary>Creates a new empty list.</summary>

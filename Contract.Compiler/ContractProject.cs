@@ -1,10 +1,25 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Contract.Compiler
 {
+    /// <summary>
+    /// A reference to a package dependency from the Purr registry.
+    /// </summary>
+    public class PackageDependency
+    {
+        /// <summary>Package name on the Purr registry (e.g. "ObjektRT").</summary>
+        public string Name { get; set; } = "";
+
+        /// <summary>Semver version range. Empty or "*" means latest.</summary>
+        public string Version { get; set; } = "*";
+
+        public override string ToString() => string.IsNullOrEmpty(Version) || Version == "*" ? Name : $"{Name}@{Version}";
+    }
+
     /// <summary>
     /// A Contract project: a folder containing a <c>contract.ctproj</c> settings
     /// file that describes how to build the sources in the folder — as an
@@ -27,6 +42,26 @@ namespace Contract.Compiler
 
         /// <summary>Output directory for compiled modules, relative to the project root. Defaults to bin.</summary>
         public string Output { get; set; } = "bin";
+
+        // --- Metadata fields ---
+
+        /// <summary>Semver version string (e.g. "1.0.0").</summary>
+        public string? Version { get; set; }
+
+        /// <summary>Package author name.</summary>
+        public string? Author { get; set; }
+
+        /// <summary>Short description of the project.</summary>
+        public string? Description { get; set; }
+
+        /// <summary>License identifier (e.g. "MIT", "GPL-3.0").</summary>
+        public string? License { get; set; }
+
+        /// <summary>Tags for Purr registry search (e.g. ["library", "gui"]).</summary>
+        public List<string>? Tags { get; set; }
+
+        /// <summary>Package dependencies from the Purr registry.</summary>
+        public List<PackageDependency>? Dependencies { get; set; }
 
         /// <summary>True when the project builds as an executable (requires a Main entry point).</summary>
         [JsonIgnore]

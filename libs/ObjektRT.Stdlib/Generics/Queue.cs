@@ -1,9 +1,12 @@
+using ObjektRT.Core.Attributes;
+
 namespace ObjektRT.Stdlib.Generics;
 
 /// <summary>
 /// Queue helpers over object-backed queues (FIFO). A generic ObjektRT stdlib
 /// module. The runtime stores queues as opaque object handles.
 /// </summary>
+[ClassBinding("Queue")]
 public static class Queue
 {
     /// <summary>Creates a new empty queue.</summary>

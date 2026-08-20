@@ -1,0 +1,126 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "ObjectIL",
+  "scopeName": "source.oil",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#annotations" },
+    { "include": "#keywords" },
+    { "include": "#opcodes" },
+    { "include": "#types" },
+    { "include": "#metadata" },
+    { "include": "#functionCalls" },
+    { "include": "#identifiers" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.oil",
+          "match": "//.*$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.oil",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.oil",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.oil",
+          "match": "\\b\\d+\\.\\d+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.oil",
+          "match": "\\b\\d+\\b"
+        }
+      ]
+    },
+    "annotations": {
+      "patterns": [
+        {
+          "name": "storage.type.annotation.oil",
+          "match": "@\\w+"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.module.oil",
+          "match": "\\b(module|version)\\b"
+        },
+        {
+          "name": "keyword.control.declaration.oil",
+          "match": "\\b(class|struct|method|constructor|field|local|static|public|export)\\b"
+        },
+        {
+          "name": "keyword.control.flow.oil",
+          "match": "\\b(if|else|while|break|continue)\\b"
+        },
+        {
+          "name": "keyword.other.oil",
+          "match": "\\b(new|return)\\b"
+        }
+      ]
+    },
+    "opcodes": {
+      "patterns": [
+        {
+          "name": "support.type.opcode.oil",
+          "match": "\\b(ldarg|ldloc|stloc|stfld|ldfld|ldstr|ldc\\.i4|ldc\\.r8|call|ret|pop|dup|add|sub|mul|div|neg|ceq|clt|cgt|not|or|newobj|newarr|stelem|ldelem|ldlen|ldnull|stsfld)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.primitive.oil",
+          "match": "\\b(int32|int64|float64|bool|string|object|void|byte|sbyte|short|ushort|uint)\\b"
+        }
+      ]
+    },
+    "metadata": {
+      "patterns": [
+        {
+          "name": "keyword.control.metadata.oil",
+          "match": "\\.metadata"
+        },
+        {
+          "name": "keyword.other.require.oil",
+          "match": "\\brequire\\b"
+        }
+      ]
+    },
+    "functionCalls": {
+      "patterns": [
+        {
+          "name": "entity.name.function.oil",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_.]*)(?=\\s*\\()"
+        }
+      ]
+    },
+    "identifiers": {
+      "patterns": [
+        {
+          "name": "variable.other.oil",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"
+        }
+      ]
+    }
+  }
+}

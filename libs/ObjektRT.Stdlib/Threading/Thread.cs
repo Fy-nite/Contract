@@ -1,3 +1,5 @@
+using ObjektRT.Core.Attributes;
+
 namespace ObjektRT.Stdlib.Threading;
 
 /// <summary>
@@ -15,6 +17,7 @@ namespace ObjektRT.Stdlib.Threading;
 /// that take precedence at dispatch time. These stubs exist so language
 /// compilers can bind the calls at compile time.
 /// </summary>
+[ClassBinding("Thread")]
 public static class Thread
 {
     /// <summary>Suspends the current thread for the given number of milliseconds.</summary>

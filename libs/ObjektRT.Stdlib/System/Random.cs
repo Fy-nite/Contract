@@ -1,6 +1,9 @@
+using ObjektRT.Core.Attributes;
+
 namespace ObjektRT.Stdlib.System;
 
 /// <summary>Random number helpers. A generic ObjektRT stdlib module.</summary>
+[ClassBinding("Random")]
 public static class Random
 {
     /// <summary>Random integer in [0, <paramref name="max"/>).</summary>

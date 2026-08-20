@@ -36,11 +36,30 @@ namespace Contract.Compiler
 
         /// <summary>
         /// Search roots for Python-style namespace imports, after the importing
-        /// file's own directory: the main file's directory, then the CWD.
+        /// file's own directory: the main file's directory, then the CWD,
+        /// then any Purr package directories.
         /// </summary>
         private IEnumerable<string> ExtraSearchRoots()
         {
-            if (!string.IsNullOrEmpty(_mainFileDir)) yield return _mainFileDir;
+            if (!string.IsNullOrEmpty(_mainFileDir))
+            {
+                yield return _mainFileDir;
+
+                // Check for .purr/packages/ in the project root
+                string? projectRoot = _mainFileDir;
+                while (projectRoot != null && !File.Exists(Path.Combine(projectRoot, ContractProject.FileName)))
+                    projectRoot = Path.GetDirectoryName(projectRoot);
+
+                if (projectRoot != null)
+                {
+                    string purrPackages = Path.Combine(projectRoot, ".purr", "packages");
+                    if (Directory.Exists(purrPackages))
+                    {
+                        foreach (var pkgDir in Directory.GetDirectories(purrPackages))
+                            yield return pkgDir;
+                    }
+                }
+            }
             yield return Environment.CurrentDirectory;
         }
 

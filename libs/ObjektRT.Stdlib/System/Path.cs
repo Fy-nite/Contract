@@ -1,6 +1,9 @@
+using ObjektRT.Core.Attributes;
+
 namespace ObjektRT.Stdlib.System;
 
 /// <summary>Path manipulation. A generic ObjektRT stdlib module.</summary>
+[ClassBinding("Path")]
 public static class Path
 {
     /// <summary>Combines two path segments into one path.</summary>

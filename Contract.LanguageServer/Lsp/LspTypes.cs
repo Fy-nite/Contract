@@ -378,6 +378,12 @@ public class ServerCapabilities
     public bool FoldingRangeProvider { get; set; }
     public SemanticTokensOptions? SemanticTokensProvider { get; set; }
     public CodeActionOptions? CodeActionProvider { get; set; }
+    public bool RenameProvider { get; set; }
+    public bool PrepareRenameProvider { get; set; }
+    public bool DocumentFormattingProvider { get; set; }
+    public bool WorkspaceSymbolProvider { get; set; }
+    public CodeLensOptions? CodeLensProvider { get; set; }
+    public bool InlayHintProvider { get; set; }
 }
 
 public class ServerInfo
@@ -390,4 +396,95 @@ public class InitializeResult
 {
     public ServerCapabilities Capabilities { get; set; } = new();
     public ServerInfo? ServerInfo { get; set; }
+}
+
+// ── Rename ──────────────────────────────────────────────────────────────────
+
+public class RenameParams : TextDocumentPositionParams
+{
+    public string NewName { get; set; } = "";
+}
+
+public class PrepareRenameResult
+{
+    public Range Range { get; set; } = new();
+    public string PlaceHolder { get; set; } = "";
+}
+
+// ── Formatting ──────────────────────────────────────────────────────────────
+
+public class DocumentFormattingParams
+{
+    public TextDocumentIdentifier TextDocument { get; set; } = new();
+    public FormattingOptions Options { get; set; } = new();
+}
+
+public class FormattingOptions
+{
+    public int TabSize { get; set; } = 2;
+    public bool InsertSpaces { get; set; } = true;
+}
+
+// ── Workspace symbols ───────────────────────────────────────────────────────
+
+public class WorkspaceSymbolParams
+{
+    public string Query { get; set; } = "";
+}
+
+public class SymbolInformation
+{
+    public string Name { get; set; } = "";
+    public int Kind { get; set; }
+    public Location? Location { get; set; }
+    public string? ContainerName { get; set; }
+}
+
+// ── Code lens ───────────────────────────────────────────────────────────────
+
+public class CodeLensOptions
+{
+    public bool ResolveProvider { get; set; }
+}
+
+public class CodeLensParams
+{
+    public TextDocumentIdentifier TextDocument { get; set; } = new();
+}
+
+public class CodeLens
+{
+    public Range Range { get; set; } = new();
+    public Command? Command { get; set; }
+    public object? Data { get; set; }
+}
+
+public class Command
+{
+    public string Title { get; set; } = "";
+    [JsonPropertyName("command")]
+    public string CommandId { get; set; } = "";
+    public List<object>? Arguments { get; set; }
+}
+
+// ── Inlay hints ─────────────────────────────────────────────────────────────
+
+public class InlayHintParams
+{
+    public TextDocumentIdentifier TextDocument { get; set; } = new();
+    public Range Range { get; set; } = new();
+}
+
+public static class InlayHintKind
+{
+    public const int Type = 1;
+    public const int Parameter = 2;
+}
+
+public class InlayHint
+{
+    public Position Position { get; set; } = new();
+    public string Label { get; set; } = "";
+    public int? Kind { get; set; }
+    public MarkupContent? Tooltip { get; set; }
 }
