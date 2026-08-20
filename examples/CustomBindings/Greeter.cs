@@ -1,5 +1,6 @@
 using System;
 using Contract.Compiler.StandardLibrary;
+using ObjektRT.Core.Attributes;
 
 namespace Contract.CustomBindings
 {

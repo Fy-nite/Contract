@@ -1,5 +1,6 @@
 using Contract.Compiler.StandardLibrary;
 using Contract.Runtime;
+using ObjektRT.Core.Attributes;
 
 namespace UiProbe;
 
