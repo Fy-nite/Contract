@@ -24,6 +24,7 @@
     - contracts, functions, statements, and expressions.
     - delegates and closures.
     - the standard library surface.
+    - documentation comments and the API documentation generator.
     - the lowering model from Contract source to ObjektRT.
     - the runtime execution model (stack machine, heap, threading).
 
@@ -1343,6 +1344,8 @@ Key validation programs:
 
 = Tooling and Hosting
 
+<tooling>
+
 == The `contract` CLI
 
 The unified `Contract.Cli` tool compiles and runs Contract programs:
@@ -1388,6 +1391,81 @@ runtime error: DivisionByZero: division by zero
 The report shows the error kind, the failing IR instruction (opcode + pc),
 the original source line with a caret, and the call stack. It is colourised
 when stderr is a terminal (disabled by `NO_COLOR` or when redirected).
+
+#linebreak()
+
+= Documentation Comments
+
+<doc-comments>
+
+Declarations may carry *documentation comments*: consecutive lines beginning
+with `///` placed immediately above a declaration. To the compiler proper they
+are ordinary comments; their purpose is tooling. The `contract doc` command
+(@tooling) collects them and generates browsable API documentation in HTML or
+Markdown.
+
+```text
+/// <summary>Adds two integers.</summary>
+/// <param name="a">The first addend.</param>
+/// <param name="b">The second addend.</param>
+/// <returns>The sum of a and b.</returns>
+fn add(a: int, b: int) -> int {
+    return a + b;
+}
+```
+
+A documentation comment attaches to the next recognized declaration: a
+contract, struct, function, constructor, or field. Blank lines between the
+comment and its declaration are permitted.
+
+== Supported Tags
+
+<doc-tags>
+
+Each tag may appear at most once per comment, except `param`, which appears
+once per documented parameter:
+
+#table(
+  columns: (auto, auto),
+  table.header([*Tag*], [*Meaning*]),
+  [`<summary>...`], [One-line description shown beneath the declaration name],
+  [`<remarks>...`], [Extended prose; the singular `<remark>` is accepted as an alias],
+  [`<param name="x">...`], [Documents the parameter named `x`],
+  [`<returns>...`], [Describes the return value],
+  [`<example>...`], [A usage example, rendered as a code block],
+)
+
+(All tags close with the matching end tag; the table omits the closers for
+brevity.) When `<summary>` is absent, the first non-tag line of the comment
+becomes the summary. Tag content is plain text: version 1.0 defines no inline
+markup (such as `<c>` or `<see>`), and nested tags are not interpreted.
+
+== Generated Output
+
+The generator parses each declaration line into its structural parts and
+renders them separately in the output:
+
+- the declaration name,
+- modifier keywords (`public`, `private`, `static`, `export`, ...),
+- every parameter together with its declared type,
+- the declared return type (or, for fields, the declared type).
+
+Parameter types are preserved exactly as written, including array (`int[]`),
+generic (`Dict<string, int>`), and function types (`(int, int) -> int`).
+Parameters are listed in declaration order; a parameter documented with
+`<param>` but absent from the signature is listed last, after the declared
+ones.
+
+```text
+contract doc                    # generate docs for the current project
+contract doc --format md        # Markdown instead of HTML
+contract doc -o site/api --title MyLib
+```
+
+The generator scans every `.ct` file under the project root (excluding build
+directories). HTML output is a single self-contained `index.html` with a
+navigation sidebar and client-side search; Markdown output is an `index.md`
+with a table of contents.
 
 #linebreak()
 

@@ -1,0 +1,66 @@
+module Program version 1.0.0
+
+class Program {
+    static method Main() -> void {
+        // #line 11:31 "IO.Println(Geo.Triple(4));       // 12"
+        ldc.i4 4
+        // #line 11:31 "IO.Println(Geo.Triple(4));       // 12"
+        call com.lib.Geo.Triple(int32) -> int32
+        // #line 11:31 "IO.Println(Geo.Triple(4));       // 12"
+        call IO.Println(object) -> void
+        // #line 11:31 "IO.Println(Geo.Triple(4));       // 12"
+        pop
+        // #line 12:33 "IO.Println(Geo.Describe(Direction.North));  // north"
+        ldc.i4 0
+        // #line 12:33 "IO.Println(Geo.Describe(Direction.North));  // north"
+        call com.lib.Geo.Describe(int32) -> string
+        // #line 12:33 "IO.Println(Geo.Describe(Direction.North));  // north"
+        call IO.Println(object) -> void
+        // #line 12:33 "IO.Println(Geo.Describe(Direction.North));  // north"
+        pop
+        // #line 15:39 "IO.Println(com.lib.Geo.Triple(5));   // 15"
+        ldc.i4 5
+        // #line 15:39 "IO.Println(com.lib.Geo.Triple(5));   // 15"
+        call com.lib.Geo.Triple(int32) -> int32
+        // #line 15:39 "IO.Println(com.lib.Geo.Triple(5));   // 15"
+        call IO.Println(object) -> void
+        // #line 15:39 "IO.Println(com.lib.Geo.Triple(5));   // 15"
+        pop
+        // #line 16:20 "IO.Println(com.lib.Direction::West); // 3"
+        ldc.i4 3
+        // #line 16:20 "IO.Println(com.lib.Direction::West); // 3"
+        call IO.Println(object) -> void
+        // #line 16:20 "IO.Println(com.lib.Direction::West); // 3"
+        pop
+        // #line 16:20 "IO.Println(com.lib.Direction::West); // 3"
+        ret
+    }
+}
+
+class com.lib.Direction {
+    public static field North: int32
+    public static field East: int32
+    public static field South: int32
+    public static field West: int32
+}
+
+class com.lib.Geo {
+    static method Triple(x: int32) -> int32 {
+        ldarg 0
+        ldc.i4 3
+        mul
+        ret
+    }
+
+    static method Describe(d: int32) -> string {
+        ldarg 0
+        ldc.i4 0
+        ceq
+        if (stack) {
+            ldstr north
+            ret
+        }
+        ret
+    }
+}
+

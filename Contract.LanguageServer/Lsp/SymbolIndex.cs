@@ -40,6 +40,9 @@ public class SymbolInfo
     public string? Detail { get; init; }
     public string? Doc { get; init; }
     public TypeDescriptor? VarType { get; init; }
+    /// <summary>True for declarations synthesized from an imported compiled
+    /// module (.orbt/.oil) — they have no source position to navigate to.</summary>
+    public bool IsExternal { get; init; }
     public Range SelectionRange { get; init; } = new();
     public Range ContainerRange { get; init; } = new();
 }
@@ -85,6 +88,19 @@ public class SymbolIndex
 
         string? mainPathNorm = result.MainFile != null ? TextUtility.NormalizePath(result.MainFile.Path) : null;
 
+        // Compiled references (.orbt/.oil): map each module type's wire name to
+        // the file it was imported from, so the synthesized declarations below
+        // can be attributed to a URI.
+        var externalUris = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var file in result.Files.Values)
+        {
+            foreach (var extModule in file.Program.ExternalModules)
+            {
+                foreach (var cls in extModule.Classes) externalUris[cls.Name] = TextUtility.PathToUri(file.Path);
+                foreach (var str in extModule.Structs) externalUris[str.Name] = TextUtility.PathToUri(file.Path);
+            }
+        }
+
         foreach (var file in result.Files.Values)
         {
             string uri = mainPathNorm != null && TextUtility.NormalizePath(file.Path) == mainPathNorm
@@ -102,7 +118,27 @@ public class SymbolIndex
                 tops.Add(MakeFunction(fn, uri, file.Tokens, null, file.Source));
             _byUri[uri] = tops;
         }
+
+        // Imported compiled modules expose their types through IsExternal
+        // declarations synthesized onto the merged program. They have no source
+        // tokens, so they get synthetic positions — but indexing them makes
+        // completion, hover, and signature help see the library's members.
+        // They are deliberately kept out of _byUri (no document symbols).
+        var noTokens = new List<Token>();
+        foreach (var c in result.Program.Contracts)
+            if (c.IsExternal)
+                MakeContract(c, ExternalUri(externalUris, c.FullName), noTokens, "");
+        foreach (var s in result.Program.Structs)
+            if (s.IsExternal)
+                MakeStruct(s, ExternalUri(externalUris, s.FullName), noTokens, null, "");
+        foreach (var e in result.Program.Enums)
+            if (e.IsExternal)
+                MakeEnum(e, ExternalUri(externalUris, e.FullName), noTokens, null, "");
     }
+
+    /// <summary>The URI of the compiled module file that declared <paramref name="fullName"/>, or "" when unknown.</summary>
+    private static string ExternalUri(Dictionary<string, string> map, string? fullName)
+        => fullName != null && map.TryGetValue(fullName, out var uri) ? uri : "";
 
     // ── Symbol construction ──────────────────────────────────────────────────
 
@@ -116,6 +152,7 @@ public class SymbolIndex
             BaseTypeName = c.BaseTypeName,
             Category = SymbolCategory.Contract,
             Uri = uri,
+            IsExternal = c.IsExternal,
             Line = nameTok.Line,
             Column = nameTok.Column,
             Length = nameTok.Length,
@@ -158,6 +195,7 @@ public class SymbolIndex
             FullName = e.FullName,
             Category = SymbolCategory.Enum,
             Uri = uri,
+            IsExternal = e.IsExternal,
             Line = nameTok.Line,
             Column = nameTok.Column,
             Length = nameTok.Length,
@@ -208,6 +246,7 @@ public class SymbolIndex
             FullName = s.FullName,
             Category = SymbolCategory.Struct,
             Uri = uri,
+            IsExternal = s.IsExternal,
             Line = nameTok.Line,
             Column = nameTok.Column,
             Length = nameTok.Length,
@@ -230,11 +269,16 @@ public class SymbolIndex
     private SymbolInfo MakeFunction(FunctionDeclaration f, string uri, List<Token> tokens, SymbolInfo? parent, string source)
     {
         var nameTok = FindNameToken(tokens, f.Line, f.Column, f.Name);
+        // Members of an external (compiled-module) contract are library code:
+        // keep them out of _functions so they don't surface as top-level
+        // functions in completion and bare-call resolution.
+        bool external = parent?.IsExternal ?? false;
         var sym = new SymbolInfo
         {
             Name = f.Name,
             Category = SymbolCategory.Function,
             Uri = uri,
+            IsExternal = external,
             Line = nameTok.Line,
             Column = nameTok.Column,
             Length = nameTok.Length,
@@ -244,7 +288,7 @@ public class SymbolIndex
             SelectionRange = TextUtility.TokenRange(nameTok),
             ContainerRange = ComputeContainerRange(tokens, nameTok),
         };
-        _functions.Add(sym);
+        if (!external) _functions.Add(sym);
         _all.Add(sym);
 
         foreach (var p in f.Parameters)
@@ -656,7 +700,9 @@ public class SymbolIndex
         var detail = s.Detail ?? s.Name;
         string head = $"**{kind}** `{s.Name}`";
         if (s.Doc != null) head += $"\n\n{s.Doc}";
-        return $"{head}\n\n```contract\n{detail}\n```";
+        string text = $"{head}\n\n```contract\n{detail}\n```";
+        if (s.IsExternal) text += "\n\n*(external module)*";
+        return text;
     }
 
     public static string ExternalMethodSignature(ExternalMethod m)
@@ -1274,6 +1320,10 @@ public class SymbolIndex
         var results = new List<SymbolInformation>();
         foreach (var s in _all)
         {
+            // External (compiled-module) declarations have no navigable source
+            // position — offering them in workspace symbol search would just
+            // open a binary file.
+            if (s.IsExternal) continue;
             if (query.Length > 0
                 && !s.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
                 && !(s.FullName != null && s.FullName.Contains(query, StringComparison.OrdinalIgnoreCase)))

@@ -281,7 +281,8 @@ public class LspServer
         if (doc?.LastCompilation == null) return null;
 
         var target = _index.Resolve(doc.LastCompilation, prms.Position);
-        if (target?.Symbol == null) return null;
+        // External (compiled-module) symbols have no source declaration to jump to.
+        if (target?.Symbol == null || target.Symbol.IsExternal) return null;
         return new Location { Uri = target.Symbol.Uri, Range = target.Symbol.SelectionRange };
     }
 
@@ -405,7 +406,8 @@ public class LspServer
         if (doc?.LastCompilation == null) return null;
 
         var target = _index.Resolve(doc.LastCompilation, prms.Position);
-        if (target?.Symbol == null) return null;
+        // Library code from a compiled module can't be renamed.
+        if (target?.Symbol == null || target.Symbol.IsExternal) return null;
 
         return new PrepareRenameResult
         {
@@ -422,7 +424,8 @@ public class LspServer
         if (doc?.LastCompilation == null) return null;
 
         var target = _index.Resolve(doc.LastCompilation, prms.Position);
-        if (target?.Symbol == null) return null;
+        // Library code from a compiled module can't be renamed.
+        if (target?.Symbol == null || target.Symbol.IsExternal) return null;
 
         var refs = _index.References(doc.LastCompilation, prms.Position, true);
         if (refs.Count == 0) return null;
@@ -456,13 +459,15 @@ public class LspServer
         string formatted = ContractFormatter.Format(
             doc.Text, doc.LastCompilation.MainTokens, prms.Options);
 
+        // The edit must span the whole document: comments live outside the
+        // token stream, so a token-bounded range would leave stale tail text.
         int lastLine = 0;
         int lastCol = 0;
-        if (doc.Tokens != null && doc.Tokens.Count > 0)
+        if (doc.Text.Length > 0)
         {
-            var last = doc.Tokens[doc.Tokens.Count - 1];
-            lastLine = last.Line - 1;
-            lastCol = last.Column - 1 + last.Length;
+            lastLine = doc.Text.Count(c => c == '\n');
+            int lastNewline = doc.Text.LastIndexOf('\n');
+            lastCol = doc.Text.Length - lastNewline - 1;
         }
 
         return new List<TextEdit>

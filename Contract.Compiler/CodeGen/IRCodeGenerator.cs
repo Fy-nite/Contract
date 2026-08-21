@@ -214,6 +214,8 @@ public class IRCodeGenerator
 
         foreach (var cls in program.Contracts)
         {
+            if (cls.IsExternal) continue;   // statically linked below
+
             if (cls.NativeBindingName != null)
                 _nativeBindings[cls.Name] = cls.NativeBindingName;
             if (cls.ClrImportType != null)

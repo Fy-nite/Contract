@@ -144,33 +144,52 @@ public class DocGenerator
     {
         string id = $"-{doc.Name}";
         sb.AppendLine($"  <div class=\"decl\" id=\"{WebUtility.HtmlEncode(id)}\" data-kind=\"{doc.Kind}\">");
-        sb.AppendLine($"    <div class=\"decl-header\">");
-        sb.AppendLine($"      <span class=\"kind-badge {doc.Kind}\">{doc.Kind}</span>");
+        sb.AppendLine("    <div class=\"decl-header\">");
+        sb.AppendLine($"      <span class=\"kind-badge {doc.Kind}\">{WebUtility.HtmlEncode(doc.Kind)}</span>");
         sb.AppendLine($"      <h3 class=\"decl-name\">{WebUtility.HtmlEncode(doc.Name)}</h3>");
-        sb.AppendLine($"    </div>");
+        if (!string.IsNullOrEmpty(doc.ReturnType))
+        {
+            string arrow = doc.Kind == "field" ? ":" : "-&gt;";
+            sb.AppendLine($"      <span class=\"type-chip\">{arrow}&nbsp;{WebUtility.HtmlEncode(doc.ReturnType)}</span>");
+        }
+        sb.AppendLine("    </div>");
 
-        if (doc.Signature != null)
-            sb.AppendLine($"    <pre class=\"signature\">{WebUtility.HtmlEncode(doc.Signature)}</pre>");
+        sb.AppendLine($"    <pre class=\"signature\">{RenderSignature(doc)}</pre>");
 
         if (doc.Summary != null)
             sb.AppendLine($"    <p class=\"summary\">{WebUtility.HtmlEncode(doc.Summary)}</p>");
 
-        if (doc.Params.Count > 0)
+        var paramRows = OrderedParams(doc);
+        if (paramRows.Count > 0)
         {
             sb.AppendLine("    <div class=\"params\">");
             sb.AppendLine("      <h4>Parameters</h4>");
-            sb.AppendLine("      <dl>");
-            foreach (var (paramName, paramDoc) in doc.Params.OrderBy(p => p.Key))
+            sb.AppendLine("      <div class=\"param-list\">");
+            foreach (var (paramName, paramType) in paramRows)
             {
-                sb.AppendLine($"        <dt>{WebUtility.HtmlEncode(paramName)}</dt>");
-                sb.AppendLine($"        <dd>{WebUtility.HtmlEncode(paramDoc)}</dd>");
+                doc.Params.TryGetValue(paramName, out var paramDoc);
+                sb.AppendLine("        <div class=\"param-row\">");
+                sb.AppendLine($"          <span class=\"param-name\">{WebUtility.HtmlEncode(paramName)}</span>");
+                sb.AppendLine($"          <span class=\"param-type\">{WebUtility.HtmlEncode(paramType ?? "")}</span>");
+                sb.AppendLine($"          <span class=\"param-desc\">{WebUtility.HtmlEncode(paramDoc ?? "")}</span>");
+                sb.AppendLine("        </div>");
             }
-            sb.AppendLine("      </dl>");
+            sb.AppendLine("      </div>");
             sb.AppendLine("    </div>");
         }
 
-        if (doc.Returns != null)
-            sb.AppendLine($"    <div class=\"returns\"><h4>Returns</h4><p>{WebUtility.HtmlEncode(doc.Returns)}</p></div>");
+        if (doc.ReturnType != null || doc.Returns != null)
+        {
+            sb.AppendLine("    <div class=\"returns\">");
+            sb.AppendLine($"      <h4>{(doc.Kind == "field" ? "Type" : "Returns")}</h4>");
+            sb.Append("      <p>");
+            if (doc.ReturnType != null)
+                sb.Append($"<code class=\"ret-type\">{WebUtility.HtmlEncode(doc.ReturnType)}</code> ");
+            if (doc.Returns != null)
+                sb.Append(WebUtility.HtmlEncode(doc.Returns));
+            sb.AppendLine("</p>");
+            sb.AppendLine("    </div>");
+        }
 
         if (doc.Remarks != null)
             sb.AppendLine($"    <div class=\"remarks\"><h4>Remarks</h4><p>{WebUtility.HtmlEncode(doc.Remarks)}</p></div>");
@@ -189,6 +208,71 @@ public class DocGenerator
         }
 
         sb.AppendLine("  </div>");
+    }
+
+    /// <summary>
+    /// Renders the signature as structured spans (modifiers, keyword, name,
+    /// parameters with types, return type). Falls back to the raw line when
+    /// the signature was not parsed into parts.
+    /// </summary>
+    private static string RenderSignature(DocCommentExtractor.DocBlock doc)
+    {
+        if (doc.Keyword == null && !doc.HasParenList && doc.ReturnType == null)
+            return WebUtility.HtmlEncode(doc.Signature ?? doc.Name);
+
+        var sb = new StringBuilder();
+        foreach (var mod in doc.Modifiers)
+            sb.Append($"<span class=\"sig-mod\">{WebUtility.HtmlEncode(mod)}</span> ");
+
+        // Constructors carry no separate name; the keyword is the whole head.
+        bool isCtor = doc.Keyword?.Equals("constructor", StringComparison.OrdinalIgnoreCase) == true;
+        if (doc.Keyword != null)
+            sb.Append($"<span class=\"sig-kw\">{WebUtility.HtmlEncode(doc.Keyword)}</span>");
+        if (!isCtor && doc.Keyword != null)
+            sb.Append(' ');
+        if (!isCtor)
+            sb.Append($"<span class=\"sig-name\">{WebUtility.HtmlEncode(doc.Name)}</span>");
+
+        if (doc.HasParenList)
+        {
+            sb.Append('(');
+            for (int i = 0; i < doc.Parameters.Count; i++)
+            {
+                if (i > 0) sb.Append(", ");
+                var p = doc.Parameters[i];
+                sb.Append("<span class=\"sig-param\">");
+                sb.Append($"<span class=\"sig-pname\">{WebUtility.HtmlEncode(p.Name)}</span>");
+                if (p.Type != null)
+                    sb.Append($": <span class=\"sig-type\">{WebUtility.HtmlEncode(p.Type)}</span>");
+                sb.Append("</span>");
+            }
+            sb.Append(')');
+            if (doc.ReturnType != null)
+                sb.Append($" <span class=\"sig-arrow\">-&gt;</span> <span class=\"sig-type\">{WebUtility.HtmlEncode(doc.ReturnType)}</span>");
+        }
+        else if (doc.ReturnType != null)
+        {
+            sb.Append($": <span class=\"sig-type\">{WebUtility.HtmlEncode(doc.ReturnType)}</span>");
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Merges signature parameters (declaration order) with documented ones;
+    /// documented-but-undeclared names are appended alphabetically.
+    /// </summary>
+    private static List<(string Name, string? Type)> OrderedParams(DocCommentExtractor.DocBlock doc)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var list = new List<(string, string?)>();
+        foreach (var p in doc.Parameters)
+            if (seen.Add(p.Name))
+                list.Add((p.Name, p.Type));
+        foreach (var name in doc.Params.Keys.OrderBy(k => k, StringComparer.Ordinal))
+            if (seen.Add(name))
+                list.Add((name, null));
+        return list;
     }
 
     private void GenerateMarkdown(
@@ -249,18 +333,30 @@ public class DocGenerator
         if (doc.Summary != null)
             sb.AppendLine($"{doc.Summary}\n");
 
-        if (doc.Params.Count > 0)
+        var paramRows = OrderedParams(doc);
+        if (paramRows.Count > 0)
         {
             sb.AppendLine("**Parameters:**\n");
-            sb.AppendLine("| Name | Description |");
-            sb.AppendLine("|------|-------------|");
-            foreach (var (paramName, paramDoc) in doc.Params.OrderBy(p => p.Key))
-                sb.AppendLine($"| `{paramName}` | {paramDoc} |");
+            sb.AppendLine("| Name | Type | Description |");
+            sb.AppendLine("|------|------|-------------|");
+            foreach (var (paramName, paramType) in paramRows)
+            {
+                doc.Params.TryGetValue(paramName, out var paramDoc);
+                sb.AppendLine($"| `{paramName}` | `{paramType ?? ""}` | {paramDoc ?? ""} |");
+            }
             sb.AppendLine();
         }
 
-        if (doc.Returns != null)
-            sb.AppendLine($"**Returns:** {doc.Returns}\n");
+        if (doc.ReturnType != null || doc.Returns != null)
+        {
+            string label = doc.Kind == "field" ? "Type" : "Returns";
+            var line = $"**{label}:**";
+            if (doc.ReturnType != null)
+                line += $" `{doc.ReturnType}`";
+            if (doc.Returns != null)
+                line += (doc.ReturnType != null ? " — " : " ") + doc.Returns;
+            sb.AppendLine(line + "\n");
+        }
 
         if (doc.Remarks != null)
             sb.AppendLine($"**Remarks:** {doc.Remarks}\n");
@@ -294,6 +390,7 @@ public class DocGenerator
       .sidebar li a[data-kind=""struct""]::before { content: 'S '; color: #a371f7; font-weight: bold; }
       .sidebar li a[data-kind=""enum""]::before { content: 'E '; color: #3fb950; font-weight: bold; }
       .sidebar li a[data-kind=""function""]::before { content: 'f '; color: #58a6ff; font-weight: bold; }
+      .sidebar li a[data-kind=""constructor""]::before { content: 'ct '; color: #d2a8ff; font-weight: bold; }
       .sidebar li a[data-kind=""field""]::before { content: 'F '; color: #8b949e; font-weight: bold; }
       .nav-section { font-size: 11px; text-transform: uppercase; color: #8b949e; padding: 8px 8px 2px; letter-spacing: 0.5px; }
       .content { margin-left: 280px; padding: 40px; max-width: 900px; }
@@ -306,14 +403,24 @@ public class DocGenerator
       .kind-badge.struct { background: #a371f722; color: #a371f7; }
       .kind-badge.enum { background: #3fb95022; color: #3fb950; }
       .kind-badge.function { background: #58a6ff22; color: #58a6ff; }
+      .kind-badge.constructor { background: #d2a8ff22; color: #d2a8ff; }
       .kind-badge.field { background: #8b949e22; color: #8b949e; }
+      .type-chip { font-family: 'SF Mono', Consolas, monospace; font-size: 12px; font-weight: 600; color: #3fb950; background: #3fb95022; padding: 2px 8px; border-radius: 12px; }
       .signature { background: #161b22; padding: 12px 16px; border-radius: 6px; border: 1px solid #30363d; font-family: 'SF Mono', Consolas, monospace; font-size: 13px; color: #e6edf3; overflow-x: auto; margin: 8px 0; }
+      .sig-mod { color: #f0883e; }
+      .sig-kw { color: #ff7b72; }
+      .sig-name { color: #79c0ff; font-weight: 600; }
+      .sig-pname { color: #ffa657; }
+      .sig-type { color: #a5d6ff; }
+      .sig-arrow { color: #8b949e; }
       .summary { margin: 8px 0; line-height: 1.6; }
       .params h4, .returns h4, .remarks h4, .example h4 { font-size: 13px; color: #8b949e; margin: 12px 0 6px; }
-      .params dl { display: grid; grid-template-columns: 120px 1fr; gap: 4px 16px; }
-      .params dt { font-family: 'SF Mono', Consolas, monospace; font-size: 13px; color: #58a6ff; }
-      .params dd { font-size: 14px; }
-      .returns p { font-size: 14px; }
+      .param-list { display: grid; grid-template-columns: minmax(90px, max-content) minmax(110px, max-content) 1fr; gap: 5px 20px; align-items: baseline; }
+      .param-name { font-family: 'SF Mono', Consolas, monospace; font-size: 13px; color: #ffa657; }
+      .param-type { font-family: 'SF Mono', Consolas, monospace; font-size: 13px; color: #a5d6ff; }
+      .param-desc { font-size: 14px; }
+      .returns p { font-size: 14px; line-height: 1.6; }
+      .ret-type { font-family: 'SF Mono', Consolas, monospace; font-size: 13px; color: #3fb950; background: #161b22; border: 1px solid #30363d; padding: 1px 6px; border-radius: 4px; }
       .remarks p { font-size: 14px; line-height: 1.6; }
       .example pre { background: #161b22; padding: 12px 16px; border-radius: 6px; border: 1px solid #30363d; font-family: 'SF Mono', Consolas, monospace; font-size: 13px; overflow-x: auto; }
       .namespace { color: #58a6ff; margin: 32px 0 16px; font-size: 18px; border-bottom: 1px solid #21262d; padding-bottom: 8px; }

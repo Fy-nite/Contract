@@ -149,8 +149,104 @@ await clientRpc.NotifyAsync("textDocument/didChange", new DidChangeTextDocumentP
 var err = await errDiags.Task.WaitAsync(TimeSpan.FromSeconds(10));
 Check(err.Diagnostics.Count > 0, "broken line publishes diagnostics", $"count={err.Diagnostics.Count} first={(err.Diagnostics.Count > 0 ? err.Diagnostics[0].Message : "")}");
 
+// ── External compiled-module members (.oil import) ──────────────────────────
+
+// A tiny IR library on disk, imported DLL-style. Its members are synthesized
+// declarations with no source tokens — completion/hover/signature help must
+// still see them, while definition/rename must stay hands-off.
+var libPath = Path.GetFullPath("extlib.oil");
+File.WriteAllText(libPath, """
+module Lib version 1.0.0
+
+class Lib.Geo {
+    static method Triple(x: int32) -> int32 {
+        ldarg 0
+        ldc.i4 3
+        mul
+        ret
+    }
+}
+""");
+
+const string ExtSource = """
+import "extlib.oil";
+
+Contract Program {
+    static fn Main() {
+        var n = Geo.Triple(4);
+        IO.Println(n);
+    }
+}
+""";
+
+var extUri = new Uri(Path.GetFullPath("probe_ext.ct")).AbsoluteUri;
+var extDiags = new TaskCompletionSource<PublishDiagnosticsParams>(TaskCreationOptions.RunContinuationsAsynchronously);
+clientRpc.OnNotification("textDocument/publishDiagnostics", (p, _) =>
+{
+    var prms = p.Deserialize<PublishDiagnosticsParams>(LspJson.Options);
+    extDiags.TrySetResult(prms!);
+    return Task.CompletedTask;
+});
+await clientRpc.NotifyAsync("textDocument/didOpen", new DidOpenTextDocumentParams
+{
+    TextDocument = new TextDocumentItem { Uri = extUri, LanguageId = "contract", Version = 1, Text = ExtSource },
+});
+var extDiag = await extDiags.Task.WaitAsync(TimeSpan.FromSeconds(10));
+Check(extDiag.Diagnostics.Count == 0, "external-import program publishes no diagnostics",
+    $"count={extDiag.Diagnostics.Count} first={(extDiag.Diagnostics.Count > 0 ? extDiag.Diagnostics[0].Message : "")}");
+
+// Line 4 (0-based): `        var n = Geo.Triple(4);`
+// Geo=16-18, dot=19, Triple=20-25, lparen=26.
+var extComp = await clientRpc.RequestAsync<CompletionList>("textDocument/completion", new CompletionParams
+{
+    TextDocument = new TextDocumentIdentifier { Uri = extUri },
+    Position = new Position(4, 20),
+});
+Check(extComp?.Items.Any(i => i.Label == "Triple") == true, "completion offers external members",
+    $"labels=[{string.Join(", ", extComp?.Items.Select(i => i.Label) ?? Array.Empty<string>())}]");
+
+var extHover = await clientRpc.RequestAsync<Hover>("textDocument/hover", new TextDocumentPositionParams
+{
+    TextDocument = new TextDocumentIdentifier { Uri = extUri },
+    Position = new Position(4, 22),
+});
+Check(extHover?.Contents.Value.Contains("static fn Triple(x: int) -> int") == true
+    && extHover.Contents.Value.Contains("(external module)"),
+    "hover shows external method signature",
+    $"text='{extHover?.Contents.Value}'");
+
+var extSig = await clientRpc.RequestAsync<SignatureHelp>("textDocument/signatureHelp", new SignatureHelpParams
+{
+    TextDocument = new TextDocumentIdentifier { Uri = extUri },
+    Position = new Position(4, 27),
+});
+Check(extSig?.Signatures.Count > 0 && extSig.Signatures[0].Label.Contains("Triple(x: int)"),
+    "signature help resolves external method",
+    $"label='{extSig?.Signatures.FirstOrDefault()?.Label}'");
+
+var extDef = await clientRpc.RequestAsync<Location>("textDocument/definition", new TextDocumentPositionParams
+{
+    TextDocument = new TextDocumentIdentifier { Uri = extUri },
+    Position = new Position(4, 22),
+});
+Check(extDef == null, "definition stays silent for external symbols",
+    $"uri={extDef?.Uri}");
+
+var extRename = await clientRpc.RequestAsync<object?>("textDocument/prepareRename", new TextDocumentPositionParams
+{
+    TextDocument = new TextDocumentIdentifier { Uri = extUri },
+    Position = new Position(4, 22),
+});
+Check(extRename == null, "rename stays disabled for external symbols");
+
+var wsSym = await clientRpc.RequestAsync<List<SymbolInformation>>("workspace/symbol",
+    new WorkspaceSymbolParams { Query = "Triple" });
+Check(wsSym == null || wsSym.Count == 0, "workspace symbols exclude external declarations",
+    $"count={wsSym?.Count}");
+
 cts.Cancel();
 try { await serverTask; await clientTask; } catch { /* cancelled */ }
 
 Console.WriteLine($"\n== Probe results: {passed} passed, {failures.Count} failed ==");
 return failures.Count == 0 ? 0 : 1;
+
