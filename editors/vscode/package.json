@@ -93,6 +93,9 @@
         "path": "./syntaxes/ctproj.tmLanguage.json"
       }
     ],
+    "breakpoints": [
+      { "language": "contract" }
+    ],
     "commands": [
       {
         "command": "contract.showReferences",

@@ -30,8 +30,11 @@ public class DapServer
     private InterpreterDebugState? _debugState;
     private Task? _runTask;
     private CancellationTokenSource? _cts;
+    private volatile bool _exitRequested;
     private readonly Dictionary<int, (string file, int line, int col)> _variableRefs = new();
     private int _nextVarRef;
+    private readonly Dictionary<string, List<Breakpoint>> _breakpointsByFile = new();
+    private string? _launchProgram;
 
     public DapServer(TextReader stdin, TextWriter stdout)
     {
@@ -43,10 +46,11 @@ public class DapServer
 
     public async Task RunAsync(CancellationToken ct = default)
     {
-        while (!ct.IsCancellationRequested)
+        DapLog.Write($"=== adapter start pid={Environment.ProcessId} cwd={Directory.GetCurrentDirectory()}");
+        while (!ct.IsCancellationRequested && !_exitRequested)
         {
             var msg = await ReadMessageAsync(ct);
-            if (msg == null) break;
+            if (msg == null) { DapLog.Write("stdin EOF, exiting run loop"); break; }
 
             try
             {
@@ -54,9 +58,11 @@ public class DapServer
             }
             catch (Exception ex)
             {
+                DapLog.Write($"ERROR handling '{msg.Command}': {ex}");
                 await SendErrorResponseAsync(msg.Seq, msg.Command, ex.Message);
             }
         }
+        DapLog.Write("=== adapter exit");
     }
 
     private async Task<DapMessage?> ReadMessageAsync(CancellationToken ct)
@@ -80,18 +86,28 @@ public class DapServer
                     read += n;
                 }
                 var json = new string(buf);
-                return JsonSerializer.Deserialize<DapMessage>(json);
+                DapLog.Write($">>> {json}");
+                try
+                {
+                    return JsonSerializer.Deserialize<DapMessage>(json);
+                }
+                catch (JsonException ex)
+                {
+                    DapLog.Write($"malformed frame dropped: {ex.Message}");
+                    continue;
+                }
             }
         }
     }
 
-    private async Task SendMessageAsync(object msg)
+    private async Task SendMessageAsync(Func<object> makeMsg)
     {
-        string json = JsonSerializer.Serialize(msg);
-        byte[] bytes = Encoding.UTF8.GetBytes(json);
         await _writeLock.WaitAsync();
         try
         {
+            string json = JsonSerializer.Serialize(makeMsg());
+            DapLog.Write($"<<< {json}");
+            byte[] bytes = Encoding.UTF8.GetBytes(json);
             await _stdout.WriteAsync($"Content-Length: {bytes.Length}\r\n\r\n");
             await _stdout.WriteAsync(json);
             await _stdout.FlushAsync();
@@ -99,14 +115,14 @@ public class DapServer
         finally { _writeLock.Release(); }
     }
 
-    private async Task SendResponseAsync(int seq, string requestSeq, object? body = null)
+    private async Task SendResponseAsync(DapMessage request, object? body = null)
     {
-        await SendMessageAsync(new
+        await SendMessageAsync(() => new
         {
             seq = Interlocked.Increment(ref _seq),
-            request_seq = int.Parse(requestSeq),
+            request_seq = request.Seq,
             type = "response",
-            command = requestSeq,
+            command = request.Command,
             success = true,
             body
         });
@@ -114,7 +130,7 @@ public class DapServer
 
     private async Task SendErrorResponseAsync(int seq, string command, string message)
     {
-        await SendMessageAsync(new
+        await SendMessageAsync(() => new
         {
             seq = Interlocked.Increment(ref _seq),
             request_seq = seq,
@@ -127,13 +143,18 @@ public class DapServer
 
     private async Task SendEventAsync(string ev, object? body = null)
     {
-        await SendMessageAsync(new
+        await SendMessageAsync(() => new
         {
             seq = Interlocked.Increment(ref _seq),
             type = "event",
             @event = ev,
             body
         });
+    }
+
+    private async Task SendOutputAsync(string category, string text)
+    {
+        await SendEventAsync("output", new { category, text = text.EndsWith('\n') ? text : text + "\n" });
     }
 
     // ── Message dispatch ───────────────────────────────────────────
@@ -145,18 +166,22 @@ public class DapServer
             case "initialize": await HandleInitializeAsync(msg); break;
             case "launch": await HandleLaunchAsync(msg, ct); break;
             case "setBreakpoints": await HandleSetBreakpointsAsync(msg); break;
-            case "configurationDone": await SendResponseAsync(msg.Seq, msg.Command); break;
+            case "setExceptionBreakpoints": await SendResponseAsync(msg, new { breakpoints = Array.Empty<object>() }); break;
+            case "configurationDone": await SendResponseAsync(msg); break;
+            case "cancel": await SendResponseAsync(msg); break;
             case "threads": await HandleThreadsAsync(msg); break;
             case "stackTrace": await HandleStackTraceAsync(msg); break;
             case "scopes": await HandleScopesAsync(msg); break;
             case "variables": await HandleVariablesAsync(msg); break;
             case "evaluate": await HandleEvaluateAsync(msg); break;
+            case "source": await SendResponseAsync(msg, new { content = "", mimeType = "text/plain" }); break;
             case "continue": await HandleContinueAsync(msg); break;
             case "next": await HandleNextAsync(msg); break;
             case "stepIn": await HandleStepInAsync(msg); break;
             case "stepOut": await HandleStepOutAsync(msg); break;
             case "pause": await HandlePauseAsync(msg); break;
             case "terminate": await HandleTerminateAsync(msg); break;
+            case "disconnect": await HandleDisconnectAsync(msg); break;
             default:
                 await SendErrorResponseAsync(msg.Seq, msg.Command, $"Unknown command: {msg.Command}");
                 break;
@@ -167,7 +192,7 @@ public class DapServer
 
     private async Task HandleInitializeAsync(DapMessage msg)
     {
-        await SendResponseAsync(msg.Seq, msg.Command, new
+        await SendResponseAsync(msg,new
         {
             supportsConfigurationDoneRequest = true,
             supportsStepInRequest = true,
@@ -181,8 +206,6 @@ public class DapServer
             supportsInstructionBreakpoints = false,
             exceptionBreakpointFilters = Array.Empty<object>()
         });
-
-        await SendEventAsync("initialized");
     }
 
     private async Task HandleLaunchAsync(DapMessage msg, CancellationToken ct)
@@ -197,68 +220,153 @@ public class DapServer
             return;
         }
 
+        if (!string.IsNullOrEmpty(cwd))
+        {
+            if (!Directory.Exists(cwd))
+            {
+                await SendErrorResponseAsync(msg.Seq, msg.Command, $"Working directory not found: {cwd}");
+                return;
+            }
+            Directory.SetCurrentDirectory(cwd);
+        }
+
+        program = Path.GetFullPath(program);
+        _launchProgram = program;
+        DapLog.Write($"launch: program={program} cwd={cwd ?? Directory.GetCurrentDirectory()}");
+        if (!File.Exists(program))
+        {
+            await SendEventAsync("output", new { category = "stderr", text = $"Program not found: {program}\n" });
+            await SendErrorResponseAsync(msg.Seq, msg.Command, $"Program not found: {program}");
+            return;
+        }
+
         _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         _debugState = new InterpreterDebugState();
         _debugState.OnPause += OnDebugPause;
+        foreach (var kv in _breakpointsByFile)
+            _debugState.SetBreakpoints(kv.Key, kv.Value);
 
-        _runTask = Task.Run(async () =>
+        _runTask = RunProgramOnDedicatedStackAsync(program);
+
+        await SendResponseAsync(msg);
+        await SendEventAsync("initialized");
+    }
+
+    private Task RunProgramOnDedicatedStackAsync(string program)
+    {
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread = new Thread(() =>
         {
             try
             {
-                // Compile
-                string? ir = null;
-                try
-                {
-                    ir = Contract.Runtime.ContractCompiler.CompileFile(program, out var diags, isExecutable: true);
-                }
-                catch { }
-                if (ir == null)
-                {
-                    await SendEventAsync("terminated", new { reason = "error" });
-                    return;
-                }
-
-                // Parse oil text → ORBTModule → CompiledModule
-                var orbtModule = ObjektRT.Core.Parsing.OilFileReader.ParseString(ir);
-                var compileResult = ObjectRT.VM.VmCompiler.Compile(orbtModule);
-                if (compileResult.IsError)
-                {
-                    await SendEventAsync("terminated", new { reason = "error", text = compileResult.Error?.Message ?? "Compilation failed" });
-                    return;
-                }
-
-                var loadedMod = compileResult.Value;
-                _module = loadedMod;
-
-                // Create interpreter with debug state
-                var interp = new Interpreter(loadedMod);
-                interp.DebugState = _debugState;
-                _interpreter = interp;
-
-                // Resolve breakpoints against source maps
-                _debugState.ResolveBreakpoints(loadedMod);
-
-                // Run
-                var result = interp.Run();
-
-                await SendEventAsync("terminated", new { reason = "normal" });
+                RunProgramAsync(program).GetAwaiter().GetResult();
+                tcs.SetResult();
             }
             catch (Exception ex)
             {
-                await SendEventAsync("terminated", new { reason = "error", text = ex.Message });
+                tcs.SetException(ex);
             }
-        }, _cts.Token);
+        }, maxStackSize: 256 * 1024 * 1024);
+        thread.IsBackground = true;
+        thread.Start();
+        return tcs.Task;
+    }
 
-        await SendResponseAsync(msg.Seq, msg.Command);
+    private async Task RunProgramAsync(string program)
+    {
+        try
+        {
+            DapLog.Write($"program starting: {program}");
+            string? ir = null;
+            Contract.Compiler.Diagnostics.DiagnosticBag? diags = null;
+            try
+            {
+                ir = Contract.Runtime.ContractCompiler.CompileFile(program, out var d, isExecutable: true);
+                diags = d;
+            }
+            catch (Exception ex)
+            {
+                await SendOutputAsync("stderr", ex.Message);
+            }
+            if (ir == null)
+            {
+                if (diags != null)
+                    foreach (var diag in diags.Diagnostics)
+                        await SendOutputAsync("stderr", diag.ToString());
+                DapLog.Write("compile failed");
+                await SendEventAsync("terminated", new { reason = "error" });
+                return;
+            }
+
+            // Parse oil text → ORBTModule → CompiledModule
+            var orbtModule = ObjektRT.Core.Parsing.OilFileReader.ParseString(ir);
+            var compileResult = ObjectRT.VM.VmCompiler.Compile(orbtModule);
+            if (compileResult.IsError)
+            {
+                string text = compileResult.Error?.Message ?? "Compilation failed";
+                await SendOutputAsync("stderr", text);
+                DapLog.Write($"vm compile failed: {text}");
+                await SendEventAsync("terminated", new { reason = "error", text });
+                return;
+            }
+
+            var host = new Contract.Runtime.ContractRuntime();
+            host.PrepareModule(orbtModule);
+
+            var loadedMod = compileResult.Value;
+            _module = loadedMod;
+
+            var interp = new Interpreter(loadedMod);
+            interp.DebugState = _debugState;
+            host.Inner.AttachHostHandlers(interp);
+            _interpreter = interp;
+
+            // Resolve breakpoints against source maps
+            _debugState.ResolveBreakpoints(loadedMod);
+            foreach (var kv in _breakpointsByFile)
+                foreach (var bp in kv.Value)
+                    if (bp.Verified)
+                        await SendEventAsync("breakpoint", new
+                        {
+                            reason = "changed",
+                            breakpoint = new { verified = true, line = bp.Line, column = bp.Column }
+                        });
+
+            // Run
+            var result = interp.Run();
+            DapLog.Write($"program finished: {(result.IsError ? result.Error.Message : "ok")}");
+
+            if (result.IsError)
+            {
+                string text = result.Error.Message;
+                await SendOutputAsync("stderr", $"runtime error: {text}");
+                await SendEventAsync("terminated", new { reason = "error", text });
+                return;
+            }
+
+            await SendEventAsync("terminated", new { reason = "normal" });
+        }
+        catch (Exception ex)
+        {
+            DapLog.Write($"program crashed: {ex}");
+            await SendOutputAsync("stderr", ex.Message);
+            await SendEventAsync("terminated", new { reason = "error", text = ex.Message });
+        }
     }
 
     private async Task HandleSetBreakpointsAsync(DapMessage msg)
     {
         var args = msg.Arguments;
-        string? source = GetArg<string>(args, "source");
+        string file = "";
+        var sourceEl = GetArg<JsonElement>(args, "source");
+        if (sourceEl.ValueKind == JsonValueKind.Object
+            && sourceEl.TryGetProperty("path", out var pathEl)
+            && pathEl.ValueKind == JsonValueKind.String)
+        {
+            file = pathEl.GetString() ?? "";
+        }
         var breakpoints = GetArg<List<JsonElement>>(args, "breakpoints");
 
-        string file = source ?? "";
         var bps = new List<Breakpoint>();
 
         if (breakpoints != null)
@@ -270,6 +378,8 @@ public class DapServer
                 bps.Add(new Breakpoint { File = file, Line = line, Column = col });
             }
         }
+
+        _breakpointsByFile[file] = bps;
 
         _debugState?.SetBreakpoints(file, bps);
 
@@ -285,12 +395,12 @@ public class DapServer
             source = new { path = file }
         }).ToList();
 
-        await SendResponseAsync(msg.Seq, msg.Command, new { breakpoints = verified });
+        await SendResponseAsync(msg,new { breakpoints = verified });
     }
 
     private async Task HandleThreadsAsync(DapMessage msg)
     {
-        await SendResponseAsync(msg.Seq, msg.Command, new
+        await SendResponseAsync(msg,new
         {
             threads = new[] { new { id = 1, name = "main" } }
         });
@@ -300,23 +410,43 @@ public class DapServer
     {
         if (_interpreter == null || _module == null)
         {
-            await SendResponseAsync(msg.Seq, msg.Command, new { stackFrames = Array.Empty<object>(), totalFrames = 0 });
+            await SendResponseAsync(msg,new { stackFrames = Array.Empty<object>(), totalFrames = 0 });
             return;
         }
 
         var frames = InterpreterDebugState.BuildFrames(
             new List<Frame>(_interpreter.Frames), _interpreter.CurrentPc, _module);
 
-        var stackFrames = frames.Select(f => new
+        var stackFrames = new List<object>();
+        foreach (var f in frames)
         {
-            id = (int)f.FrameIndex,
-            name = f.Name,
-            line = f.Line,
-            column = f.Column,
-            source = new { path = f.File }
-        }).ToList();
+            string frameFile = !string.IsNullOrEmpty(f.File) && File.Exists(f.File)
+                ? f.File
+                : (_launchProgram != null && File.Exists(_launchProgram) ? _launchProgram : "");
+            if (frameFile.Length > 0)
+            {
+                stackFrames.Add(new
+                {
+                    id = (int)f.FrameIndex,
+                    name = f.Name,
+                    line = f.Line,
+                    column = f.Column,
+                    source = new { path = frameFile }
+                });
+            }
+            else
+            {
+                stackFrames.Add(new
+                {
+                    id = (int)f.FrameIndex,
+                    name = f.Name,
+                    line = f.Line,
+                    column = f.Column
+                });
+            }
+        }
 
-        await SendResponseAsync(msg.Seq, msg.Command, new
+        await SendResponseAsync(msg,new
         {
             stackFrames,
             totalFrames = stackFrames.Count
@@ -360,7 +490,7 @@ public class DapServer
             expensive = false
         });
 
-        await SendResponseAsync(msg.Seq, msg.Command, new { scopes });
+        await SendResponseAsync(msg,new { scopes });
     }
 
     private async Task HandleVariablesAsync(DapMessage msg)
@@ -370,7 +500,7 @@ public class DapServer
 
         if (!_variableRefs.TryGetValue(varRef, out var info))
         {
-            await SendResponseAsync(msg.Seq, msg.Command, new { variables = Array.Empty<object>() });
+            await SendResponseAsync(msg,new { variables = Array.Empty<object>() });
             return;
         }
 
@@ -379,14 +509,14 @@ public class DapServer
 
         if (_interpreter == null || _module == null)
         {
-            await SendResponseAsync(msg.Seq, msg.Command, new { variables });
+            await SendResponseAsync(msg,new { variables });
             return;
         }
 
         var frames = _interpreter.Frames;
         if (frameId < 0 || frameId >= frames.Count)
         {
-            await SendResponseAsync(msg.Seq, msg.Command, new { variables });
+            await SendResponseAsync(msg,new { variables });
             return;
         }
 
@@ -443,7 +573,7 @@ public class DapServer
                 break;
         }
 
-        await SendResponseAsync(msg.Seq, msg.Command, new { variables });
+        await SendResponseAsync(msg,new { variables });
     }
 
     private async Task HandleEvaluateAsync(DapMessage msg)
@@ -481,7 +611,7 @@ public class DapServer
             }
         }
 
-        await SendResponseAsync(msg.Seq, msg.Command, new
+        await SendResponseAsync(msg,new
         {
             result,
             variablesReference = varRef
@@ -490,9 +620,9 @@ public class DapServer
 
     private async Task HandleContinueAsync(DapMessage msg)
     {
-        _debugState?.Resume();
-        await SendResponseAsync(msg.Seq, msg.Command);
+        await SendResponseAsync(msg);
         await SendEventAsync("continued", new { threadId = 1 });
+        _debugState?.Resume();
     }
 
     private async Task HandleNextAsync(DapMessage msg)
@@ -501,16 +631,17 @@ public class DapServer
         {
             _debugState?.ConfigureStepOver(_interpreter.Frames.Count);
         }
-        _debugState?.Resume(StepMode.StepOver);
-        await SendResponseAsync(msg.Seq, msg.Command);
+        await SendResponseAsync(msg);
         await SendEventAsync("continued", new { threadId = 1 });
+        _debugState?.Resume();
     }
 
     private async Task HandleStepInAsync(DapMessage msg)
     {
-        _debugState?.Resume(StepMode.StepIn);
-        await SendResponseAsync(msg.Seq, msg.Command);
+        _debugState?.ConfigureStepIn();
+        await SendResponseAsync(msg);
         await SendEventAsync("continued", new { threadId = 1 });
+        _debugState?.Resume();
     }
 
     private async Task HandleStepOutAsync(DapMessage msg)
@@ -519,49 +650,66 @@ public class DapServer
         {
             _debugState?.ConfigureStepOut(_interpreter.Frames.Count);
         }
-        _debugState?.Resume(StepMode.StepOut);
-        await SendResponseAsync(msg.Seq, msg.Command);
+        await SendResponseAsync(msg);
         await SendEventAsync("continued", new { threadId = 1 });
+        _debugState?.Resume();
     }
 
     private async Task HandlePauseAsync(DapMessage msg)
     {
         _debugState?.RequestPause();
-        await SendResponseAsync(msg.Seq, msg.Command);
+        await SendResponseAsync(msg);
     }
 
     private async Task HandleTerminateAsync(DapMessage msg)
     {
         _cts?.Cancel();
-        await SendResponseAsync(msg.Seq, msg.Command);
+        await SendResponseAsync(msg);
         await SendEventAsync("terminated", new { reason = "remote" });
+    }
+
+    private async Task HandleDisconnectAsync(DapMessage msg)
+    {
+        DapLog.Write("disconnect requested, shutting down");
+        _cts?.Cancel();
+        _exitRequested = true;
+        await SendResponseAsync(msg);
+        await SendEventAsync("terminated");
     }
 
     // ── Debug pause event handler ──────────────────────────────────
 
     private async void OnDebugPause(object? sender, DebugPauseEventArgs e)
     {
-        string reason = e.Reason switch
+        try
         {
-            "breakpoint" => "breakpoint",
-            "step" => "step",
-            "pause" => "pause",
-            _ => "pause"
-        };
+            string reason = e.Reason switch
+            {
+                "breakpoint" => "breakpoint",
+                "step" => "step",
+                "pause" => "pause",
+                _ => "pause"
+            };
 
-        var frames = _interpreter != null && _module != null
-            ? InterpreterDebugState.BuildFrames(new List<Frame>(_interpreter.Frames), _interpreter.CurrentPc, _module)
-            : new List<DebugFrame>();
+            var frames = _interpreter != null && _module != null
+                ? InterpreterDebugState.BuildFrames(new List<Frame>(_interpreter.Frames), _interpreter.CurrentPc, _module)
+                : new List<DebugFrame>();
 
-        int threadId = 1;
-        await SendEventAsync("stopped", new
+            var file = !string.IsNullOrEmpty(e.File) && File.Exists(e.File) ? e.File : _launchProgram;
+            int threadId = 1;
+            await SendEventAsync("stopped", new
+            {
+                reason,
+                threadId,
+                text = $"Paused: {reason}",
+                source = !string.IsNullOrEmpty(file) ? new { path = file } : null,
+                line = e.Line > 0 ? (int?)e.Line : null
+            });
+        }
+        catch (Exception ex)
         {
-            reason,
-            threadId,
-            text = $"Paused: {reason}",
-            source = !string.IsNullOrEmpty(e.File) ? new { path = e.File } : null,
-            line = e.Line > 0 ? (int?)e.Line : null
-        });
+            await SendOutputAsync("stderr", $"debug adapter: {ex.Message}");
+        }
     }
 
     // ── Helpers ────────────────────────────────────────────────────

@@ -852,7 +852,6 @@ Examples:
         /// <summary>Launches the DAP debug server: `ccl debug [file.ct]`.</summary>
         static int DebugProject(string[] args)
         {
-            string? file = null;
             for (int i = 0; i < args.Length; i++)
             {
                 if (args[i] is "-h" or "--help")
@@ -863,32 +862,17 @@ Examples:
                     Console.WriteLine("Intended to be launched by VSCode's launch.json configuration.");
                     return 0;
                 }
-                if (!args[i].StartsWith('-'))
-                    file = args[i];
             }
 
-            // If no file given, try loading from project
-            if (file == null)
-            {
-                Contract.Compiler.ContractProject? project = null;
-                try { project = Contract.Compiler.ContractProject.Load(Directory.GetCurrentDirectory()); }
-                catch (FormatException ex) { Error(ex.Message); return 1; }
-                file = project?.MainPath;
-                if (file == null || !File.Exists(file))
-                {
-                    Error("No source file specified and no project found. Usage: ccl debug <file.ct>");
-                    return 1;
-                }
-            }
+            var stdout = Console.Out;
+            Console.SetOut(Console.Error);
 
-            if (!File.Exists(file))
-            {
-                Error($"File not found: {file}");
-                return 1;
-            }
+            Contract.LanguageServer.Dap.DapLog.Write(
+                $"ccl debug started: args=[{string.Join(" ", args)}] cwd={Directory.GetCurrentDirectory()} version={typeof(Program).Assembly.GetName().Version} dll={typeof(Program).Assembly.Location}");
+            AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+                Contract.LanguageServer.Dap.DapLog.Write($"FATAL unhandled: {e.ExceptionObject}");
 
-            // DAP server communicates over stdin/stdout using Content-Length headers
-            var server = new Contract.LanguageServer.Dap.DapServer(Console.In, Console.Out);
+            var server = new Contract.LanguageServer.Dap.DapServer(Console.In, stdout);
             server.RunAsync().GetAwaiter().GetResult();
             return 0;
         }

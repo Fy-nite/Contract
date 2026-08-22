@@ -1,7 +1,7 @@
 namespace thing;
 // Type-safe generic list contract.
 // Materialized at runtime: ValueList<int>, ValueList<Value>, etc.
-Contract ValueList<T> {
+Contract ValueList<T>{
     private items: T[];
     private count: int;
 
@@ -17,12 +17,12 @@ Contract ValueList<T> {
     fn Set(index: int, value: T) {
         this.items[index] = value;
     }
-    
+
     fn Add(value: T) {
         if (this.count == this.items.Count) {
             var newlen: int = count * 2;
             var newarr: T[] = new T[newlen];
-            Array.Copy(items,0,newarr,0,this.count);
+            Array.Copy(items, 0, newarr, 0, this.count);
             this.items = newarr;
         }
         this.items[this.count] = value;

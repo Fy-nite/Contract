@@ -41,7 +41,11 @@ function activate(context) {
           .getConfiguration('contract')
           .get('debugger.path', '');
         const command = configured || 'ccl';
-        return new vscode.DebugAdapterExecutable(command, ['debug']);
+        const options = {};
+        if (session.workspaceFolder) {
+          options.cwd = session.workspaceFolder.uri.fsPath;
+        }
+        return new vscode.DebugAdapterExecutable(command, ['debug'], options);
       }
     })
   );
