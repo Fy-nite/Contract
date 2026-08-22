@@ -1,0 +1,29 @@
+// PROPOSAL §7 — built on the delegate machinery that already ships.
+
+Contract Pipeline {
+    static fn Main() {
+        let nums: List<int> = List.Create();
+        List.Add(nums, 1);
+        List.Add(nums, 2);
+        List.Add(nums, 3);
+        List.Add(nums, 4);
+
+        let squares: List<int> = List.Map(nums, fun x -> x * x);
+        let evens: List<int>   = List.Filter(nums, fun x -> x % 2 == 0);
+        let sum: int           = List.Reduce(nums, fun (acc, x) -> acc + x, 0);
+
+        // Map/Filter/Reduce compose with for-in (§5).
+        for s in squares { IO.Print(s); }      // 14916
+        IO.Println("");
+        for e in evens  { IO.Print(e); }       // 24
+        IO.Println("");
+
+        IO.Println(sum);                       // 10
+
+        // Capturing lambdas work too.
+        var factor: int = 10;
+        let scaled: List<int> = List.Map(evens, fun x -> x * factor);
+        let total: int = List.Reduce(scaled, fun (acc, x) -> acc + x, 0);
+        IO.Println(total);                     // 60
+    }
+}

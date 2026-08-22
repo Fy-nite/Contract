@@ -50,4 +50,28 @@ public static class List
 
     /// <summary>Returns a new array containing the elements of <paramref name="list"/>.</summary>
     public static object[] ToArray(object list) => ((global::System.Collections.Generic.List<object>)list).ToArray();
+
+    /// <summary>
+    /// Maps each element through <paramref name="fn"/> into a new list.
+    /// Host-provided: the runtime registers a native binding that invokes the
+    /// Contract delegate per element (FEATURE_PROPOSALS §7). This stub exists
+    /// so language compilers can bind the call at compile time.
+    /// </summary>
+    public static object Map(object list, object fn) => throw new global::System.NotSupportedException(
+        "List.Map is provided by the ObjectRT runtime host.");
+
+    /// <summary>
+    /// Keeps elements where <paramref name="fn"/> returns true, in order, in a
+    /// new list. Host-provided (see <see cref="Map"/>).
+    /// </summary>
+    public static object Filter(object list, object fn) => throw new global::System.NotSupportedException(
+        "List.Filter is provided by the ObjectRT runtime host.");
+
+    /// <summary>
+    /// Folds the list left-to-right: acc = fn(acc, item), starting from
+    /// <paramref name="seed"/>, returning the final accumulator. Host-provided
+    /// (see <see cref="Map"/>).
+    /// </summary>
+    public static object Reduce(object list, object fn, object seed) => throw new global::System.NotSupportedException(
+        "List.Reduce is provided by the ObjectRT runtime host.");
 }

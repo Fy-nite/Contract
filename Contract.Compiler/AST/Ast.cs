@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Contract.Compiler.AST
 {
@@ -74,6 +75,37 @@ namespace Contract.Compiler.AST
 
         /// <summary>Single-inheritance base type name (C#-style), or null.</summary>
         public string? BaseTypeName { get; set; }
+
+        /// <summary>
+        /// Additional parent contracts after the first (<c>Contract A : B, C</c>).
+        /// These behave as interfaces: they must declare no fields or
+        /// constructors, and the deriving contract implements their abstract
+        /// methods (FEATURE_PROPOSALS §6 — interfaces via contract multiple
+        /// inheritance). Recorded in the IR via Implements metadata.
+        /// </summary>
+        public List<string> InterfaceNames { get; } = new();
+
+        /// <summary>True when any instance method lacks a body (abstract declaration).</summary>
+        public bool HasAbstractMethods => Members.OfType<FunctionDeclaration>().Any(f => f.IsInstance && f.Body == null);
+
+        /// <summary>
+        /// Abstract methods this contract still must implement: declarations
+        /// without bodies found on itself, its primary base chain, and its
+        /// secondary parents. Filled by the analyzer.
+        /// </summary>
+        public List<FunctionDeclaration> PendingAbstractMethods { get; } = new();
+
+        /// <summary>True when this contract is a sum-type base synthesized from `type X { ... }`.</summary>
+        public bool IsSumTypeBase { get; set; }
+
+        /// <summary>Variant names (in tag order) when <see cref="IsSumTypeBase"/>.</summary>
+        public List<string> SumVariants { get; } = new();
+
+        /// <summary>The sum base's name when this contract is a synthesized variant of a sum type.</summary>
+        public string? SumTypeOf { get; set; }
+
+        /// <summary>Tag index within the sum type when <see cref="SumTypeOf"/> is set.</summary>
+        public int SumVariantIndex { get; set; }
 
         /// <summary>True when this contract (transitively) inherits from the built-in Attribute type. Set by the analyzer.</summary>
         public bool IsAttributeType { get; set; }
@@ -268,6 +300,10 @@ namespace Contract.Compiler.AST
         public string Name { get; }
         public TypeDescriptor Type { get; set; }
         public Expression? Initializer { get; set; }
+        /// <summary>True when the source wrote an explicit <c>: T</c> annotation.
+        /// The semantic analyzer overwrites <see cref="Type"/> with inferred
+        /// types, so this is the only record of what the user actually typed.</summary>
+        public bool HasExplicitType { get; set; }
         /// <summary>
         /// When non-empty, this is a destructuring declaration
         /// (<c>var (a, b) = f();</c>) and <see cref="Name"/> is unused. Each
@@ -312,6 +348,57 @@ namespace Contract.Compiler.AST
         {
             Condition = condition;
             Body = body;
+        }
+    }
+
+    /// <summary>
+    /// <c>for x in iterable { body }</c> (FEATURE_PROPOSALS §5). The analyzer
+    /// records <see cref="ResolvedElementType"/> (and <see cref="IsDictionary"/>
+    /// for the <c>(k, v)</c> pair form); codegen picks the index protocol
+    /// (array / List / Dict) from those.
+    /// </summary>
+    public class ForInStatement : Statement
+    {
+        public string Variable { get; }
+        /// <summary>Second binding for the Dict pair form <c>for (k, v) in d</c>; null otherwise.</summary>
+        public string? ValueVariable { get; }
+        public Expression Iterable { get; }
+        public Statement Body { get; }
+        /// <summary>Element type of the iterable, set by the analyzer.</summary>
+        public TypeDescriptor? ResolvedElementType { get; set; }
+        /// <summary>True when iterating a Dict with a (key, value) pair binding.</summary>
+        public bool IsDictionary { get; set; }
+        /// <summary>True when the iterable is statically known to be an array (ldlen/ldelem protocol).</summary>
+        public bool IsArray { get; set; }
+
+        public ForInStatement(string variable, string? valueVariable, Expression iterable, Statement body, int line, int column)
+            : base(line, column)
+        {
+            Variable = variable;
+            ValueVariable = valueVariable;
+            Iterable = iterable;
+            Body = body;
+        }
+    }
+
+    /// <summary>
+    /// An <c>if</c> used as a value: <c>let m = if (a &gt; b) { a } else { b };</c>
+    /// (FEATURE_PROPOSALS §3). Both branches are expressions; chains nest via
+    /// <see cref="ElseBranch"/> holding another IfExpression.
+    /// </summary>
+    public class IfExpression : Expression
+    {
+        public Expression Condition { get; }
+        public Expression ThenBranch { get; }
+        /// <summary>The else arm — an expression, or another IfExpression for else-if chains.</summary>
+        public Expression ElseBranch { get; set; }
+
+        public IfExpression(Expression condition, Expression thenBranch, Expression elseBranch, int line, int column)
+            : base(line, column)
+        {
+            Condition = condition;
+            ThenBranch = thenBranch;
+            ElseBranch = elseBranch;
         }
     }
 
@@ -371,6 +458,103 @@ namespace Contract.Compiler.AST
         public SwitchCase(int? value, int line, int column) : base(line, column)
         {
             Value = value;
+        }
+    }
+
+    // ── Match expressions (FEATURE_PROPOSALS §1) ───────────────────
+
+    /// <summary>
+    /// A value-producing match: <c>match (x) { 1 | 2 => "a", n if n > 0 => "b", _ => "c" }</c>.
+    /// Arms are tried top to bottom; the first pattern that matches (and whose
+    /// guard holds) wins. Lowers to a scrutinee temp plus a nested if-chain.
+    /// </summary>
+    public class MatchExpression : Expression
+    {
+        public Expression Scrutinee { get; }
+        public List<MatchArm> Arms { get; } = new();
+        /// <summary>Resolved sum-type base when the scrutinee is a variant (set by the analyzer).</summary>
+        public string? SumTypeName { get; set; }
+
+        public MatchExpression(Expression scrutinee, int line, int column) : base(line, column)
+        {
+            Scrutinee = scrutinee;
+        }
+    }
+
+    /// <summary>One arm of a match: patterns (or-patterns list several), an optional
+    /// guard, and the result expression.</summary>
+    public class MatchArm : Node
+    {
+        public List<MatchPattern> Patterns { get; } = new();
+        public Expression? Guard { get; set; }
+        public Expression Result { get; set; }
+        /// <summary>
+        /// Names bound by this arm's binding/variant patterns → their types
+        /// (filled by the analyzer). Visible in the guard and result.
+        /// </summary>
+        public Dictionary<string, TypeDescriptor> BoundNames { get; } = new();
+
+        public MatchArm(int line, int column) : base(line, column)
+        {
+            Result = null!;
+        }
+    }
+
+    public abstract class MatchPattern : Node
+    {
+        protected MatchPattern(int line, int column) : base(line, column) { }
+    }
+
+    /// <summary>A literal pattern: 1, "ok", true, null.</summary>
+    public class LiteralPattern : MatchPattern
+    {
+        public object Value { get; }
+        public LiteralPattern(object value, int line, int column) : base(line, column)
+        {
+            Value = value;
+        }
+    }
+
+    /// <summary>The <c>_</c> catch-all.</summary>
+    public class WildcardPattern : MatchPattern
+    {
+        public WildcardPattern(int line, int column) : base(line, column) { }
+    }
+
+    /// <summary>
+    /// A binding pattern: <c>n if n &gt;= 100</c> binds the scrutinee to the
+    /// named variable for the arm's guard and result.
+    /// </summary>
+    public class BindingPattern : MatchPattern
+    {
+        public string Name { get; }
+        public BindingPattern(string name, int line, int column) : base(line, column)
+        {
+            Name = name;
+        }
+    }
+
+    /// <summary>
+    /// A variant pattern over a sum type: <c>Circle(r)</c>, <c>Rect(w, h)</c>,
+    /// <c>Unit</c>. Tests the tag and binds the variant's fields positionally.
+    /// <see cref="VariantName"/> resolves to the declaring sum type by the analyzer,
+    /// which also fills <see cref="VariantIndex"/> and <see cref="BoundFields"/>.
+    /// </summary>
+    public class VariantPattern : MatchPattern
+    {
+        public string VariantName { get; }
+        /// <summary>Sub-patterns aligned with the variant's parameters ('_' allowed).</summary>
+        public List<MatchPattern> Arguments { get; } = new();
+        /// <summary>Fully-qualified variant contract name ("Shape.Circle"), set by the analyzer.</summary>
+        public string? ResolvedVariantName { get; set; }
+        /// <summary>The variant's tag index within its sum type, set by the analyzer.</summary>
+        public int VariantIndex { get; set; }
+        /// <summary>Field names bound positionally from the variant's parameters.</summary>
+        public List<string> BoundFields { get; } = new();
+
+        public VariantPattern(string variantName, int line, int column) : base(line, column)
+        {
+            VariantName = variantName;
         }
     }
 
@@ -598,6 +782,30 @@ namespace Contract.Compiler.AST
         public TypeDescriptor? ElementType { get; set; }
 
         public ArrayLiteralExpression(int line, int column) : base(line, column) { }
+    }
+
+    /// <summary>
+    /// An inline range in a for-in header: <c>start .. end</c> (end-exclusive),
+    /// <c>start ..= end</c> (inclusive), with an optional <c>by step</c>.
+    /// Bounds may be arbitrary expressions. Codegen desugars to the C-style
+    /// loop over hidden temps.
+    /// </summary>
+    public class RangeExpression : Expression
+    {
+        public Expression Start { get; }
+        public Expression End { get; }
+        /// <summary>True for <c>..=</c> (the end value is produced).</summary>
+        public bool Inclusive { get; }
+        public Expression? Step { get; }
+
+        public RangeExpression(Expression start, Expression end, bool inclusive, Expression? step, int line, int column)
+            : base(line, column)
+        {
+            Start = start;
+            End = end;
+            Inclusive = inclusive;
+            Step = step;
+        }
     }
 
     public class PipeExpression : Expression

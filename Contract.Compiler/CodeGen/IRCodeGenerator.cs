@@ -257,6 +257,15 @@ public class IRCodeGenerator
                 classBuilder.Extends(ResolveTypeName(cls.BaseTypeName));
             }
 
+            // Interface-style parents (§6 multiple inheritance) are recorded as
+            // Implements metadata — declarative, like the base type.
+            if (cls.InterfaceNames.Count > 0)
+            {
+                classBuilder.Implements(cls.InterfaceNames
+                    .Select(n => _program?.Contracts.FirstOrDefault(c => c.Name == n || c.FullName == n)?.FullName ?? n)
+                    .ToArray());
+            }
+
             // Instance fields: emitted as class fields (static ones carry the
             // static flag in the wire metadata). Contract type params are in
             // scope so field types like `value: T` emit literally as T.
@@ -336,6 +345,7 @@ public class IRCodeGenerator
         _lastIsReturn = false;
         _functionTypedParams = new();
         _functionTypedLocals = new();
+        _declaredLocals.Clear();
         // Function type params erase to object; the enclosing contract's params
         // stay literal (the VM substitutes them during materialization).
         var savedFnTypeParams = _currentFnTypeParams;
@@ -889,6 +899,7 @@ public class IRCodeGenerator
         var savedClosureLocal = _closureLocalName;
         _variableTypes = new Dictionary<string, TypeDescriptor>();
         _lambdaBodyLocals = null;   // constructors aren't lambda bodies
+        _declaredLocals.Clear();
         _thisArgIndex = 0;
         _currentContractName = contractName;
         _closureClass = null;
@@ -1134,6 +1145,12 @@ public class IRCodeGenerator
                 foreach (var c in sw.Cases)
                     foreach (var s in c.Statements) CollectHoistInfo(s, locals, lambdas);
                 break;
+            case Contract.Compiler.AST.ForInStatement fi:
+                CollectHoistInfoExpr(fi.Iterable, locals, lambdas);
+                locals[fi.Variable] = fi.ResolvedElementType ?? TypeDescriptor.Empty;
+                if (fi.ValueVariable != null) locals[fi.ValueVariable] = TypeDescriptor.Empty;
+                CollectHoistInfo(fi.Body, locals, lambdas);
+                break;
             case Contract.Compiler.AST.BreakStatement:
             case Contract.Compiler.AST.ContinueStatement:
                 break;
@@ -1154,6 +1171,32 @@ public class IRCodeGenerator
                 {
                     CollectHoistInfoExpr(l.Body, locals, lambdas);
                 }
+                break;
+            case TernaryExpression t3:
+                CollectHoistInfoExpr(t3.Condition, locals, lambdas);
+                CollectHoistInfoExpr(t3.ThenBranch, locals, lambdas);
+                CollectHoistInfoExpr(t3.ElseBranch, locals, lambdas);
+                break;
+            case Contract.Compiler.AST.IfExpression ie:
+                CollectHoistInfoExpr(ie.Condition, locals, lambdas);
+                CollectHoistInfoExpr(ie.ThenBranch, locals, lambdas);
+                CollectHoistInfoExpr(ie.ElseBranch, locals, lambdas);
+                break;
+            case Contract.Compiler.AST.MatchExpression me:
+                CollectHoistInfoExpr(me.Scrutinee, locals, lambdas);
+                foreach (var arm in me.Arms)
+                {
+                    // Pattern-bound names are locals visible to guard/result.
+                    foreach (var (boundName, boundType) in arm.BoundNames)
+                        locals[boundName] = boundType;
+                    if (arm.Guard != null) CollectHoistInfoExpr(arm.Guard, locals, lambdas);
+                    CollectHoistInfoExpr(arm.Result, locals, lambdas);
+                }
+                break;
+            case Contract.Compiler.AST.RangeExpression re:
+                CollectHoistInfoExpr(re.Start, locals, lambdas);
+                CollectHoistInfoExpr(re.End, locals, lambdas);
+                if (re.Step != null) CollectHoistInfoExpr(re.Step, locals, lambdas);
                 break;
             case BinaryExpression b:
                 CollectHoistInfoExpr(b.Left, locals, lambdas);
@@ -1226,6 +1269,25 @@ public class IRCodeGenerator
                 case NewExpression ne: if (ne.Size != null) Collect(ne.Size, sh); break;
                 case ArrayLiteralExpression al: foreach (var el in al.Elements) Collect(el, sh); break;
                 case PipeExpression p: Collect(p.Left, sh); Collect(p.Right, sh); break;
+                case TernaryExpression t3: Collect(t3.Condition, sh); Collect(t3.ThenBranch, sh); Collect(t3.ElseBranch, sh); break;
+                case Contract.Compiler.AST.IfExpression ie:
+                    Collect(ie.Condition, sh); Collect(ie.ThenBranch, sh); Collect(ie.ElseBranch, sh);
+                    break;
+                case Contract.Compiler.AST.RangeExpression re:
+                    Collect(re.Start, sh); Collect(re.End, sh);
+                    if (re.Step != null) Collect(re.Step, sh);
+                    break;
+                case Contract.Compiler.AST.MatchExpression me:
+                    Collect(me.Scrutinee, sh);
+                    foreach (var arm in me.Arms)
+                    {
+                        // Pattern-bound names shadow captures of the same name.
+                        var armShadow = new HashSet<string>(sh);
+                        foreach (var bound in arm.BoundNames.Keys) armShadow.Add(bound);
+                        if (arm.Guard != null) Collect(arm.Guard, armShadow);
+                        Collect(arm.Result, armShadow);
+                    }
+                    break;
                 case LambdaExpression inner:
                     var innerShadow = new HashSet<string>(sh);
                     foreach (var p2 in inner.Parameters) innerShadow.Add(p2);
@@ -1271,6 +1333,12 @@ public class IRCodeGenerator
                     Collect(sw.Expression, sh);
                     foreach (var c2 in sw.Cases)
                         foreach (var st in c2.Statements) CollectStmt(st, sh);
+                    break;
+                case Contract.Compiler.AST.ForInStatement fi:
+                    Collect(fi.Iterable, sh);
+                    sh.Add(fi.Variable);   // the loop variable shadows captures
+                    if (fi.ValueVariable != null) sh.Add(fi.ValueVariable);
+                    CollectStmt(fi.Body, sh);
                     break;
                 case Contract.Compiler.AST.BreakStatement:
                 case Contract.Compiler.AST.ContinueStatement:
@@ -1557,6 +1625,10 @@ public class IRCodeGenerator
                 ib.Pop();
                 break;
 
+            case Contract.Compiler.AST.ForInStatement forIn:
+                GenerateForInStatement(ib, forIn, paramMap);
+                break;
+
             case Contract.Compiler.AST.BreakStatement:
                 // Leave a value for the loop's trailing pop so the stack stays
                 // balanced whether the loop exits via break or its condition.
@@ -1658,6 +1730,18 @@ public class IRCodeGenerator
                 ib.If("stack",
                     then => GenerateExpression(then, ternary.ThenBranch, paramMap),
                     els => GenerateExpression(els, ternary.ElseBranch, paramMap));
+                break;
+
+            case IfExpression ifExpr:
+                // §3: if as a value — same shape as the ternary.
+                GenerateExpression(ib, ifExpr.Condition, paramMap);
+                ib.If("stack",
+                    then => GenerateExpression(then, ifExpr.ThenBranch, paramMap),
+                    els => GenerateExpression(els, ifExpr.ElseBranch, paramMap));
+                break;
+
+            case MatchExpression matchExpr:
+                GenerateMatchExpression(ib, matchExpr, paramMap);
                 break;
 
             case IdentifierExpression id:
@@ -2003,7 +2087,11 @@ public class IRCodeGenerator
                         // list. Append its type so the call's argc includes it.
                         paramTypes.Add(TypeRef.Object);
                     }
-                    ib.Call(new MethodReference(new TypeRef(instanceTarget), instanceFunc.Name, returnType, paramTypes));
+                    // callvirt lets the runtime refine the target through the
+                    // RECEIVER's concrete type chain (virtual dispatch) — this
+                    // is what makes base/interface-typed variables dispatch to
+                    // the most-derived override (FEATURE_PROPOSALS §6).
+                    ib.Callvirt(new MethodReference(new TypeRef(instanceTarget), instanceFunc.Name, returnType, paramTypes));
                 }
                 else if (call.Symbol is FunctionDeclaration staticFunc && staticFunc.IsStatic)
                 {
@@ -2183,6 +2271,22 @@ public class IRCodeGenerator
                         ib.Ldsfld(new FieldReference(new TypeRef(staticDecl), mem.Property, FindFieldType(staticDecl, mem.Property)));
                         break;
                     }
+
+                    // Sum-type variant used as a value: `Shape.Unit` — a bare
+                    // reference to the zero-arg factory. Emit its call.
+                    var sumOwner = _program?.Contracts.FirstOrDefault(c =>
+                        (c.Name == memObjName || c.FullName == memObjName) && c.IsSumTypeBase);
+                    if (sumOwner != null && sumOwner.SumVariants.Contains(mem.Property))
+                    {
+                        var factory = sumOwner.Members.OfType<FunctionDeclaration>()
+                            .FirstOrDefault(f => f.Name == mem.Property && f.IsStatic);
+                        var fRet = factory?.ReturnType != null && !factory.ReturnType.IsEmpty
+                            ? MapType(factory.ReturnType)
+                            : TypeRef.Object;
+                        ib.Call(new MethodReference(
+                            new TypeRef(ResolveTypeName(sumOwner.FullName)), mem.Property, fRet, new List<TypeRef>()));
+                        break;
+                    }
                     GenerateExpression(ib, mem.Object, paramMap);
                     if (mem.Property is "Length" or "Count")
                     {
@@ -2303,6 +2407,397 @@ public class IRCodeGenerator
     /// <summary>True when <paramref name="name"/> is a user-declared generic contract.</summary>
     private bool IsUserGenericContract(string name)
         => _contractTypeParams.ContainsKey(name);
+
+    // ── Match expressions (FEATURE_PROPOSALS §1, §2) ───────────────
+
+    private int _matchTempCounter;
+
+    /// <summary>
+    /// Lowers <c>for x in iterable</c> (FEATURE_PROPOSALS §5). Ranges desugar
+    /// to the C-style loop; arrays use ldlen/ldelem, List&lt;T&gt; uses
+    /// List.Count/List.Get, and Dict&lt;K,V&gt; iterates Dict.Keys with Dict.Get
+    /// for the pair form. All protocols evaluate the iterable once into temps:
+    /// <code>
+    /// __coll = iterable;  __len = count(__coll) [or keys];  __i = 0;
+    /// while (__i &lt; __len) { item = __coll[__i] (+ v = Get(k)); body; __i += 1 }
+    /// </code>
+    /// </summary>
+    private void GenerateForInStatement(InstructionBuilder ib, Contract.Compiler.AST.ForInStatement forIn, Dictionary<string, int> paramMap)
+    {
+        int temp = ++_matchTempCounter;
+        string collName = $"__forArr_{temp}";
+        string lenName = $"__forLen_{temp}";
+        string idxName = $"__forIdx_{temp}";
+        string dictName = $"__forDict_{temp}";
+
+        // ── Range: desugar straight to the C-style loop ──
+        if (forIn.Iterable is RangeExpression range)
+        {
+            string startName = $"__rngStart_{temp}";
+            string endName = $"__rngEnd_{temp}";
+            string stepName = $"__rngStep_{temp}";
+            ib.Local(startName, TypeRef.Int32);
+            ib.Local(endName, TypeRef.Int32);
+            ib.Local(stepName, TypeRef.Int32);
+            EnsureLocal(ib, forIn.Variable, TypeRef.Int32);
+
+            GenerateExpression(ib, range.Start, paramMap);
+            ib.Stloc(startName);
+            GenerateExpression(ib, range.End, paramMap);
+            ib.Stloc(endName);
+            if (range.Step != null)
+                GenerateExpression(ib, range.Step, paramMap);
+            else
+                ib.LdcI4(1);
+            ib.Stloc(stepName);
+
+            // var i = start;
+            var initBlock = new Contract.Compiler.AST.BlockStatement(forIn.Line, forIn.Column);
+            initBlock.Statements.Add(new VariableDeclaration(
+                forIn.Variable, new TypeDescriptor.Named("int"),
+                new IdentifierExpression(startName, forIn.Line, forIn.Column),
+                forIn.Line, forIn.Column));
+
+            // (step > 0) ? i <=|< end : i >=|> end
+            int l = forIn.Line, c2 = forIn.Column;
+            var stepPositive = new BinaryExpression(
+                new IdentifierExpression(stepName, l, c2), ">", new LiteralExpression(0, l, c2), l, c2);
+            var forward = new BinaryExpression(
+                new IdentifierExpression(forIn.Variable, l, c2),
+                range.Inclusive ? "<=" : "<",
+                new IdentifierExpression(endName, l, c2), l, c2);
+            var backward = new BinaryExpression(
+                new IdentifierExpression(forIn.Variable, l, c2),
+                range.Inclusive ? ">=" : ">",
+                new IdentifierExpression(endName, l, c2), l, c2);
+            var condition = new TernaryExpression(stepPositive, forward, backward, l, c2);
+
+            // i += step
+            var update = new BinaryExpression(
+                new IdentifierExpression(forIn.Variable, l, c2), "+=",
+                new IdentifierExpression(stepName, l, c2), l, c2);
+
+            var forStmt = new ForStatement(initBlock, condition, update, forIn.Body, l, c2);
+            GenerateStatement(ib, forStmt, paramMap);
+            return;
+        }
+
+        bool isDict = forIn.IsDictionary;
+
+        // The bound element's local type: typed for arrays of named types,
+        // object otherwise.
+        TypeRef elemRef = TypeRef.Object;
+        if (!isDict && forIn.ResolvedElementType is TypeDescriptor.ArrayOf { Element: TypeDescriptor.Named an } && !an.IsEmpty)
+            elemRef = MapType(forIn.ResolvedElementType);
+
+        ib.Local(collName, TypeRef.Object);
+        ib.Local(lenName, TypeRef.Int32);
+        ib.Local(idxName, TypeRef.Int32);
+        if (isDict) ib.Local(dictName, TypeRef.Object);
+        EnsureLocal(ib, forIn.Variable, elemRef);
+        if (isDict && forIn.ValueVariable != null)
+            EnsureLocal(ib, forIn.ValueVariable, TypeRef.Object);
+
+        // __coll = iterable (and __dict = d for the pair form).
+        GenerateExpression(ib, forIn.Iterable, paramMap);
+        if (isDict)
+        {
+            ib.Dup();
+            ib.Stloc(dictName);
+        }
+        ib.Stloc(collName);
+
+        // __len = count: arrays → ldlen; List → List.Count; Dict → len(Dict.Keys(d)).
+        // Protocol calls go straight to the stdlib bindings — these nodes are
+        // synthesized here (post-analysis), so they carry no resolver symbols.
+        if (!isDict && forIn.IsArray)
+        {
+            ib.Ldloc(collName);
+            ib.Ldlen();
+        }
+        else if (!isDict)
+        {
+            ib.Ldloc(collName);
+            ib.Call(ListCountReference);
+        }
+        else
+        {
+            ib.Ldloc(dictName);
+            ib.Call(DictKeysReference);
+            ib.Stloc(collName);   // the temp now holds the keys array
+            ib.Ldloc(collName);
+            ib.Ldlen();
+        }
+        ib.Stloc(lenName);
+
+        // __i = 0, then the loop condition.
+        ib.LdcI4(0);
+        ib.Stloc(idxName);
+        ib.Ldloc(idxName);
+        ib.Ldloc(lenName);
+        ib.Clt();
+
+        _loopContinueEmitters.Push(body =>
+        {
+            GenerateLoopIncrement(body, idxName);
+            body.Ldloc(idxName);
+            body.Ldloc(lenName);
+            body.Clt();
+        });
+
+        ib.While("stack", body =>
+        {
+            // Runtime while(stack) convention: the condition was duped — drop
+            // our copy; the trailing recompute below feeds the next test.
+            body.Pop();
+
+            // Bind the iteration variable(s).
+            if (!isDict)
+            {
+                if (forIn.IsArray)
+                {
+                    body.Ldloc(collName);
+                    body.Ldloc(idxName);
+                    body.Ldelem();
+                }
+                else
+                {
+                    body.Ldloc(collName);
+                    body.Ldloc(idxName);
+                    body.Call(ListGetReference);
+                }
+                body.Stloc(forIn.Variable);
+            }
+            else
+            {
+                // k = keys[i]; v = Dict.Get(d, k)
+                body.Ldloc(collName);
+                body.Ldloc(idxName);
+                body.Ldelem();
+                body.Stloc(forIn.Variable);
+
+                body.Ldloc(dictName);
+                body.Ldloc(forIn.Variable);
+                body.Call(DictGetReference);
+                body.Stloc(forIn.ValueVariable!);
+            }
+
+            GenerateStatement(body, forIn.Body, paramMap);
+            GenerateLoopIncrement(body, idxName);
+
+            // Recompute the condition for the next test.
+            body.Ldloc(idxName);
+            body.Ldloc(lenName);
+            body.Clt();
+        });
+        _loopContinueEmitters.Pop();
+        ib.Pop();   // consume the loop's final condition value
+
+        // For the Dict path we need the ORIGINAL dict for Get calls — keep it
+        // in its own temp alongside the keys array.
+    }
+
+    private void GenerateLoopIncrement(InstructionBuilder body, string idxName)
+    {
+        body.Ldloc(idxName);
+        body.LdcI4(1);
+        body.Add();
+        body.Stloc(idxName);
+    }
+
+
+    /// <summary>
+    /// Lowers a match expression (FEATURE_PROPOSALS §1): the scrutinee is
+    /// evaluated once into a hidden temp, then arms become a nested if-chain —
+    /// each arm's test (pattern + guard, short-circuited) picks between the
+    /// arm's value and the next arm. The final arm runs unconditionally.
+    /// Every path leaves exactly one value on the stack.
+    /// </summary>
+    private void GenerateMatchExpression(InstructionBuilder ib, MatchExpression matchExpr, Dictionary<string, int> paramMap)
+    {
+        string tmpName = $"__match_{_matchTempCounter++}";
+        ib.Local(tmpName, TypeRef.Object);
+
+        GenerateExpression(ib, matchExpr.Scrutinee, paramMap);
+        ib.Stloc(tmpName);
+
+        EmitMatchArms(ib, matchExpr.Arms, 0, tmpName, paramMap);
+    }
+
+    /// <summary>Emits the if-chain for arms[index..]; leaves one value on the stack.</summary>
+    private void EmitMatchArms(InstructionBuilder ib, List<MatchArm> arms, int index, string tmpName, Dictionary<string, int> paramMap)
+    {
+        var arm = arms[index];
+        bool isLast = index == arms.Count - 1;
+
+        if (isLast)
+        {
+            EmitMatchArmBinding(ib, arm, tmpName, paramMap);
+            GenerateExpression(ib, arm.Result, paramMap);
+            return;
+        }
+
+        EmitMatchArmTest(ib, arm, tmpName, paramMap);
+        ib.If("stack",
+            then =>
+            {
+                EmitMatchArmBinding(then, arm, tmpName, paramMap);
+                GenerateExpression(then, arm.Result, paramMap);
+            },
+            els => EmitMatchArms(els, arms, index + 1, tmpName, paramMap));
+    }
+
+    /// <summary>
+    /// Emits an arm's combined test condition: pattern match AND guard,
+    /// short-circuited. Leaves exactly one bool on the stack.
+    /// </summary>
+    private void EmitMatchArmTest(InstructionBuilder ib, MatchArm arm, string tmpName, Dictionary<string, int> paramMap)
+    {
+        EmitPatternDisjunction(ib, arm.Patterns, tmpName, paramMap);
+
+        if (arm.Guard != null)
+        {
+            ib.If("stack",
+                then =>
+                {
+                    EmitMatchArmBinding(then, arm, tmpName, paramMap);
+                    GenerateExpression(then, arm.Guard!, paramMap);
+                },
+                els => els.LdcI4(0));
+        }
+    }
+
+    /// <summary>Or-patterns: any-of disjunction over the same scrutinee temp.</summary>
+    private void EmitPatternDisjunction(InstructionBuilder ib, List<MatchPattern> patterns, string tmpName, Dictionary<string, int> paramMap)
+    {
+        var concrete = patterns.Where(p => p is not WildcardPattern && p is not BindingPattern).ToList();
+        bool hasCatchAll = concrete.Count < patterns.Count;
+
+        if (hasCatchAll)
+        {
+            // A wildcard/binding in the or-group always matches; still bind
+            // before the guard via EmitMatchArmBinding.
+            ib.LdcI4(1);
+            return;
+        }
+
+        // p1 || p2 || ... — nested ifs producing a single bool.
+        void EmitLevel(InstructionBuilder b, int i)
+        {
+            EmitSinglePatternTest(b, concrete[i], tmpName, paramMap);
+            if (i == concrete.Count - 1) return;
+            b.If("stack",
+                t => t.LdcI4(1),
+                e => EmitLevel(e, i + 1));
+        }
+        EmitLevel(ib, 0);
+    }
+
+    /// <summary>The test for ONE pattern against the scrutinee temp: pushes a bool.</summary>
+    private void EmitSinglePatternTest(InstructionBuilder ib, MatchPattern pattern, string tmpName, Dictionary<string, int> paramMap)
+    {
+        switch (pattern)
+        {
+            case LiteralPattern lit:
+                ib.Ldloc(tmpName);
+                EmitLiteralValue(ib, lit.Value);
+                ib.Ceq();
+                break;
+
+            case VariantPattern vp:
+                // Tag test: scrutinee.__tag == variant index.
+                ib.Ldloc(tmpName);
+                var baseDecl = FindSumBase(vp);
+                var tagOwner = baseDecl != null ? ResolveTypeName(baseDecl.FullName) : ResolveTypeName(vp.ResolvedVariantName ?? "");
+                ib.Ldfld(new FieldReference(new TypeRef(tagOwner), "__tag", TypeRef.Int32));
+                ib.LdcI4(vp.VariantIndex);
+                ib.Ceq();
+                break;
+
+            default:
+                // Binding/wildcard handled by the catch-all path.
+                ib.LdcI4(1);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Binds an arm's pattern variables (scrutinee bindings and variant field
+    /// destructurings) into locals so the guard/result can read them. No-ops
+    /// when the arm binds nothing.
+    /// </summary>
+    private void EmitMatchArmBinding(InstructionBuilder ib, MatchArm arm, string tmpName, Dictionary<string, int> paramMap)
+    {
+        foreach (var pattern in arm.Patterns)
+        {
+            switch (pattern)
+            {
+                case BindingPattern bind:
+                    EnsureLocal(ib, bind.Name, TypeRef.Object);
+                    ib.Ldloc(tmpName);
+                    ib.Stloc(bind.Name);
+                    break;
+
+                case VariantPattern vp when vp.BoundFields.Count > 0:
+                    var variantType = ResolveTypeName(vp.ResolvedVariantName ?? "");
+                    for (int i = 0; i < vp.Arguments.Count && i < vp.BoundFields.Count; i++)
+                    {
+                        if (vp.Arguments[i] is BindingPattern fieldBind)
+                        {
+                            var fieldType = FindVariantFieldType(vp, vp.BoundFields[i]);
+                            EnsureLocal(ib, fieldBind.Name, fieldType);
+                            ib.Ldloc(tmpName);
+                            ib.Ldfld(new FieldReference(new TypeRef(variantType), vp.BoundFields[i], fieldType));
+                            ib.Stloc(fieldBind.Name);
+                        }
+                        else if (vp.Arguments[i] is VariantPattern nested)
+                        {
+                            _diagnostics.AddError("Nested variant patterns are not supported yet", nested.Line, nested.Column);
+                        }
+                        else if (vp.Arguments[i] is LiteralPattern badLit)
+                        {
+                            _diagnostics.AddError("Literal patterns inside variants are not supported yet", badLit.Line, badLit.Column);
+                        }
+                    }
+                    break;
+            }
+        }
+    }
+
+    private void EmitLiteralValue(InstructionBuilder ib, object? value)
+    {
+        if (value is int i) ib.LdcI4(i);
+        else if (value is string s) ib.Ldstr(s);
+        else if (value is bool b) ib.LdcI4(b ? 1 : 0);
+        else if (value is double d) ib.LdcR8(d);
+        else if (value == null) ib.Ldnull();
+    }
+
+    /// <summary>Declares a local once per method (match arms can rebind names).</summary>
+    private readonly HashSet<string> _declaredLocals = new();
+
+    private void EnsureLocal(InstructionBuilder ib, string name, TypeRef type)
+    {
+        if (_declaredLocals.Add(name))
+            ib.Local(name, type);
+    }
+
+    private ContractDeclaration? FindSumBase(VariantPattern vp)
+    {
+        var variantContract = _program?.Contracts.FirstOrDefault(c =>
+            c.FullName == vp.ResolvedVariantName || c.Name == vp.VariantName);
+        return variantContract?.SumTypeOf != null
+            ? _program?.Contracts.FirstOrDefault(c => c.Name == variantContract.SumTypeOf || c.FullName == variantContract.SumTypeOf)
+            : null;
+    }
+
+    private TypeRef FindVariantFieldType(VariantPattern vp, string fieldName)
+    {
+        var variantContract = _program?.Contracts.FirstOrDefault(c =>
+            c.FullName == vp.ResolvedVariantName || c.Name == vp.VariantName);
+        var field = variantContract?.Fields.FirstOrDefault(f => f.Name == fieldName);
+        return field != null ? MapType(field.Type) : TypeRef.Object;
+    }
 
     /// <summary>
     /// The materialized wire name of a generic instantiation: <c>Box&lt;int&gt;</c>
@@ -2586,6 +3081,21 @@ public class IRCodeGenerator
         TypeRef.String,
         new List<TypeRef> { TypeRef.String, TypeRef.String }
     );
+
+    // for-in index protocol (§5) — direct stdlib bindings, emitted without
+    // resolver symbols because they are synthesized post-analysis.
+    private static readonly MethodReference ListCountReference = new(
+        new TypeRef("List"), "Count", TypeRef.Int32,
+        new List<TypeRef> { TypeRef.Object });
+    private static readonly MethodReference ListGetReference = new(
+        new TypeRef("List"), "Get", TypeRef.Object,
+        new List<TypeRef> { TypeRef.Object, TypeRef.Int32 });
+    private static readonly MethodReference DictKeysReference = new(
+        new TypeRef("Dict"), "Keys", TypeRef.Object,
+        new List<TypeRef> { TypeRef.Object });
+    private static readonly MethodReference DictGetReference = new(
+        new TypeRef("Dict"), "Get", TypeRef.Object,
+        new List<TypeRef> { TypeRef.Object, TypeRef.Object });
 
     private MethodReference ResolveFunctionReference(string fallbackDeclaringType, string name, int argCount)
     {

@@ -258,6 +258,9 @@ namespace Contract.Compiler.Semantics
             foreach (var contract in program.Contracts)
             {
                 if (isLibrary) break;
+                // Sum-type machinery (variant factories, tag fields) is
+                // compiler-generated; never report it as dead code.
+                if (contract.IsSumTypeBase || contract.SumTypeOf != null) continue;
                 foreach (var member in contract.Members)
                 {
                     if (member is not FunctionDeclaration func) continue;
@@ -273,6 +276,7 @@ namespace Contract.Compiler.Semantics
             // ── Unused fields (never read; assignments don't count) ─────────
             foreach (var contract in program.Contracts)
             {
+                if (contract.IsSumTypeBase || contract.SumTypeOf != null) continue;
                 foreach (var field in contract.Fields)
                 {
                     bool read = _readFields.Contains((contract.Name, field.Name))
@@ -507,7 +511,13 @@ namespace Contract.Compiler.Semantics
                 var current = contract;
                 bool reachesAttribute = false;
 
-                while (current.BaseTypeName != null)
+                // All parents: the primary base first, then interface-style parents.
+                IEnumerable<string> ParentNames(ContractDeclaration c)
+                    => c.BaseTypeName != null
+                        ? new[] { c.BaseTypeName }.Concat(c.InterfaceNames)
+                        : c.InterfaceNames;
+
+                while (ParentNames(current).Any())
                 {
                     if (!seen.Add(current.Name))
                     {
@@ -516,8 +526,24 @@ namespace Contract.Compiler.Semantics
                     }
 
                     chain.Add(current);
-                    var baseName = current.BaseTypeName;
+                    var parentNames = ParentNames(current).ToList();
+
+                    // The FIRST name is the primary base; the rest are
+                    // interface-style parents (§6).
+                    var baseName = parentNames[0];
                     _usedTypes.Add(baseName);   // base type is a usage of that type
+
+                    foreach (var ifaceName in parentNames.Skip(1))
+                    {
+                        _usedTypes.Add(ifaceName);
+                        var iface = _contractsByName.TryGetValue(ifaceName, out var ic) ? ic : FindContract(ifaceName);
+                        if (iface == null)
+                        {
+                            _diagnostics.AddError($"Unknown interface '{ifaceName}' on contract '{current.Name}'", current.Line, current.Column);
+                            continue;
+                        }
+                        ValidateInterfaceParent(current, iface);
+                    }
 
                     if (baseName.Equals("Attribute", StringComparison.OrdinalIgnoreCase))
                     {
@@ -544,6 +570,8 @@ namespace Contract.Compiler.Semantics
                 }
             }
 
+            CollectAbstractRequirements(program);
+
             foreach (var contract in program.Contracts)
             {
                 ValidateAttributes(contract.Attributes, "contract", _contractsByName);
@@ -565,9 +593,101 @@ namespace Contract.Compiler.Semantics
                 ValidateAttributes(func.Attributes, "function", _contractsByName);
         }
 
-        private void ValidateAttributes(List<AttributeUsage> attributes, string targetKind, Dictionary<string, ContractDeclaration> contractsByName)
+        /// <summary>
+        /// Validates an interface-style parent (FEATURE_PROPOSALS §6 —
+        /// interfaces expressed as ordinary contracts with multiple
+        /// inheritance). Interface parents carry no state: fields and
+        /// constructors would have no single layout across all implementors.
+        /// </summary>
+        private void ValidateInterfaceParent(ContractDeclaration derived, ContractDeclaration iface)
         {
-            foreach (var attr in attributes)
+            if (iface.Fields.Any(f => !f.IsStatic))
+            {
+                _diagnostics.AddError(
+                    $"Interface '{iface.Name}' declares instance fields — interface-style parents must be stateless (fields live on the primary base)",
+                    derived.Line, derived.Column);
+            }
+            if (iface.Constructors.Count > 0)
+            {
+                _diagnostics.AddError(
+                    $"Interface '{iface.Name}' declares constructors — interface-style parents cannot be constructed",
+                    derived.Line, derived.Column);
+            }
+        }
+
+        /// <summary>
+        /// Computes each contract's <see cref="ContractDeclaration.PendingAbstractMethods"/>:
+        /// body-less instance methods inherited from the primary base chain or
+        /// declared by any interface-style parent, minus those the contract
+        /// implements itself. A contract with pending abstracts is abstract —
+        /// it cannot be instantiated.
+        /// </summary>
+        private void CollectAbstractRequirements(Program program)
+        {
+            foreach (var contract in program.Contracts)
+            {
+                var required = new List<FunctionDeclaration>();
+                var seen = new HashSet<string>(StringComparer.Ordinal);
+
+                void CollectFrom(ContractDeclaration c, bool includeSelfAbstracts)
+                {
+                    // Primary base chain first... (cycle-guarded: a broken
+                    // inheritance cycle must not hang this pass)
+                    var walked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    for (var cur = includeSelfAbstracts ? c : BaseContract(c);
+                         cur != null && walked.Add(cur.Name);
+                         cur = BaseContract(cur))
+                    {
+                        foreach (var m in cur.Members.OfType<FunctionDeclaration>())
+                        {
+                            if (m.IsInstance && m.Body == null && seen.Add(m.Name))
+                                required.Add(m);
+                        }
+                    }
+                    // ...then every interface parent's methods (their own bases too).
+                    foreach (var ifaceName in c.InterfaceNames)
+                    {
+                        var iface = FindContract(ifaceName);
+                        if (iface == null) continue;
+                        foreach (var m in iface.Members.OfType<FunctionDeclaration>())
+                        {
+                            if (m.IsInstance && m.Body == null && seen.Add(m.Name))
+                                required.Add(m);
+                        }
+                    }
+                }
+
+                CollectFrom(contract, includeSelfAbstracts: false);
+
+                // The contract's own implementations discharge requirements by name.
+                var implemented = contract.Members.OfType<FunctionDeclaration>()
+                    .Where(f => f.IsInstance && f.Body != null)
+                    .Select(f => f.Name)
+                    .ToHashSet(StringComparer.Ordinal);
+
+                foreach (var req in required.Where(r => !implemented.Contains(r.Name)))
+                    contract.PendingAbstractMethods.Add(req);
+
+                foreach (var ifaceName in contract.InterfaceNames)
+                {
+                    var iface = FindContract(ifaceName);
+                    if (iface == null) continue;
+                    foreach (var req in iface.PendingAbstractMethods.Where(r => !implemented.Contains(r.Name)))
+                        if (!contract.PendingAbstractMethods.Any(p => p.Name == req.Name))
+                            contract.PendingAbstractMethods.Add(req);
+                }
+
+                if (contract.BaseTypeName != null && _contractsByName.TryGetValue(contract.BaseTypeName, out var primBase))
+                {
+                    foreach (var req in primBase.PendingAbstractMethods.Where(r => !implemented.Contains(r.Name)))
+                        if (!contract.PendingAbstractMethods.Any(p => p.Name == req.Name))
+                            contract.PendingAbstractMethods.Add(req);
+                }
+            }
+        }
+
+        private void ValidateAttributes(List<AttributeUsage> attributes, string targetKind, Dictionary<string, ContractDeclaration> contractsByName)
+        {            foreach (var attr in attributes)
             {
                 // Applying an attribute references its declaring contract.
                 _usedTypes.Add(attr.Name);
@@ -1105,6 +1225,9 @@ namespace Contract.Compiler.Semantics
                     if (IsEmptyBlock(whileStmt.Body))
                         Warn("Empty loop body — the loop does nothing", whileStmt.Line, whileStmt.Column);
                     break;
+                case ForInStatement forIn:
+                    AnalyzeForInStatement(forIn);
+                    break;
                 case ForStatement forStmt:
                     // The loop variable is scoped to the loop itself (like C),
                     // so two sequential 'for (var i = ...)' loops don't collide.
@@ -1216,9 +1339,269 @@ namespace Contract.Compiler.Semantics
         private static bool IsEmptyBlock(Statement? s)
             => s is BlockStatement b && b.Statements.Count == 0;
 
-        private void AnalyzeExpression(Expression expression)
+        // ── for-in iteration (FEATURE_PROPOSALS §5) ────────────────────
+
+        /// <summary>
+        /// Analyzes <c>for x in iterable</c>: scopes the loop variable to the
+        /// loop, resolves the iterable's element type (array / List / Dict),
+        /// and records it for codegen's index-protocol selection.
+        /// </summary>
+        private void AnalyzeForInStatement(ForInStatement stmt)
         {
-            switch (expression)
+            _scopes.Push(new Dictionary<string, VariableDeclaration>());
+            _varMutability.Push(new Dictionary<string, bool>());
+
+            // Ranges never reach InferType as a collection — they desugar to a
+            // C-style loop producing ints.
+            if (stmt.Iterable is not RangeExpression)
+                AnalyzeExpression(stmt.Iterable);
+            var iterType = stmt.Iterable is RangeExpression ? new TypeDescriptor.Named("int") : InferType(stmt.Iterable);
+
+            TypeDescriptor? elem = null;
+            TypeDescriptor? valueElem = null;
+            bool isDict = false;
+
+            if (stmt.Iterable is RangeExpression range)
+            {
+                AnalyzeExpression(range.Start);
+                AnalyzeExpression(range.End);
+                if (range.Step != null)
+                    AnalyzeExpression(range.Step);
+                elem = new TypeDescriptor.Named("int");
+                if (stmt.ValueVariable != null)
+                {
+                    _diagnostics.AddError("Ranges produce single values — use 'for x in range'", stmt.Line, stmt.Column);
+                }
+            }
+            else             switch (iterType)
+            {
+                case TypeDescriptor.ArrayOf arr:
+                    elem = arr.Element;
+                    stmt.IsArray = true;
+                    break;
+
+                case TypeDescriptor.GenericInstance g:
+                    string shortName = g.Name.Contains('.') ? g.Name[(g.Name.LastIndexOf('.') + 1)..] : g.Name;
+                    if (shortName.Equals("List", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (stmt.ValueVariable != null)
+                        {
+                            _diagnostics.AddError(
+                                "The (key, value) pair form only iterates Dict — use 'for x in list' over a List",
+                                stmt.Line, stmt.Column);
+                        }
+                        elem = g.Arguments.Count > 0 ? g.Arguments[0] : TypeDescriptor.Empty;
+                    }
+                    else if (shortName.Equals("Dict", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (stmt.ValueVariable == null)
+                        {
+                            _diagnostics.AddError(
+                                "Iterating a Dict requires the pair form — use 'for (key, value) in dict'",
+                                stmt.Line, stmt.Column);
+                        }
+                        isDict = true;
+                        elem = g.Arguments.Count > 0 ? g.Arguments[0] : TypeDescriptor.Empty;
+                        valueElem = g.Arguments.Count > 1 ? g.Arguments[1] : TypeDescriptor.Empty;
+                    }
+                    else
+                    {
+                        _diagnostics.AddError(
+                            $"Cannot iterate '{iterType}' — for-in supports arrays, List<T>, and Dict<K, V>",
+                            stmt.Line, stmt.Column);
+                    }
+                    break;
+
+                default:
+                    _diagnostics.AddError(
+                        $"Cannot iterate '{iterType?.ToString() ?? "unknown"}' — for-in supports arrays, List<T>, Dict<K, V>, and ranges",
+                        stmt.Line, stmt.Column);
+                    break;
+            }
+
+            stmt.ResolvedElementType = elem ?? TypeDescriptor.Empty;
+            stmt.IsDictionary = isDict;
+            if (stmt.Iterable is RangeExpression) stmt.IsArray = false;
+
+            DeclareVariable(stmt.Variable, stmt.ResolvedElementType, stmt.Line, stmt.Column, warnOnShadow: false);
+            if (isDict && stmt.ValueVariable != null && valueElem != null)
+                DeclareVariable(stmt.ValueVariable, valueElem, stmt.Line, stmt.Column, warnOnShadow: false);
+
+            AnalyzeStatement(stmt.Body);
+
+            if (IsEmptyBlock(stmt.Body))
+                Warn("Empty loop body — the loop does nothing", stmt.Line, stmt.Column);
+
+            _scopes.Pop();
+            _varMutability.Pop();
+        }
+
+        // ── Match expressions (FEATURE_PROPOSALS §1, §2) ───────────────
+
+        /// <summary>
+        /// Analyzes a match expression: resolves variant patterns against the
+        /// scrutinee's sum type, scopes binding patterns to their arm,
+        /// validates guards and results, and — when the scrutinee is a sum
+        /// type with no wildcard/binding catch-all — checks exhaustiveness
+        /// (every variant must be covered).
+        /// </summary>
+        private void AnalyzeMatchExpression(MatchExpression match)
+        {
+            AnalyzeExpression(match.Scrutinee);
+            var scrutineeType = InferType(match.Scrutinee);
+
+            // The sum base when the scrutinee is a variant-bearing type.
+            ContractDeclaration? sumBase = null;
+            if (scrutineeType is TypeDescriptor.Named sn && !sn.IsEmpty)
+            {
+                var c = FindContract(sn.Name);
+                if (c != null)
+                {
+                    if (c.IsSumTypeBase) sumBase = c;
+                    else if (c.SumTypeOf != null) sumBase = FindContract(c.SumTypeOf);
+                }
+            }
+            match.SumTypeName = sumBase?.FullName ?? sumBase?.Name;
+
+            var coveredVariants = new HashSet<string>(StringComparer.Ordinal);
+            bool hasCatchAll = false;
+
+            foreach (var arm in match.Arms)
+            {
+                // A bare identifier that names one of the sum's variants is a
+                // fieldless variant pattern (`Unit => ...`), not a binding.
+                if (sumBase != null)
+                {
+                    for (int pi = 0; pi < arm.Patterns.Count; pi++)
+                    {
+                        if (arm.Patterns[pi] is BindingPattern bp
+                            && sumBase.SumVariants.Contains(bp.Name))
+                        {
+                            arm.Patterns[pi] = new VariantPattern(bp.Name, bp.Line, bp.Column);
+                        }
+                    }
+                }
+
+                foreach (var pattern in arm.Patterns)
+                {
+                    switch (pattern)
+                    {
+                        case LiteralPattern lit:
+                            break;
+                        case WildcardPattern:
+                            hasCatchAll = true;
+                            break;
+                        case BindingPattern bind:
+                            hasCatchAll = true;
+                            arm.BoundNames[bind.Name] = scrutineeType ?? TypeDescriptor.Empty;
+                            break;
+                        case VariantPattern vp:
+                        {
+                            if (sumBase == null)
+                            {
+                                _diagnostics.AddError(
+                                    $"Variant pattern '{vp.VariantName}(' requires a match over a sum type (declared with 'type ... {{ ... }}')",
+                                    vp.Line, vp.Column);
+                                break;
+                            }
+                            int idx = sumBase.SumVariants.IndexOf(vp.VariantName);
+                            if (idx < 0)
+                            {
+                                _diagnostics.AddError(
+                                    $"'{vp.VariantName}' is not a variant of sum type '{sumBase.Name}'",
+                                    vp.Line, vp.Column);
+                                break;
+                            }
+                            var variantContract = FindContract($"{sumBase.Name}.{vp.VariantName}");
+                            if (variantContract == null) break;
+
+                            vp.ResolvedVariantName = variantContract.FullName;
+                            vp.VariantIndex = idx;
+                            coveredVariants.Add(vp.VariantName);
+
+                            var fields = variantContract.Fields.Where(f => !f.IsStatic).ToList();
+                            if (vp.Arguments.Count > fields.Count)
+                            {
+                                _diagnostics.AddError(
+                                    $"Variant '{vp.VariantName}' has {fields.Count} field(s), but the pattern binds {vp.Arguments.Count}",
+                                    vp.Line, vp.Column);
+                            }
+
+                            for (int i = 0; i < vp.Arguments.Count && i < fields.Count; i++)
+                            {
+                                var sub = vp.Arguments[i];
+                                var fieldType = fields[i].Type;
+                                switch (sub)
+                                {
+                                    case WildcardPattern:
+                                        break;
+                                    case BindingPattern b:
+                                        arm.BoundNames[b.Name] = fieldType;
+                                        break;
+                                    case VariantPattern nested:
+                                        _diagnostics.AddError("Nested variant patterns are not supported yet", sub.Line, sub.Column);
+                                        break;
+                                    case LiteralPattern litSub:
+                                        _diagnostics.AddError("Literal patterns inside variants are not supported yet", litSub.Line, litSub.Column);
+                                        break;
+                                }
+                                vp.BoundFields.Add(fields[i].Name);
+                            }
+                            // A bare variant name with no parens still counts as
+                            // covering the variant; with parens it must consume
+                            // all fields positionally.
+                            if (vp.Arguments.Count == 0)
+                            {
+                                foreach (var f in fields)
+                                    vp.BoundFields.Add(f.Name);
+                            }
+                            break;
+                        }
+                    }
+                }
+
+                // Bindings + guard + result are analyzed in an arm-local scope.
+                _scopes.Push(new Dictionary<string, VariableDeclaration>());
+                _varMutability.Push(new Dictionary<string, bool>());
+                foreach (var (boundName, boundType) in arm.BoundNames)
+                    DeclareVariable(boundName, boundType, arm.Line, arm.Column, warnOnShadow: false);
+
+                if (arm.Guard != null)
+                {
+                    AnalyzeConditionWarnings("match guard", arm.Guard, arm.Line, arm.Column);
+                    AnalyzeExpression(arm.Guard);
+                }
+                AnalyzeExpression(arm.Result);
+
+                _scopes.Pop();
+                _varMutability.Pop();
+            }
+
+            // Exhaustiveness: a match over a sum type without a wildcard or
+            // binding catch-all must cover every variant.
+            if (sumBase != null && !hasCatchAll)
+            {
+                var missing = sumBase.SumVariants.Where(v => !coveredVariants.Contains(v)).ToList();
+                if (missing.Count > 0)
+                {
+                    _diagnostics.AddError(
+                        $"Non-exhaustive match over '{sumBase.Name}' — no arm covers: {string.Join(", ", missing)}" +
+                        " (add arms for every variant or a '_' catch-all)",
+                        match.Line, match.Column);
+                }
+            }
+
+            if (match.Arms.All(a => a.Patterns.All(p => p is not WildcardPattern && p is not BindingPattern))
+                && sumBase == null && match.Arms.Count > 0)
+            {
+                // Non-sum matches without a catch-all fall through at runtime
+                // to a fault; surface that once per match.
+                Warn("Match has no '_' arm — non-matching input faults at runtime", match.Line, match.Column);
+            }
+        }
+
+        private void AnalyzeExpression(Expression expression)
+        {            switch (expression)
             {
                 case BinaryExpression bin:
                     // Division/modulo by a constant zero is a runtime crash.
@@ -1459,6 +1842,19 @@ namespace Contract.Compiler.Semantics
                     AnalyzeExpression(ternary.ThenBranch);
                     AnalyzeExpression(ternary.ElseBranch);
                     break;
+                case IfExpression ifExpr:
+                    AnalyzeConditionWarnings("if", ifExpr.Condition, ifExpr.Line, ifExpr.Column);
+                    AnalyzeExpression(ifExpr.Condition);
+                    AnalyzeExpression(ifExpr.ThenBranch);
+                    AnalyzeExpression(ifExpr.ElseBranch);
+                    break;
+                case RangeExpression:
+                    // Only produced inside for-in headers; analyzed there.
+                    _diagnostics.AddError("Ranges are only valid in a 'for x in a..b' header", expression.Line, expression.Column);
+                    break;
+                case MatchExpression match:
+                    AnalyzeMatchExpression(match);
+                    break;
                 case ArrayLiteralExpression arrLit:
                     foreach (var element in arrLit.Elements)
                         AnalyzeExpression(element);
@@ -1522,6 +1918,26 @@ namespace Contract.Compiler.Semantics
                         && !_symbolTable.TryGetMethod(nbContract.NativeBindingName, "Create", out _))
                     {
                         _diagnostics.AddError($"Native binding '{nbContract.NativeBindingName}' has no method named 'Create' (required for 'new {newExpr.TypeName}')", newExpr.Line, newExpr.Column);
+                    }
+
+                    // Sum-type bases are never constructed directly — use a
+                    // variant constructor (Shape.Circle(2.0)) or variant.
+                    if (_contractsByName.TryGetValue(newExpr.TypeName, out var sumCheck)
+                        && sumCheck.IsSumTypeBase)
+                    {
+                        _diagnostics.AddError(
+                            $"'{sumCheck.Name}' is a sum type — create a variant instead (e.g. {sumCheck.Name}.{sumCheck.SumVariants.FirstOrDefault() ?? "Variant"}(...))",
+                            newExpr.Line, newExpr.Column);
+                    }
+
+                    // Abstract contracts (unimplemented inherited/interface
+                    // methods) cannot be instantiated.
+                    else if (_contractsByName.TryGetValue(newExpr.TypeName, out var absCheck)
+                             && absCheck.PendingAbstractMethods.Count > 0)
+                    {
+                        _diagnostics.AddError(
+                            $"Cannot instantiate '{absCheck.Name}' — it does not implement: {string.Join(", ", absCheck.PendingAbstractMethods.Select(m => m.Name + "()"))}",
+                            newExpr.Line, newExpr.Column);
                     }
 
                     // A plain contract with declared constructors but no match:
@@ -2034,6 +2450,20 @@ namespace Contract.Compiler.Semantics
                     return InferType(unary.Operand);
                 case TernaryExpression ternary:
                     return InferType(ternary.ThenBranch) ?? InferType(ternary.ElseBranch);
+                case IfExpression ifExpr:
+                    return InferType(ifExpr.ThenBranch) ?? InferType(ifExpr.ElseBranch);
+                case MatchExpression match:
+                {
+                    foreach (var arm in match.Arms)
+                    {
+                        var t = InferType(arm.Result);
+                        if (t != null && !t.IsEmpty) return t;
+                    }
+                    return null;
+                }
+                case RangeExpression:
+                    // Ranges only exist inside for-in headers.
+                    return new TypeDescriptor.Named("int");
                 case IndexExpression indexExpr:
                     // arr[i] — the element type of the target's array type.
                     if (indexExpr.Target is IdentifierExpression targetId

@@ -10,7 +10,7 @@ namespace Contract.Compiler.Parsing
         Contract, Fn, If, Else, While, For, Switch, Case, Return, Var, Let, Static,
         Public, Private, Protected, Internal, Null, Import, Constructor, Struct, Export, Fun, Types, Type, New,
         Break, Continue, True, False, Enum, Namespace,
-        Try, Catch, Finally, Throw,
+        Try, Catch, Finally, Throw, Match, In,
         
         // Literals
         Identifier, IntLiteral, FloatLiteral, StringLiteral, InterpolatedString,
@@ -20,7 +20,7 @@ namespace Contract.Compiler.Parsing
         Semicolon, Colon, DoubleColon, Comma, Dot, Plus, Minus, Star, Slash, Percent,
         Less, LessEqual, Greater, GreaterEqual, EqualEqual, Bang, BangEqual, Assign, Arrow, Pipe,
         PlusEqual, MinusEqual, StarEqual, SlashEqual, PercentEqual, AndAnd, OrOr,
-        DotDot, GreaterGreater, Question,
+        DotDot, GreaterGreater, Question, FatArrow,
         
         // Special
         EOF
@@ -95,7 +95,9 @@ namespace Contract.Compiler.Parsing
             ["try"] = TokenType.Try,
             ["catch"] = TokenType.Catch,
             ["finally"] = TokenType.Finally,
-            ["throw"] = TokenType.Throw
+            ["throw"] = TokenType.Throw,
+            ["match"] = TokenType.Match,
+            ["in"] = TokenType.In
         };
 
         public Lexer(string source, DiagnosticBag diagnostics, string? sourceFile = null)
@@ -410,10 +412,9 @@ namespace Contract.Compiler.Parsing
                     }
                     else
                     {
-                        _diagnostics.AddError($"Unexpected character: {c}", _line, _column, _sourceFile);
-                        _position++;
-                        _column++;
-                        return null;
+                        // Lone '|' — the match or-pattern separator.
+                        type = TokenType.Pipe;
+                        length = 1;
                     }
                     break;
                 case '&':
@@ -473,6 +474,12 @@ namespace Contract.Compiler.Parsing
                     if (_position + 1 < _source.Length && _source[_position + 1] == '=')
                     {
                         type = TokenType.EqualEqual;
+                        length = 2;
+                    }
+                    else if (_position + 1 < _source.Length && _source[_position + 1] == '>')
+                    {
+                        // Fat arrow: pattern => result (match arms)
+                        type = TokenType.FatArrow;
                         length = 2;
                     }
                     else

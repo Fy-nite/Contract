@@ -1,0 +1,38 @@
+// PROPOSAL §5 — for ... in iteration.
+
+Contract Loops {
+    static fn Main() {
+        for i in 0..5 { IO.Print(i); }            // 01234   (end-exclusive)
+        IO.Print("|");
+        for i in 0..=10 by 2 { IO.Print(i); }     // 0246810
+        IO.Print("|");
+        for i in 10..=0 by -2 { IO.Print(i); }    // 1086420
+        IO.Print("|");
+        var n: int = 3;
+        for i in n..n * 2 { IO.Print(i); }        // 345
+        IO.Println("");
+
+        let names: List<string> = List.Create();
+        List.Add(names, "ada");
+        List.Add(names, "grace");
+        for name in names { IO.Println(name); }
+
+        let scores: Dict<string, int> = Dict.Create();
+        Dict.Set(scores, "ada", 99);
+        Dict.Set(scores, "grace", 100);
+        for (k, v) in scores { IO.Println(k + "=" + Convert.ToString(v)); }
+
+        let arr: int[] = [7, 8, 9];
+        for x in arr { IO.Print(x); }
+        IO.Println("");
+
+        // break / continue still work through the desugared loop.
+        var total: int = 0;
+        for v in 1..10 {
+            if (v == 3) { continue; }
+            if (v > 6) { break; }
+            total += v;
+        }
+        IO.Println(total);   // 1+2+4+5+6 = 18
+    }
+}

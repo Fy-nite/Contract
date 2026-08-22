@@ -1,0 +1,13 @@
+type Color {
+    Red | Green
+}
+Contract T {
+    static fn Main() {
+        let c: Color = Color.Red;
+        // Neither arm covers 'Green' and there is no '_' — must not compile.
+        let s: string = match (c) {
+            Red => "r"
+        };
+        IO.Println(s);
+    }
+}

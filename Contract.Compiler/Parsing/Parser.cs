@@ -15,8 +15,16 @@ namespace Contract.Compiler.Parsing
         private readonly string? _sourceFile;
         /// <summary>Current `namespace com.example;` for the file — applied to subsequent declarations.</summary>
         private string? _currentNamespace;
-        /// <summary>Unique suffix for foreach desugar temps (__forArr_N / __forIdx_N).</summary>
+        /// <summary>Unique suffix for foreach desugar temps (__forArr_N / __forIdx_N) and match temps (__match_N).</summary>
         private int _forTempCounter;
+
+        /// <summary>
+        /// When positive, the postfix <c>..</c> range operator is left
+        /// unconsumed — used while parsing for-in headers so the header can
+        /// claim <c>0..10</c>/<c>0..=10</c> as its own range form instead of
+        /// letting the operand unroll into an array literal.
+        /// </summary>
+        private int _suppressRangeDepth;
 
         public Parser(IEnumerable<Token> tokens, DiagnosticBag diagnostics, string? sourceFile = null)
         {
@@ -117,6 +125,14 @@ namespace Contract.Compiler.Parsing
                         enumDecl.Attributes.AddRange(attributes);
                         program.Enums.Add(enumDecl);
                     }
+                    else if (Match(TokenType.Type))
+                    {
+                        // Sum type (FEATURE_PROPOSALS §2):
+                        //   type Shape { Circle(r: double) | Rect(w, h) | Unit }
+                        // Synthesizes one base contract + one variant contract
+                        // per alternative; see ParseSumType.
+                        ParseSumType(program);
+                    }
                     else if (MatchFn())
                     {
                         var func = ParseFunction();
@@ -209,9 +225,164 @@ namespace Contract.Compiler.Parsing
             return attributes;
         }
 
-        private EnumDeclaration ParseEnum()
+        /// <summary>
+        /// Parses a sum type (FEATURE_PROPOSALS §2):
+        /// <code>
+        /// type Shape {
+        ///     Circle(radius: double)
+        ///   | Rect(w: double, h: double)
+        ///   | Unit
+        /// }
+        /// </code>
+        /// Lowers into plain contracts so the rest of the compiler sees nothing
+        /// new:
+        ///  - the base (<c>Shape</c>) carries the hidden tag field <c>__tag</c>,
+        ///    one static factory per variant (<c>Shape.Circle(2.0)</c>), and is
+        ///    marked IsSumTypeBase with its variant list (exhaustiveness data);
+        ///  - each variant becomes a contract named <c>Shape.Circle</c> etc.
+        ///    deriving the base, holding the variant's fields, whose constructor
+        ///    stores them and stamps <c>__tag</c>.
+        /// </summary>
+        private void ParseSumType(Program program)
         {
             int line = Previous.Line;
+            int column = Previous.Column;
+
+            Consume(TokenType.Identifier, "Expected sum type name after 'type'");
+            string name = Previous.Text;
+
+            Consume(TokenType.LBrace, "Expected '{' after sum type name");
+
+            var variants = new List<(string Name, List<Parameter> Params)>();
+            while (!Check(TokenType.RBrace) && !IsAtEnd())
+            {
+                int startPos = _current;
+                Consume(TokenType.Identifier, "Expected variant name in sum type");
+                string vname = Previous.Text;
+
+                var vparams = new List<Parameter>();
+                if (Match(TokenType.LParen))
+                {
+                    if (!Check(TokenType.RParen))
+                    {
+                        do
+                        {
+                            int pline = Current.Line;
+                            int pcol = Current.Column;
+                            Consume(TokenType.Identifier, "Expected parameter name in variant");
+                            string pname = Previous.Text;
+                            Consume(TokenType.Colon, "Expected ':' after variant parameter name");
+                            string ptype = ParseType();
+                            vparams.Add(new Parameter(pname, TypeDescriptor.Parse(ptype), pline, pcol));
+                        } while (Match(TokenType.Comma));
+                    }
+                    Consume(TokenType.RParen, $"Expected ')' after variant '{vname}' parameters");
+                }
+
+                variants.Add((vname, vparams));
+                Match(TokenType.Comma);
+                Match(TokenType.Pipe);   // '|' separator between alternatives
+
+                if (_current == startPos && !IsAtEnd())
+                {
+                    AddError("Parser failed to advance in sum type body", Current.Line, Current.Column);
+                    Advance();
+                }
+            }
+
+            Consume(TokenType.RBrace, "Expected '}' after sum type body");
+
+            if (variants.Count == 0)
+            {
+                AddError($"Sum type '{name}' must declare at least one variant", line, column);
+                return;
+            }
+
+            string? ns = _currentNamespace;
+
+            var baseDecl = new ContractDeclaration(name, line, column)
+            {
+                Namespace = ns,
+                SourceFile = _sourceFile,
+                IsSumTypeBase = true,
+            };
+            baseDecl.Fields.Add(new StructField("__tag", TypeDescriptor.Parse("int"), line, column));
+
+            // The BASE goes first: the IR emitter writes contracts in order,
+            // and the ObjektIL text parser resolves 'extends' against types
+            // declared so far — variants ahead of their base would lose the
+            // inheritance link (and their instance size) at load time.
+            program.Contracts.Add(baseDecl);
+
+            foreach (var (vname, vparams) in variants)
+            {
+                baseDecl.SumVariants.Add(vname);
+
+                // ── Variant contract: Shape.Circle : Shape ──
+                string variantShort = $"{name}.{vname}";
+                string variantFull = ns == null ? variantShort : $"{ns}.{variantShort}";
+                var variant = new ContractDeclaration(variantShort, line, column)
+                {
+                    Namespace = ns,
+                    SourceFile = _sourceFile,
+                    BaseTypeName = name,
+                    SumTypeOf = name,
+                    SumVariantIndex = baseDecl.SumVariants.Count - 1,
+                };
+
+                foreach (var p in vparams)
+                    variant.Fields.Add(new StructField(p.Name, p.Type, p.Line, p.Column));
+
+                var ctor = new ConstructorDeclaration(line, column);
+                var ctorBody = new BlockStatement(line, column);
+                foreach (var p in vparams)
+                {
+                    ctor.Parameters.Add(new Parameter(p.Name, p.Type, p.Line, p.Column));
+                    // this.p = p;
+                    ctorBody.Statements.Add(new ExpressionStatement(
+                        new BinaryExpression(
+                            new MemberExpression(
+                                new IdentifierExpression("this", line, column), p.Name, line, column),
+                            "=",
+                            new IdentifierExpression(p.Name, line, column),
+                            line, column),
+                        line, column));
+                }
+                // this.__tag = <variant index>;
+                ctorBody.Statements.Add(new ExpressionStatement(
+                    new BinaryExpression(
+                        new MemberExpression(
+                            new IdentifierExpression("this", line, column), "__tag", line, column),
+                        "=",
+                        new LiteralExpression(variant.SumVariantIndex, line, column),
+                        line, column),
+                    line, column));
+                ctor.Body = ctorBody;
+                variant.Constructors.Add(ctor);
+
+                program.Contracts.Add(variant);
+                // ── Static factory on the base: static fn Circle(...) -> Shape ──
+                var factory = new FunctionDeclaration(vname, line, column)
+                {
+                    ContractName = name,
+                    IsStatic = true,
+                    ReturnType = TypeDescriptor.Parse(name),
+                };
+                var factoryBody = new BlockStatement(line, column);
+                var newExpr = new NewExpression(variantFull, line, column);
+                foreach (var p in vparams)
+                {
+                    factory.Parameters.Add(new Parameter(p.Name, p.Type, p.Line, p.Column));
+                    newExpr.Arguments.Add(new IdentifierExpression(p.Name, line, column));
+                }
+                factoryBody.Statements.Add(new ReturnStatement(newExpr, line, column));
+                factory.Body = factoryBody;
+                baseDecl.Members.Add(factory);
+            }
+        }
+
+        private EnumDeclaration ParseEnum()
+        {            int line = Previous.Line;
             int column = Previous.Column;
 
             Consume(TokenType.Identifier, "Expected enum name");
@@ -315,12 +486,20 @@ namespace Contract.Compiler.Parsing
                 Consume(TokenType.Greater, "Expected '>' after type parameters");
             }
 
-            // Optional single-inheritance base: contract Foo : Base { ... }
+            // Optional inheritance: contract Foo : Base { ... } or, for
+            // interface-style multiple parents (§6), contract Foo : Base, I1, I2
             string? contractBaseType = null;
             if (Match(TokenType.Colon))
             {
                 Consume(TokenType.Identifier, "Expected base type name after ':'");
                 contractBaseType = Previous.Text;
+
+                // Additional parents behave as interfaces (no fields/ctors).
+                while (Match(TokenType.Comma))
+                {
+                    Consume(TokenType.Identifier, "Expected parent name after ','");
+                    contract.InterfaceNames.Add(Previous.Text);
+                }
             }
 
             Consume(TokenType.LBrace, "Expected '{' after contract name");
@@ -747,11 +926,24 @@ namespace Contract.Compiler.Parsing
             }
             else if (Match(TokenType.For))
             {
+                // for-in iteration (§5): `for x in xs { }`,
+                // `for i in 0..10 by 2 { }`, or the Dict pair form
+                // `for (k, v) in d { }` — recognized before the C-style form.
+                if (CheckForIn())
+                    return ParseForInStatement();
                 return ParseForStatement();
             }
             else if (Match(TokenType.Switch))
             {
                 return ParseSwitchStatement();
+            }
+            else if (Match(TokenType.Match))
+            {
+                // Match in statement position: parse the expression, then let
+                // the statement's trailing pop discard the arm value (§1).
+                var matchExpr = ParseMatchExpression();
+                Consume(TokenType.Semicolon, "Expected ';' after match expression");
+                return new ExpressionStatement(matchExpr, matchExpr.Line, matchExpr.Column);
             }
             else if (Match(TokenType.Break))
             {
@@ -820,10 +1012,12 @@ namespace Contract.Compiler.Parsing
             Consume(TokenType.Identifier, "Expected variable name");
             string name = Previous.Text;
 
+            bool hasExplicitType = false;
             string type = "";
             if (Match(TokenType.Colon))
             {
                 type = ParseType();
+                hasExplicitType = true;
             }
 
             Expression? initializer = null;
@@ -836,7 +1030,7 @@ namespace Contract.Compiler.Parsing
 
             Consume(TokenType.Semicolon, "Expected ';' after variable declaration");
 
-            return new VariableDeclaration(name, TypeDescriptor.Parse(type), initializer, line, column) { IsMutable = isMutable };
+            return new VariableDeclaration(name, TypeDescriptor.Parse(type), initializer, line, column) { IsMutable = isMutable, HasExplicitType = hasExplicitType };
         }
 
         private IfStatement ParseIfStatement()
@@ -857,6 +1051,54 @@ namespace Contract.Compiler.Parsing
             }
 
             return new IfStatement(condition, thenBranch, elseBranch, line, column);
+        }
+
+        /// <summary>
+        /// Parses an if used as an expression (FEATURE_PROPOSALS §3):
+        /// <c>if (cond) { value } else { value }</c>. Branch bodies are brace
+        /// blocks holding a single expression; <c>else if</c> chains nest as
+        /// another IfExpression in the else slot.
+        /// </summary>
+        private IfExpression ParseIfExpression()
+        {
+            int line = Previous.Line;
+            int column = Previous.Column;
+
+            Consume(TokenType.LParen, "Expected '(' after 'if'");
+            var condition = ParseExpression();
+            Consume(TokenType.RParen, "Expected ')' after condition");
+
+            var thenBranch = ParseValueBlock("if branch");
+            Expression elseBranch;
+            if (Match(TokenType.Else))
+            {
+                if (Check(TokenType.If))
+                {
+                    Advance();
+                    elseBranch = ParseIfExpression();   // else-if chain
+                }
+                else
+                {
+                    elseBranch = ParseValueBlock("else branch");
+                }
+            }
+            else
+            {
+                AddError("An 'if' expression requires an 'else' branch — both arms must produce a value", line, column);
+                elseBranch = new LiteralExpression(0, line, column);
+            }
+
+            return new IfExpression(condition, thenBranch, elseBranch, line, column);
+        }
+
+        /// <summary>A brace block whose value is a single expression: <c>{ expr }</c>.</summary>
+        private Expression ParseValueBlock(string what)
+        {
+            Consume(TokenType.LBrace, $"Expected '{{' after {what}");
+            var value = ApplyImplicitLambda(ParseExpression(), Current.Line, Current.Column);
+            Match(TokenType.Semicolon);   // tolerate a trailing ';'
+            Consume(TokenType.RBrace, $"Expected '}}' to close {what}");
+            return value;
         }
 
         private WhileStatement ParseWhileStatement()
@@ -885,7 +1127,6 @@ namespace Contract.Compiler.Parsing
             {
                 return ParseForEachStatement(line, column);
             }
-
             // Initializer: variable declaration, expression, or empty
             Statement? initializer = null;
             if (Match(TokenType.Var) || Match(TokenType.Let))
@@ -985,6 +1226,128 @@ namespace Contract.Compiler.Parsing
             bodyBlock.Statements.Add(body);
 
             return new ForStatement(initBlock, condition, update, bodyBlock, line, column);
+        }
+
+        /// <summary>
+        /// True when the tokens ahead form a for-in header: <c>x in</c> or the
+        /// Dict pair form <c>(k, v) in</c>.
+        /// </summary>
+        private bool CheckForIn()
+        {
+            if (Check(TokenType.Identifier) && CheckNext(TokenType.In)) return true;
+            if (Check(TokenType.LParen) && _current + 5 < _tokens.Count)
+                return _tokens[_current + 1].Type == TokenType.Identifier
+                    && _tokens[_current + 2].Type == TokenType.Comma
+                    && _tokens[_current + 3].Type == TokenType.Identifier
+                    && _tokens[_current + 4].Type == TokenType.RParen
+                    && _tokens[_current + 5].Type == TokenType.In;
+            return false;
+        }
+
+        /// <summary>
+        /// Parses a for-in loop (FEATURE_PROPOSALS §5): the variable binding,
+        /// the iterable (a plain expression or an inline range with optional
+        /// <c>by step</c>), and the body. Codegen picks the index protocol by
+        /// iterable type; ranges desugar to the C-style loop.
+        /// </summary>
+        private ForInStatement ParseForInStatement()
+        {
+            int line = Previous.Line;
+            int column = Previous.Column;
+
+            string? keyVar;
+            string? valueVar = null;
+            if (Match(TokenType.LParen))
+            {
+                Consume(TokenType.Identifier, "Expected key variable in for-in pair");
+                keyVar = Previous.Text;
+                Consume(TokenType.Comma, "Expected ',' between key and value variables");
+                Consume(TokenType.Identifier, "Expected value variable in for-in pair");
+                valueVar = Previous.Text;
+                Consume(TokenType.RParen, "Expected ')' after for-in pair");
+            }
+            else
+            {
+                Consume(TokenType.Identifier, "Expected loop variable after 'for'");
+                keyVar = Previous.Text;
+            }
+
+            Consume(TokenType.In, "Expected 'in' after loop variable");
+
+            Expression iterable = LooksLikeRangeAhead() ? ParseRangeExpression() : ParseExpression();
+            var body = ParseStatement();
+
+            return new ForInStatement(keyVar!, valueVar, iterable, body, line, column);
+        }
+
+        /// <summary>
+        /// Scans ahead over the header (stopping at the body's opening brace)
+        /// for a top-level <c>..</c>/<c>..=</c> — the inline range form.
+        /// </summary>
+        private bool LooksLikeRangeAhead()
+        {
+            int i = _current;
+            int depth = 0;
+            while (i < _tokens.Count)
+            {
+                var t = _tokens[i];
+                switch (t.Type)
+                {
+                    case TokenType.EOF:
+                        return false;
+                    case TokenType.LParen or TokenType.LBracket:
+                        depth++;
+                        break;
+                    case TokenType.RParen or TokenType.RBracket:
+                        if (depth == 0) return false;
+                        depth--;
+                        break;
+                    case TokenType.LBrace:
+                        // The body's opening brace ends the header.
+                        if (depth == 0) return false;
+                        depth++;
+                        break;
+                    case TokenType.RBrace:
+                        if (depth == 0) return false;
+                        depth--;
+                        break;
+                    case TokenType.Semicolon when depth == 0:
+                        return false;
+                    case TokenType.DotDot when depth == 0:
+                        return true;
+                }
+                i++;
+            }
+            return false;
+        }
+
+        /// <summary>Parses <c>start .. end [by step]</c> / <c>start ..= end [by step]</c>.</summary>
+        private RangeExpression ParseRangeExpression()
+        {
+            int line = Current.Line;
+            int column = Current.Column;
+
+            _suppressRangeDepth++;
+            Expression start;
+            try { start = ParseExpression(); }
+            finally { _suppressRangeDepth--; }
+
+            Consume(TokenType.DotDot, "Expected '..' in range");
+            bool inclusive = Match(TokenType.Assign);   // `..=`
+
+            _suppressRangeDepth++;
+            Expression end;
+            try { end = ParseExpression(); }
+            finally { _suppressRangeDepth--; }
+
+            Expression? step = null;
+            if (Check(TokenType.Identifier) && Current.Text == "by")
+            {
+                Advance();
+                step = ParseExpression();
+            }
+
+            return new RangeExpression(start, end, inclusive, step, line, column);
         }
 
         private SwitchStatement ParseSwitchStatement()
@@ -1567,8 +1930,9 @@ namespace Contract.Compiler.Parsing
                     Consume(TokenType.RBracket, "Expected ']' after array index");
                     expr = new IndexExpression(expr, index, expr.Line, expr.Column);
                 }
-                else if (Match(TokenType.DotDot))
+                else if (Check(TokenType.DotDot) && _suppressRangeDepth == 0)
                 {
+                    Advance();
                     // Range: 1..5 — unrolled to an array literal at parse time.
                     // (v1 requires integer-literal bounds.)
                     int line = Previous.Line;
@@ -1708,6 +2072,22 @@ namespace Contract.Compiler.Parsing
 
         private Expression ParsePrimary()
         {
+            // match (x) { ... } — value-producing multi-way branch (§1).
+            if (Check(TokenType.Match))
+            {
+                Advance();
+                return ParseMatchExpression();
+            }
+
+            // if (c) { a } else { b } as a VALUE (§3). Statement position is
+            // handled earlier by ParseStatement; reaching ParsePrimary means
+            // the if appears where an expression is expected.
+            if (Check(TokenType.If))
+            {
+                Advance();
+                return ParseIfExpression();
+            }
+
             if (Match(TokenType.IntLiteral))
             {
                 string intText = Previous.Text;
@@ -1951,6 +2331,123 @@ namespace Contract.Compiler.Parsing
             var dummy = new LiteralExpression(0, Current.Line, Current.Column);
             Advance(); // Advance to prevent infinite loop
             return dummy;
+        }
+
+        /// <summary>
+        /// Parses <c>match (scrutinee) { pattern [if guard] =&gt; result, ... }</c>
+        /// (FEATURE_PROPOSALS §1). Arms are comma-separated with an optional
+        /// trailing comma. Patterns: literals, or-patterns (<c>1 | 2</c>),
+        /// bindings (<c>n</c>), wildcards (<c>_</c>), and — once sum types
+        /// exist — variants (<c>Circle(r)</c>).
+        /// </summary>
+        private MatchExpression ParseMatchExpression()
+        {
+            int line = Previous.Line;
+            int column = Previous.Column;
+
+            Consume(TokenType.LParen, "Expected '(' after 'match'");
+            var scrutinee = ParseExpression();
+            Consume(TokenType.RParen, "Expected ')' after match scrutinee");
+            var match = new MatchExpression(scrutinee, line, column);
+
+            Consume(TokenType.LBrace, "Expected '{' after match scrutinee");
+
+            while (!Check(TokenType.RBrace) && !IsAtEnd())
+            {
+                int startPos = _current;
+                var arm = new MatchArm(Current.Line, Current.Column);
+
+                // Patterns: p1 | p2 | p3 (or-pattern)
+                do
+                {
+                    arm.Patterns.Add(ParseMatchPattern());
+                } while (MatchOrPatternPipe());
+
+                if (Match(TokenType.If))
+                    arm.Guard = ParseExpression();
+
+                Consume(TokenType.FatArrow, "Expected '=>' after match pattern");
+                arm.Result = ApplyImplicitLambda(ParseExpression(), line, column);
+                match.Arms.Add(arm);
+
+                if (!Match(TokenType.Comma))
+                    break;   // last arm may omit the trailing comma
+
+                if (_current == startPos && !IsAtEnd())
+                {
+                    AddError("Parser failed to advance in match arm", Current.Line, Current.Column);
+                    Advance();
+                }
+            }
+
+            Consume(TokenType.RBrace, "Expected '}' after match arms");
+
+            if (match.Arms.Count == 0)
+                AddError("Match must declare at least one arm", line, column);
+
+            return match;
+        }
+
+        /// <summary>
+        /// The or-pattern separator is a bare <c>|</c> — which the lexer only
+        /// produces as Pipe (<c>|&gt;</c>) or OrOr (<c>||</c>). Inside a
+        /// pattern head a single pipe is unambiguous, so accept the Pipe token
+        /// here (the lexer emits Pipe for any lone '|').
+        /// </summary>
+        private bool MatchOrPatternPipe() => Match(TokenType.Pipe);
+
+        private MatchPattern ParseMatchPattern()
+        {
+            int line = Current.Line;
+            int column = Current.Column;
+
+            if (Match(TokenType.IntLiteral))
+            {
+                _ = int.TryParse(Previous.Text, out int i);
+                return new LiteralPattern(i, line, column);
+            }
+            if (Match(TokenType.FloatLiteral))
+            {
+                double d = double.TryParse(Previous.Text, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out double dv) ? dv : 0.0;
+                return new LiteralPattern(d, line, column);
+            }
+            if (Match(TokenType.StringLiteral))
+                return new LiteralPattern(Previous.Text, line, column);
+            if (Match(TokenType.True))
+                return new LiteralPattern(true, line, column);
+            if (Match(TokenType.False))
+                return new LiteralPattern(false, line, column);
+            if (Match(TokenType.Null))
+                return new LiteralPattern(null, line, column);
+
+            if (Match(TokenType.Identifier))
+            {
+                string name = Previous.Text;
+                // Variant pattern: Circle(r), Rect(w, h) — an identifier
+                // followed by '(' opens a sum-type variant destructure.
+                if (Check(TokenType.LParen))
+                {
+                    var variant = new VariantPattern(name, line, column);
+                    Advance(); // consume '('
+                    if (!Check(TokenType.RParen))
+                    {
+                        do
+                        {
+                            variant.Arguments.Add(ParseMatchPattern());
+                        } while (Match(TokenType.Comma));
+                    }
+                    Consume(TokenType.RParen, $"Expected ')' after variant pattern '{name}('");
+                    return variant;
+                }
+                if (name == "_")
+                    return new WildcardPattern(line, column);
+                return new BindingPattern(name, line, column);
+            }
+
+            AddError($"Expected a match pattern, found '{Current.Text}'", line, column);
+            Advance();
+            return new WildcardPattern(line, column);
         }
 
         private Expression ParseInterpolatedString(string raw, int line, int column)

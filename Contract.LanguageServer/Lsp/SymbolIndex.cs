@@ -40,6 +40,9 @@ public class SymbolInfo
     public string? Detail { get; init; }
     public string? Doc { get; init; }
     public TypeDescriptor? VarType { get; init; }
+    /// <summary>True when the source wrote an explicit <c>: T</c> annotation on
+    /// this local/field — inlay type hints must not be shown for it.</summary>
+    public bool HasExplicitTypeAnnotation { get; init; }
     /// <summary>True for declarations synthesized from an imported compiled
     /// module (.orbt/.oil) — they have no source position to navigate to.</summary>
     public bool IsExternal { get; init; }
@@ -361,7 +364,8 @@ public class SymbolIndex
         switch (stmt)
         {
             case VariableDeclaration v:
-                locals.Add(MakeLocal(v, uri, tokens, parent, source));
+                if (!v.Name.StartsWith("__for", StringComparison.Ordinal))
+                    locals.Add(MakeLocal(v, uri, tokens, parent, source));
                 break;
             case BlockStatement b:
                 foreach (var s in b.Statements) CollectLocals(s, locals, uri, tokens, parent, source);
@@ -402,6 +406,7 @@ public class SymbolIndex
             Detail = $"{keyword} {v.Name}{(v.Type.IsEmpty ? "" : ": " + FormatType(v.Type))}",
             Doc = TextUtility.ExtractDocComment(source, v.Line),
             VarType = v.Type.IsEmpty ? null : v.Type,
+            HasExplicitTypeAnnotation = v.HasExplicitType,
             SelectionRange = TextUtility.TokenRange(nameTok),
             ContainerRange = TextUtility.TokenRange(nameTok),
         };
@@ -1353,8 +1358,8 @@ public class SymbolIndex
     // ── Inlay hints ─────────────────────────────────────────────────────
 
     /// <summary>
-    /// Returns inlay hints for variable/field declarations that have an explicit
-    /// type in the AST but no type annotation in source (inferred bindings).
+    /// Returns inlay hints for local declarations whose types were inferred by
+    /// the analyzer and that have no explicit <c>: T</c> annotation in source.
     /// </summary>
     public List<InlayHint> InlayHints(string uri, Range range)
     {
@@ -1369,7 +1374,8 @@ public class SymbolIndex
     private void CollectInlayHints(SymbolInfo sym, Range range, List<InlayHint> hints)
     {
         if (sym.VarType != null && !sym.VarType.IsEmpty
-            && sym.Category is SymbolCategory.Field or SymbolCategory.Local)
+            && !sym.HasExplicitTypeAnnotation
+            && sym.Category == SymbolCategory.Local)
         {
             if (range.Contains(sym.SelectionRange.Start))
             {

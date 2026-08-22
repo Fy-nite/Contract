@@ -1,0 +1,173 @@
+module Program version 1.0.0
+
+class Raylib.Program {
+    static method Main(args: string[]) -> void {
+        local White: Raylib.Color
+
+        // #line 6:20 "IO.Println("Hello from raylib-ct!");"
+        ldstr "Hello from raylib-ct!"
+        // #line 6:20 "IO.Println("Hello from raylib-ct!");"
+        call IO.Println(object) -> void
+        // #line 6:20 "IO.Println("Hello from raylib-ct!");"
+        pop
+        // #line 7:27 "Raylib.InitWindow(800,600, "Hello world");"
+        ldc.i4 800
+        // #line 7:31 "Raylib.InitWindow(800,600, "Hello world");"
+        ldc.i4 600
+        // #line 7:36 "Raylib.InitWindow(800,600, "Hello world");"
+        ldstr "Hello world"
+        // #line 7:36 "Raylib.InitWindow(800,600, "Hello world");"
+        call Raylib.Raylib.InitWindow(int32, int32, string) -> void
+        // #line 7:36 "Raylib.InitWindow(800,600, "Hello world");"
+        pop
+        // #line 8:21 "let White = new Raylib.color(255,255,255,255);"
+        newobj Raylib.Color.constructor()
+        // #line 8:21 "let White = new Raylib.color(255,255,255,255);"
+        dup
+        // #line 8:38 "let White = new Raylib.color(255,255,255,255);"
+        ldc.i4 255
+        // #line 8:38 "let White = new Raylib.color(255,255,255,255);"
+        stfld Raylib.Color::r
+        // #line 8:38 "let White = new Raylib.color(255,255,255,255);"
+        dup
+        // #line 8:42 "let White = new Raylib.color(255,255,255,255);"
+        ldc.i4 255
+        // #line 8:42 "let White = new Raylib.color(255,255,255,255);"
+        stfld Raylib.Color::g
+        // #line 8:42 "let White = new Raylib.color(255,255,255,255);"
+        dup
+        // #line 8:46 "let White = new Raylib.color(255,255,255,255);"
+        ldc.i4 255
+        // #line 8:46 "let White = new Raylib.color(255,255,255,255);"
+        stfld Raylib.Color::b
+        // #line 8:46 "let White = new Raylib.color(255,255,255,255);"
+        dup
+        // #line 8:50 "let White = new Raylib.color(255,255,255,255);"
+        ldc.i4 255
+        // #line 8:50 "let White = new Raylib.color(255,255,255,255);"
+        stfld Raylib.Color::a
+        // #line 8:50 "let White = new Raylib.color(255,255,255,255);"
+        stloc White
+        // #line 10:17 "while (!Raylib.WindowShouldClose()) {"
+        call Raylib.Raylib.WindowShouldClose() -> bool
+        // #line 10:17 "while (!Raylib.WindowShouldClose()) {"
+        not
+        // #line 10:17 "while (!Raylib.WindowShouldClose()) {"
+        while (stack) {
+            // #line 10:17 "while (!Raylib.WindowShouldClose()) {"
+            pop
+            // #line 11:13 "Raylib.BeginDrawing();"
+            call Raylib.Raylib.BeginDrawing() -> void
+            // #line 11:13 "Raylib.BeginDrawing();"
+            pop
+            // #line 13:28 "Raylib.DrawFPS(20,15);"
+            ldc.i4 20
+            // #line 13:31 "Raylib.DrawFPS(20,15);"
+            ldc.i4 15
+            // #line 13:31 "Raylib.DrawFPS(20,15);"
+            call Raylib.Raylib.DrawFPS(int32, int32) -> void
+            // #line 13:31 "Raylib.DrawFPS(20,15);"
+            pop
+            // #line 15:13 "Raylib.EndDrawing();"
+            call Raylib.Raylib.EndDrawing() -> void
+            // #line 15:13 "Raylib.EndDrawing();"
+            pop
+            // #line 10:17 "while (!Raylib.WindowShouldClose()) {"
+            call Raylib.Raylib.WindowShouldClose() -> bool
+            // #line 10:17 "while (!Raylib.WindowShouldClose()) {"
+            not
+        }
+        // #line 10:17 "while (!Raylib.WindowShouldClose()) {"
+        pop
+        // #line 10:17 "while (!Raylib.WindowShouldClose()) {"
+        ret
+    }
+}
+
+@DllImport("raylib")
+class Raylib.Raylib {
+    static method InitWindow(width: int32, height: int32, title: string) -> void {
+        // #line 11:74 "Raylib.BeginDrawing();"
+        ldnull
+        // #line 11:74 "Raylib.BeginDrawing();"
+        pop
+        // #line 11:74 "Raylib.BeginDrawing();"
+        ret
+    }
+
+    static method CloseWindow() -> void {
+        // #line 12:38 "// Raylib.DrawText("hello world", 10, 10, 15,White);"
+        ldnull
+        // #line 12:38 "// Raylib.DrawText("hello world", 10, 10, 15,White);"
+        pop
+        // #line 12:38 "// Raylib.DrawText("hello world", 10, 10, 15,White);"
+        ret
+    }
+
+    static method BeginDrawing() -> void {
+        // #line 13:39 "Raylib.DrawFPS(20,15);"
+        ldnull
+        // #line 13:39 "Raylib.DrawFPS(20,15);"
+        pop
+        // #line 13:39 "Raylib.DrawFPS(20,15);"
+        ret
+    }
+
+    static method EndDrawing() -> void {
+        // #line 14:37 ""
+        ldnull
+        // #line 14:37 ""
+        pop
+        // #line 14:37 ""
+        ret
+    }
+
+    static method WindowShouldClose() -> bool {
+        // #line 15:44 "Raylib.EndDrawing();"
+        ldc.i4 0
+        // #line 15:44 "Raylib.EndDrawing();"
+        ret
+    }
+
+    static method IsWindowReady() -> bool {
+        // #line 16:40 "}"
+        ldc.i4 0
+        // #line 16:40 "}"
+        ret
+    }
+
+    static method SetWindowTitle(title: string) -> void {
+        // #line 17:54 "}"
+        ldnull
+        // #line 17:54 "}"
+        pop
+        // #line 17:54 "}"
+        ret
+    }
+
+    static method DrawFPS(posX: int32, posY: int32) -> void {
+        // #line 18:54 "}"
+        ldnull
+        // #line 18:54 "}"
+        pop
+        // #line 18:54 "}"
+        ret
+    }
+
+    static method DrawText(text: string, posX: int32, posY: int32, fontSize: int32, Color: Raylib.Color) -> void {
+        // #line 19:98 ""
+        ldnull
+        // #line 19:98 ""
+        pop
+        // #line 19:98 ""
+        ret
+    }
+}
+
+struct Raylib.Color {
+    field r: uint8
+    field g: uint8
+    field b: uint8
+    field a: uint8
+}
+

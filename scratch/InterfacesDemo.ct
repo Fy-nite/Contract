@@ -1,0 +1,61 @@
+// PROPOSAL §6 — interfaces as ordinary contracts with multiple inheritance.
+// No new keyword: a contract whose instance methods have no bodies is an
+// interface; deriving contracts list it after the primary base.
+
+Contract Drawable {
+    fn Draw();
+    fn Area() -> double;
+}
+
+Contract Named {
+    fn Name() -> string;
+}
+
+// Circle's PRIMARY base is object-ish (none); it implements both interfaces.
+Contract Circle : Drawable, Named {
+    radius: double;
+
+    constructor(r: double) { this.radius = r; }
+
+    fn Draw() { IO.Println("(o)"); }
+    fn Area() -> double { return 3.14159 * this.radius * this.radius; }
+    fn Name() -> string { return "circle"; }
+}
+
+// Square also inherits a real base chain: Shape -> Drawable via Colored,
+// plus the Named interface.
+Contract Colored : Drawable {
+    fn Draw();   // re-declared abstract stays abstract
+}
+
+Contract Square : Colored, Named {
+    side: double;
+
+    constructor(s: double) { this.side = s; }
+
+    fn Draw() { IO.Println("[_]"); }
+    fn Area() -> double { return this.side * this.side; }
+    fn Name() -> string { return "square"; }
+}
+
+Contract Gallery {
+    static fn Main() {
+        // Interface-typed variable: virtual dispatch picks the override.
+        let wall: List<Drawable> = List.Create();
+        List.Add(wall, new Circle(1.0));
+        List.Add(wall, new Square(2.0));
+
+        for d in wall {
+            d.Draw();
+            IO.Println(d.Area());
+        }
+
+        // Second interface through the same objects.
+        let n: Named = new Circle(5.0);
+        IO.Println(n.Name());     // circle
+
+        // Plain single inheritance still dispatches virtually.
+        var s: Colored = new Square(3.0);
+        s.Draw();                 // [_]
+    }
+}

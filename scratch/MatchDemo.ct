@@ -1,0 +1,42 @@
+// PROPOSAL §1 — value-producing match with or-patterns and guards.
+
+Contract Traffic {
+    static fn Main() {
+        var status: int = 503;
+
+        // Expression position: feeds an initializer directly.
+        let label: string = match (status) {
+            0 => "ok",
+            1 | 2 => "retryable",
+            n if n >= 500 => "server fault",
+            _ => "unknown"
+        };
+        IO.Println(label);                   // server fault
+
+        // Guard failure falls through to later arms.
+        var attempt: int = 2;
+        let advice: string = match (attempt) {
+            0 => "try now",
+            n if n < 3 => "back off",
+            _ => "give up"
+        };
+        IO.Println(advice);                  // back off
+
+        // Statement position still works (arm results popped per @lowering).
+        match (label) {
+            "ok" => IO.Println("all good"),
+            _ => IO.Println("not ok")
+        };
+
+        // Composes with pipes.
+        status |> describe |> IO.Println;    // meh
+    }
+
+    static fn describe(code: int) -> string {
+        return match (code) {
+            200 => "fine",
+            404 => "missing",
+            _ => "meh"
+        };
+    }
+}

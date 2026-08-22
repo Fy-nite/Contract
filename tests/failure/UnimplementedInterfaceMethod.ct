@@ -1,0 +1,10 @@
+// Interface-style parent with an unimplemented abstract method.
+Contract I {
+    fn Go();
+}
+Contract Impl : I {
+    constructor() { }
+    static fn Main() {
+        let x: Impl = new Impl();
+    }
+}

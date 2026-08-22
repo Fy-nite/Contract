@@ -1,0 +1,21 @@
+// PROPOSAL §3 — if as an expression.
+
+Contract AbsMax {
+    static fn Main() {
+        let a: int = -7;
+        let b: int = 4;
+
+        let max: int = if (a > b) { a } else { b };
+        let abs: int = if (a < 0) { -a } else { a };
+
+        IO.Println(max);   // 4
+        IO.Println(abs);   // 7
+
+        // Chains work like statement else-if, but yield.
+        let sign: string = if (a > 0) { "+" } else if (a < 0) { "-" } else { "0" };
+        IO.Println(sign);  // -
+
+        // Nested in call args and conditions.
+        IO.Println(if (max > 2) { "big" } else { "small" });
+    }
+}
