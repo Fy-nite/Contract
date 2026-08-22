@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Duplicate field name in the same contract.
 Contract Program {
     x: int;

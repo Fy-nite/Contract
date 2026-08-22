@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // DataPipeline.ct
 // A data processing pipeline using Contract's functional features:
 // lambdas, closures, range literals, pipe operator, and composition.

@@ -1,0 +1,12 @@
+// Builtins are never implicitly global. Fully-qualified spelling works
+// without any import; the reserved root keeps host modules out of the way
+// of a Contract-written stdlib.
+
+Contract Qualified {
+    static fn Main() {
+        __builtin.std.IO.Println("qualified, no import");
+
+        // Dotted spine through the real namespace spelling too.
+        ObjektRT.Stdlib.System.IO.Println("namespace-spelled, no import");
+    }
+}

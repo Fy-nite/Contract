@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Delegate<T> type + calling a function's returned delegate (f()(args)).
 Contract Program {
     static fn makeAdd() -> (int, int) -> int {

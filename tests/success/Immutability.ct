@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Immutability enforcement: let = immutable, var = mutable.
 Contract Program {
     static fn Main() {

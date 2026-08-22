@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Custom attributes, C#-style: attribute types inherit from the built-in
 // Attribute base, and applications use <Name(args)> before declarations.
 //

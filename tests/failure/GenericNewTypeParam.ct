@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Cannot instantiate a type parameter — it erases to object at runtime.
 Contract Program {
     static fn make<T>() -> T {

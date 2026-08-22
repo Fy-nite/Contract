@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Construct-style functional syntax: expression-bodied functions and fn lambdas.
 Contract Program {
     // Expression-bodied member functions (Construct-style `fn name(p) = expr`).

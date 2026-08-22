@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // `for (item : collection)` enumeration over arrays (desugars to an index loop).
 Contract Program {
     static fn Main() {

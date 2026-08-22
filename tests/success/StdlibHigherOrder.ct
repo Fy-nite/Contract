@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // PROPOSAL §7 — built on the delegate machinery that already ships.
 
 Contract Pipeline {
@@ -13,9 +15,9 @@ Contract Pipeline {
         let sum: int           = List.Reduce(nums, fun (acc, x) -> acc + x, 0);
 
         // Map/Filter/Reduce compose with for-in (§5).
-        for s in squares { IO.Print(s); }      // 14916
+        for (s in squares) { IO.Print(s); }      // 14916
         IO.Println("");
-        for e in evens  { IO.Print(e); }       // 24
+        for (e in evens) { IO.Print(e); }       // 24
         IO.Println("");
 
         IO.Println(sum);                       // 10

@@ -926,12 +926,15 @@ namespace Contract.Compiler.Parsing
             }
             else if (Match(TokenType.For))
             {
-                // for-in iteration (§5): `for x in xs { }`,
-                // `for i in 0..10 by 2 { }`, or the Dict pair form
-                // `for (k, v) in d { }` — recognized before the C-style form.
-                if (CheckForIn())
-                    return ParseForInStatement();
-                return ParseForStatement();
+                // for-in iteration (§5): `for (x in xs) { }`,
+                // `for (i in 0..10 by 2) { }`, or the Dict pair form
+                // `for (k, v in d) { }` — recognized before the C-style form.
+                bool bare = Check(TokenType.Identifier) && CheckNext(TokenType.In);
+                if (bare)
+                    AddError("for-in loops require parentheses — write 'for (x in xs)'", Current.Line, Current.Column);
+                else if (!CheckForIn())
+                    return ParseForStatement();
+                return ParseForInStatement(bare);
             }
             else if (Match(TokenType.Switch))
             {
@@ -1229,42 +1232,56 @@ namespace Contract.Compiler.Parsing
         }
 
         /// <summary>
-        /// True when the tokens ahead form a for-in header: <c>x in</c> or the
-        /// Dict pair form <c>(k, v) in</c>.
+        /// True when the tokens ahead form a parenthesized for-in header:
+        /// <c>(x in</c> or the Dict pair form <c>(k, v in</c>.
         /// </summary>
         private bool CheckForIn()
         {
-            if (Check(TokenType.Identifier) && CheckNext(TokenType.In)) return true;
-            if (Check(TokenType.LParen) && _current + 5 < _tokens.Count)
-                return _tokens[_current + 1].Type == TokenType.Identifier
-                    && _tokens[_current + 2].Type == TokenType.Comma
-                    && _tokens[_current + 3].Type == TokenType.Identifier
-                    && _tokens[_current + 4].Type == TokenType.RParen
-                    && _tokens[_current + 5].Type == TokenType.In;
+            if (!Check(TokenType.LParen)) return false;
+            var t1 = PeekAhead(1);
+            var t2 = PeekAhead(2);
+            // for (x in ...)
+            if (t1.Type == TokenType.Identifier && t2.Type == TokenType.In) return true;
+            // for (k, v in ...)
+            if (t1.Type == TokenType.Identifier && t2.Type == TokenType.Comma)
+                return PeekAhead(3).Type == TokenType.Identifier
+                    && PeekAhead(4).Type == TokenType.In;
             return false;
         }
 
+        /// <summary>The token <paramref name="offset"/> positions ahead of the current one, or EOF.</summary>
+        private Token PeekAhead(int offset)
+        {
+            int idx = _current + offset;
+            return idx < _tokens.Count ? _tokens[idx] : _tokens[^1];
+        }
+
         /// <summary>
-        /// Parses a for-in loop (FEATURE_PROPOSALS §5): the variable binding,
-        /// the iterable (a plain expression or an inline range with optional
-        /// <c>by step</c>), and the body. Codegen picks the index protocol by
-        /// iterable type; ranges desugar to the C-style loop.
+        /// Parses a for-in loop (FEATURE_PROPOSALS §5): the parenthesized
+        /// header — variable binding(s), <c>in</c>, then the iterable (a plain
+        /// expression or an inline range with optional <c>by step</c> — and
+        /// the body. Codegen picks the index protocol by iterable type;
+        /// ranges desugar to the C-style loop.
         /// </summary>
-        private ForInStatement ParseForInStatement()
+        private ForInStatement ParseForInStatement(bool bareHeader = false)
         {
             int line = Previous.Line;
             int column = Previous.Column;
 
             string? keyVar;
             string? valueVar = null;
-            if (Match(TokenType.LParen))
+
+            if (!bareHeader)
+                Consume(TokenType.LParen, "Expected '(' after 'for'");
+
+            // Pair form: two comma-separated identifiers before 'in'.
+            if (Check(TokenType.Identifier) && PeekAhead(1).Type == TokenType.Comma)
             {
                 Consume(TokenType.Identifier, "Expected key variable in for-in pair");
                 keyVar = Previous.Text;
                 Consume(TokenType.Comma, "Expected ',' between key and value variables");
                 Consume(TokenType.Identifier, "Expected value variable in for-in pair");
                 valueVar = Previous.Text;
-                Consume(TokenType.RParen, "Expected ')' after for-in pair");
             }
             else
             {
@@ -1275,6 +1292,10 @@ namespace Contract.Compiler.Parsing
             Consume(TokenType.In, "Expected 'in' after loop variable");
 
             Expression iterable = LooksLikeRangeAhead() ? ParseRangeExpression() : ParseExpression();
+
+            if (!bareHeader)
+                Consume(TokenType.RParen, "Expected ')' after for-in header");
+
             var body = ParseStatement();
 
             return new ForInStatement(keyVar!, valueVar, iterable, body, line, column);

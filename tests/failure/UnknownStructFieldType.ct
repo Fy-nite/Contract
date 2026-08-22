@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Unknown field type on a struct (top-level and nested).
 struct BadStruct {
     y: NoSuchType;

@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Isolate array-literal call args.
 
 Contract Program {

@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // In-language reflection: introspect the loaded module at runtime via the
 // Reflect module — type metadata, inheritance, attributes, signatures, and
 // read/write/call statics and instance methods by name.

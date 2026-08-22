@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // void is not a valid field type.
 Contract Program {
     x: void;

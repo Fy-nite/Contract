@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // StdlibShowcase.ct
 // Demonstrates Contract's standard library modules:
 // String, Math, Convert, Random, List, Dict, Array, and more.

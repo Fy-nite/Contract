@@ -1,3 +1,5 @@
+import __builtin.std;
+
 Contract Program {
   static fn double(x: int) -> int { return x * 2; }
   static fn addOne(x: int) -> int { return x + 1; }

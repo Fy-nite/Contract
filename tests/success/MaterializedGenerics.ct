@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Runtime materialization edge cases: multi-parameter generics, static fields
 // on generic contracts, and generic instantiations used as field types in
 // other contracts. Each concrete instantiation is cloned from the @Generic

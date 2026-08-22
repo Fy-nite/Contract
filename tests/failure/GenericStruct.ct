@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Structs cannot declare type parameters (planned for a later version).
 Contract Program {
     static fn Main() {

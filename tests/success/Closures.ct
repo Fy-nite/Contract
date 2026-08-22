@@ -1,3 +1,5 @@
+import __builtin.std;
+
 Contract Program {
     static fn apply(f: <Delegate(int) -> int>, x: int) -> int {
         return f(x);

@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Struct-by-value interop through @DllImport: struct params / returns, nested
 // structs, and the extended integer widths (byte, sbyte, short, ushort, uint).
 // Compile-only check — the marshalling round-trip is covered by the native

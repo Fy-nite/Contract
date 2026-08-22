@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Attributes cannot be applied to fields yet (the wire format has no field
 // attribute slot).
 Contract Program {

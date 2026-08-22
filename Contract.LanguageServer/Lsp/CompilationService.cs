@@ -65,11 +65,11 @@ public class CompilationService
     {
         var diagnostics = new DiagnosticBag { SourceCode = doc.Text };
         var symbolTable = new SymbolTable();
-        // The stdlib is the generic ObjektRT.Stdlib; Reflect is the one
-        // Contract-specific [ClassBinding] module (registered via attribute).
-        symbolTable.RegisterAssembly(typeof(ReflectModule).Assembly);
+        // Builtins live under the reserved __builtin.std root (import or
+        // fully qualify); Reflect is registered there too.
         StdlibCatalog.RegisterInto(symbolTable);
         // Custom host bindings the client registered (Crituque's Ui/Host/Window).
+        // These stay globally addressable — they are user-provided hosts.
         foreach (var asm in _extraBindings)
             symbolTable.RegisterAssembly(asm);
 

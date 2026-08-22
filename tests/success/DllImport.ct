@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // <DllImport> links a pure facade contract to a native library's exports
 // via P/Invoke. Method signatures are emitted into the module metadata so
 // the runtime can generate the marshalling bridge. Compile-only check.

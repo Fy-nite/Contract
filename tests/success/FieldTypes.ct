@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Valid field types: built-ins, arrays, generics, struct types, Delegate<T>.
 struct Point {
     x: int;

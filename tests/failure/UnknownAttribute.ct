@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Unknown attribute: <Nope(1)> references a type that does not exist.
 <Nope(1)>
 Contract Program {

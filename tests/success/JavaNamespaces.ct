@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Java-style namespaces: `namespace com.example;` at the top of the file.
 // All declarations below it live in that package (not tied to file path).
 

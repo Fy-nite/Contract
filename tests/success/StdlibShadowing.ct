@@ -1,0 +1,23 @@
+// Shadowing: a user-declared contract replaces a same-named builtin module,
+// whether or not __builtin.std is imported — that is what keeps the door
+// open for a stdlib written in Contract itself.
+
+import __builtin.std;
+
+// User-written replacement for part of the stdlib (silly body, real slot).
+Contract List {
+    static fn First() -> string { return "user List"; }
+}
+
+Contract Shadow {
+    static fn Main() {
+        // User List wins over the imported builtin List.
+        IO.Println(List.First());                     // user List
+
+        // The builtin stays reachable fully qualified.
+        var xs = __builtin.std.List.Create();
+        __builtin.std.List.Add(xs, 1);
+        __builtin.std.List.Add(xs, 2);
+        IO.Println(__builtin.std.List.Count(xs));     // 2
+    }
+}

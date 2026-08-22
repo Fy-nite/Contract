@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // <Plain(1)> references a contract that does not inherit from Attribute,
 // so it is not an attribute type.
 Contract Plain {

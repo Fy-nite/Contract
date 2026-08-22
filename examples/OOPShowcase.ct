@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // OOPShowcase.ct
 // Demonstrates Contract's object-oriented features:
 // contracts with fields, constructors, instance methods, inheritance,

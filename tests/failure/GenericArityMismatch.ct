@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Wrong arity: Box takes 1 type argument.
 Contract Program {
     static fn Main() {

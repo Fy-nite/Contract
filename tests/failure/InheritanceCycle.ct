@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Inheritance cycle: A : B and B : A cannot both hold.
 Contract A : B {
 }

@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Static fields on contracts: shared state across instances and calls.
 // Accessible bare (inside contract fns), via Contract.field, and via
 // Contract::field. Supports read, write, and compound assignment.

@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Function types with named and unnamed parameters, lambdas returned from
 // functions, and closures passed as arguments.
 Contract Program {

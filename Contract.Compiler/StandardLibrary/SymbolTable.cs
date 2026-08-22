@@ -60,14 +60,22 @@ namespace Contract.Compiler.StandardLibrary
 
         /// <summary>
         /// Registers a CLR type's public static methods as an external module
-        /// under the given (possibly dotted) name. Generic — used by the stdlib
-        /// catalog so the official stdlib stays free of Contract-specific
-        /// attributes.
+        /// under the given (possibly dotted) lookup key. The WIRE name used in
+        /// emitted call targets comes from the type's [ClassBinding] name when
+        /// present ("__builtin.std.IO" and "ObjektRT.Stdlib.System.IO" both
+        /// emit <c>call IO.Println</c>, matching the host bindings), falling
+        /// back to the key's last segment. Nothing is implicitly global: short
+        /// names resolve only through a namespace import, fully-qualified
+        /// spellings resolve anywhere.
         /// </summary>
         public void RegisterExternalType(string className, Type type)
         {
             if (!_externalBindings.ContainsKey(className))
                 _externalBindings[className] = new();
+
+            var bindingAttr = type.GetCustomAttribute<ObjektRT.Core.Attributes.ClassBindingAttribute>();
+            string wireName = bindingAttr?.Name
+                ?? (className.Contains('.') ? className[(className.LastIndexOf('.') + 1)..] : className);
 
             foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly))
             {
@@ -76,7 +84,7 @@ namespace Contract.Compiler.StandardLibrary
                 string name = methodAttr?.Name ?? method.Name;
                 if (!_externalBindings[className].TryGetValue(name, out var list))
                     _externalBindings[className][name] = list = new();
-                list.Add(new ExternalMethod(className, name, method));
+                list.Add(new ExternalMethod(wireName, name, method));
             }
         }
 
@@ -124,13 +132,8 @@ namespace Contract.Compiler.StandardLibrary
         public bool TryGetMethod(string className, string methodName, out object? method)
         {
             method = null;
-            string? resolved = ResolveModuleName(className);
-            if (resolved != null && _externalBindings[resolved].TryGetValue(methodName, out var list) && list.Count > 0)
-            {
-                method = list[0];
-                return true;
-            }
-            
+
+            // User declarations shadow builtin modules of the same name.
             if (_userContracts.TryGetValue(className, out var contract))
             {
                 foreach (var member in contract.Members)
@@ -142,7 +145,14 @@ namespace Contract.Compiler.StandardLibrary
                     }
                 }
             }
-            
+
+            string? resolved = ResolveModuleName(className);
+            if (resolved != null && _externalBindings[resolved].TryGetValue(methodName, out var list) && list.Count > 0)
+            {
+                method = list[0];
+                return true;
+            }
+
             return false;
         }
 
@@ -157,14 +167,8 @@ namespace Contract.Compiler.StandardLibrary
         public bool TryResolveMethod(string className, string methodName, int argCount, out object? method)
         {
             method = null;
-            string? resolved = ResolveModuleName(className);
-            if (resolved != null && _externalBindings[resolved].TryGetValue(methodName, out var list) && list.Count > 0)
-            {
-                var match = list.FirstOrDefault(m => m.Info.GetParameters().Length == argCount);
-                method = match ?? list[0];
-                return true;
-            }
 
+            // User declarations shadow builtin modules of the same name.
             if (_userContracts.TryGetValue(className, out var contract))
             {
                 foreach (var member in contract.Members)
@@ -175,6 +179,14 @@ namespace Contract.Compiler.StandardLibrary
                         return true;
                     }
                 }
+            }
+
+            string? resolved = ResolveModuleName(className);
+            if (resolved != null && _externalBindings[resolved].TryGetValue(methodName, out var list) && list.Count > 0)
+            {
+                var match = list.FirstOrDefault(m => m.Info.GetParameters().Length == argCount);
+                method = match ?? list[0];
+                return true;
             }
 
             return false;

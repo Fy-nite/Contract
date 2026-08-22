@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Custom attributes + inheritance demo.
 //
 // Compile:  dotnet run --project Contract.Cli -- examples/AttributesDemo.ct -c -f oil -o examples/AttributesDemo.oil

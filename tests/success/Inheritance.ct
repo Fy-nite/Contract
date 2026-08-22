@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Single-inheritance base types on contracts (C#-style).
 // The base type is recorded in the IR as declarative metadata; the runtime
 // stores BaseTypeIndex when the base is declared in the same module.

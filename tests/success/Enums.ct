@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Enums — named int constants folding to their zero-based index.
 
 enum Color {

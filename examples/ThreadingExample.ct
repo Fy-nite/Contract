@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // ThreadingExample.ct
 // Demonstrates Contract's threading model: Thread.Create, Thread.Spawn,
 // thread handles, closures across threads, and shared mutable state.

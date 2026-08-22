@@ -1,0 +1,89 @@
+module Animal version 1.0.0
+
+class Animal {
+    public field name: string
+
+    constructor(this: object, n: string) {
+        // #line 9:9 "this.name = n;"
+        ldarg 0
+        // #line 9:9 "this.name = n;"
+        dup
+        // #line 9:21 "this.name = n;"
+        ldarg 1
+        // #line 9:21 "this.name = n;"
+        stfld Animal::name
+        // #line 9:21 "this.name = n;"
+        pop
+        // #line 9:21 "this.name = n;"
+        ret
+    }
+
+    method speak(this: object) -> string {
+        // #line 13:16 "return "..." ;"
+        ldstr "..."
+        // #line 13:16 "return "..." ;"
+        ret
+    }
+}
+
+class Dog : Animal {
+    public field breed: string
+
+    constructor(this: object) {
+        // #line 21:9 "this.breed = "lab";"
+        ldarg 0
+        // #line 21:9 "this.breed = "lab";"
+        dup
+        // #line 21:22 "this.breed = "lab";"
+        ldstr "lab"
+        // #line 21:22 "this.breed = "lab";"
+        stfld Dog::breed
+        // #line 21:22 "this.breed = "lab";"
+        pop
+        // #line 21:22 "this.breed = "lab";"
+        ret
+    }
+
+    method speak(this: object) -> string {
+        // #line 25:16 "return "woof";"
+        ldstr "woof"
+        // #line 25:16 "return "woof";"
+        ret
+    }
+}
+
+class Program {
+    static method Main() -> void {
+        local d: Dog
+
+        // #line 31:22 "var d: Dog = new Dog();"
+        newobj Dog.constructor()
+        // #line 31:22 "var d: Dog = new Dog();"
+        dup
+        // #line 31:22 "var d: Dog = new Dog();"
+        call Dog..ctor(object) -> void
+        // #line 31:22 "var d: Dog = new Dog();"
+        pop
+        // #line 31:22 "var d: Dog = new Dog();"
+        stloc d
+        // #line 32:20 "IO.Println(d.breed);"
+        ldloc d
+        // #line 32:20 "IO.Println(d.breed);"
+        ldfld Dog::breed
+        // #line 32:20 "IO.Println(d.breed);"
+        call IO.Println(object) -> void
+        // #line 32:20 "IO.Println(d.breed);"
+        pop
+        // #line 33:20 "IO.Println(d.speak());"
+        ldloc d
+        // #line 33:20 "IO.Println(d.speak());"
+        callvirt Dog.speak(object) -> string
+        // #line 33:20 "IO.Println(d.speak());"
+        call IO.Println(object) -> void
+        // #line 33:20 "IO.Println(d.speak());"
+        pop
+        // #line 33:20 "IO.Println(d.speak());"
+        ret
+    }
+}
+

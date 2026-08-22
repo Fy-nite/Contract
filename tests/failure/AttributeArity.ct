@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Attribute arity mismatch: Author's constructor takes 1 argument.
 Contract Author : Attribute {
     constructor(name: string) {

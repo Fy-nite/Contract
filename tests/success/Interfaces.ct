@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // PROPOSAL §6 — interfaces as ordinary contracts with multiple inheritance.
 // No new keyword: a contract whose instance methods have no bodies is an
 // interface; deriving contracts list it after the primary base.
@@ -22,8 +24,8 @@ Contract Circle : Drawable, Named {
     fn Name() -> string { return "circle"; }
 }
 
-// Square also inherits a real base chain: Shape -> Drawable via Colored,
-// plus the Named interface.
+// Square also inherits a real base chain: Colored : Drawable, plus the
+// Named interface.
 Contract Colored : Drawable {
     fn Draw();   // re-declared abstract stays abstract
 }
@@ -45,7 +47,7 @@ Contract Gallery {
         List.Add(wall, new Circle(1.0));
         List.Add(wall, new Square(2.0));
 
-        for d in wall {
+        for (d in wall) {
             d.Draw();
             IO.Println(d.Area());
         }

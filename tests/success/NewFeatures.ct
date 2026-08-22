@@ -1,3 +1,5 @@
+import __builtin.std;
+
 Contract Program {
     static fn twice(x: int) -> int {
         return x * 2;

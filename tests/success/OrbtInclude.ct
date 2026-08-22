@@ -4,6 +4,7 @@
 
 import "lib_ns.orbt";
 import com.lib;
+import __builtin.std;
 
 Contract Program {
     static fn Main() {

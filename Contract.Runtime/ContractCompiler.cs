@@ -30,9 +30,9 @@ public static class ContractCompiler
     {
         diagnostics = new DiagnosticBag { SourceCode = source };
         var symbolTable = new SymbolTable();
-        // The stdlib is the generic ObjektRT.Stdlib; Reflect is the one
-        // Contract-specific [ClassBinding] module (registered via attribute).
-        symbolTable.RegisterAssembly(typeof(ReflectModule).Assembly);
+        // The stdlib (and the Contract-specific Reflect host module) register
+        // under the reserved __builtin.std root — nothing is implicitly
+        // global; programs import or fully qualify.
         StdlibCatalog.RegisterInto(symbolTable);
         if (bindingAssemblies != null)
         {

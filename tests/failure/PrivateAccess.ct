@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // A private member must not be reachable from outside its contract.
 Contract Vault {
     private secret: int;

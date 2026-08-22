@@ -55,9 +55,7 @@ namespace Contract.Cli
                 if (!diagnostics.HasErrors)
                 {
                     var symbolTable = new SymbolTable();
-                    // The stdlib is the generic ObjektRT.Stdlib; Reflect is
-                    // the one Contract-specific [ClassBinding] module.
-                    symbolTable.RegisterAssembly(typeof(ReflectModule).Assembly);
+                    // Builtins live under the reserved __builtin.std root.
                     StdlibCatalog.RegisterInto(symbolTable);
                     var analyzer = new SemanticAnalyzer(symbolTable, diagnostics, path);
                     analyzer.Analyze(program);

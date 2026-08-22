@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // GenericsShowcase.ct
 // Demonstrates Contract's generic types and functions:
 // generic contracts, generic functions, type inference, and runtime

@@ -1,0 +1,469 @@
+module Shape version 1.0.0
+
+class Shape {
+    public field __tag: int32
+
+    static method Circle(radius: float64) -> Shape {
+        // #line 3:1 "type Shape {"
+        newobj Shape.Circle.constructor()
+        // #line 3:1 "type Shape {"
+        dup
+        // #line 3:1 "type Shape {"
+        ldarg 0
+        // #line 3:1 "type Shape {"
+        call Shape.Circle..ctor(object, float64) -> void
+        // #line 3:1 "type Shape {"
+        pop
+        // #line 3:1 "type Shape {"
+        ret
+    }
+
+    static method Rect(w: float64, h: float64) -> Shape {
+        // #line 3:1 "type Shape {"
+        newobj Shape.Rect.constructor()
+        // #line 3:1 "type Shape {"
+        dup
+        // #line 3:1 "type Shape {"
+        ldarg 0
+        // #line 3:1 "type Shape {"
+        ldarg 1
+        // #line 3:1 "type Shape {"
+        call Shape.Rect..ctor(object, float64, float64) -> void
+        // #line 3:1 "type Shape {"
+        pop
+        // #line 3:1 "type Shape {"
+        ret
+    }
+
+    static method Unit() -> Shape {
+        // #line 3:1 "type Shape {"
+        newobj Shape.Unit.constructor()
+        // #line 3:1 "type Shape {"
+        dup
+        // #line 3:1 "type Shape {"
+        call Shape.Unit..ctor(object) -> void
+        // #line 3:1 "type Shape {"
+        pop
+        // #line 3:1 "type Shape {"
+        ret
+    }
+}
+
+class Shape.Circle : Shape {
+    public field radius: float64
+
+    constructor(this: object, radius: float64) {
+        // #line 3:1 "type Shape {"
+        ldarg 0
+        // #line 3:1 "type Shape {"
+        dup
+        // #line 3:1 "type Shape {"
+        ldarg 1
+        // #line 3:1 "type Shape {"
+        stfld Shape.Circle::radius
+        // #line 3:1 "type Shape {"
+        pop
+        // #line 3:1 "type Shape {"
+        ldarg 0
+        // #line 3:1 "type Shape {"
+        dup
+        // #line 3:1 "type Shape {"
+        ldc.i4 0
+        // #line 3:1 "type Shape {"
+        stfld Shape::__tag
+        // #line 3:1 "type Shape {"
+        pop
+        // #line 3:1 "type Shape {"
+        ret
+    }
+}
+
+class Shape.Rect : Shape {
+    public field w: float64
+    public field h: float64
+
+    constructor(this: object, w: float64, h: float64) {
+        // #line 3:1 "type Shape {"
+        ldarg 0
+        // #line 3:1 "type Shape {"
+        dup
+        // #line 3:1 "type Shape {"
+        ldarg 1
+        // #line 3:1 "type Shape {"
+        stfld Shape.Rect::w
+        // #line 3:1 "type Shape {"
+        pop
+        // #line 3:1 "type Shape {"
+        ldarg 0
+        // #line 3:1 "type Shape {"
+        dup
+        // #line 3:1 "type Shape {"
+        ldarg 2
+        // #line 3:1 "type Shape {"
+        stfld Shape.Rect::h
+        // #line 3:1 "type Shape {"
+        pop
+        // #line 3:1 "type Shape {"
+        ldarg 0
+        // #line 3:1 "type Shape {"
+        dup
+        // #line 3:1 "type Shape {"
+        ldc.i4 1
+        // #line 3:1 "type Shape {"
+        stfld Shape::__tag
+        // #line 3:1 "type Shape {"
+        pop
+        // #line 3:1 "type Shape {"
+        ret
+    }
+}
+
+class Shape.Unit : Shape {
+    constructor(this: object) {
+        // #line 3:1 "type Shape {"
+        ldarg 0
+        // #line 3:1 "type Shape {"
+        dup
+        // #line 3:1 "type Shape {"
+        ldc.i4 2
+        // #line 3:1 "type Shape {"
+        stfld Shape::__tag
+        // #line 3:1 "type Shape {"
+        pop
+        // #line 3:1 "type Shape {"
+        ret
+    }
+}
+
+class Areas {
+    static method Main() -> void {
+        local shapes: object
+        local total: float64
+        local __forArr_1: object
+        local __forLen_1: int32
+        local __forIdx_1: int32
+        local s: object
+        local __match_1: object
+        local r: float64
+        local w: float64
+        local h: float64
+        local s: Shape
+        local name: string
+        local __match_2: object
+        local area: float64
+        local __match_3: object
+
+        // #line 11:35 "let shapes: List<Shape> = List.Create();"
+        call List.Create() -> object
+        // #line 11:35 "let shapes: List<Shape> = List.Create();"
+        stloc shapes
+        // #line 12:18 "List.Add(shapes, Shape.Circle(2.0));"
+        ldloc shapes
+        // #line 12:39 "List.Add(shapes, Shape.Circle(2.0));"
+        ldc.r8 2
+        // #line 12:39 "List.Add(shapes, Shape.Circle(2.0));"
+        call Shape.Circle(float64) -> Shape
+        // #line 12:39 "List.Add(shapes, Shape.Circle(2.0));"
+        call List.Add(object, object) -> void
+        // #line 12:39 "List.Add(shapes, Shape.Circle(2.0));"
+        pop
+        // #line 13:18 "List.Add(shapes, Shape.Rect(3.0, 4.0));"
+        ldloc shapes
+        // #line 13:37 "List.Add(shapes, Shape.Rect(3.0, 4.0));"
+        ldc.r8 3
+        // #line 13:42 "List.Add(shapes, Shape.Rect(3.0, 4.0));"
+        ldc.r8 4
+        // #line 13:42 "List.Add(shapes, Shape.Rect(3.0, 4.0));"
+        call Shape.Rect(float64, float64) -> Shape
+        // #line 13:42 "List.Add(shapes, Shape.Rect(3.0, 4.0));"
+        call List.Add(object, object) -> void
+        // #line 13:42 "List.Add(shapes, Shape.Rect(3.0, 4.0));"
+        pop
+        // #line 14:18 "List.Add(shapes, Shape.Unit);"
+        ldloc shapes
+        // #line 14:26 "List.Add(shapes, Shape.Unit);"
+        call Shape.Unit() -> Shape
+        // #line 14:26 "List.Add(shapes, Shape.Unit);"
+        call List.Add(object, object) -> void
+        // #line 14:26 "List.Add(shapes, Shape.Unit);"
+        pop
+        // #line 16:29 "var total: double = 0.0;"
+        ldc.r8 0
+        // #line 16:29 "var total: double = 0.0;"
+        stloc total
+        // #line 17:18 "for s in shapes {"
+        ldloc shapes
+        // #line 17:18 "for s in shapes {"
+        stloc __forArr_1
+        // #line 17:18 "for s in shapes {"
+        ldloc __forArr_1
+        // #line 17:18 "for s in shapes {"
+        call List.Count(object) -> int32
+        // #line 17:18 "for s in shapes {"
+        stloc __forLen_1
+        // #line 17:18 "for s in shapes {"
+        ldc.i4 0
+        // #line 17:18 "for s in shapes {"
+        stloc __forIdx_1
+        // #line 17:18 "for s in shapes {"
+        ldloc __forIdx_1
+        // #line 17:18 "for s in shapes {"
+        ldloc __forLen_1
+        // #line 17:18 "for s in shapes {"
+        clt
+        // #line 17:18 "for s in shapes {"
+        while (stack) {
+            // #line 17:18 "for s in shapes {"
+            pop
+            // #line 17:18 "for s in shapes {"
+            ldloc __forArr_1
+            // #line 17:18 "for s in shapes {"
+            ldloc __forIdx_1
+            // #line 17:18 "for s in shapes {"
+            call List.Get(object, int32) -> object
+            // #line 17:18 "for s in shapes {"
+            stloc s
+            // #line 18:19 "total += match (s) {"
+            ldloc total
+            // #line 18:29 "total += match (s) {"
+            ldloc s
+            // #line 18:29 "total += match (s) {"
+            stloc __match_1
+            // #line 18:29 "total += match (s) {"
+            ldloc __match_1
+            // #line 18:29 "total += match (s) {"
+            ldfld Shape::__tag
+            // #line 18:29 "total += match (s) {"
+            ldc.i4 0
+            // #line 18:29 "total += match (s) {"
+            ceq
+            // #line 18:29 "total += match (s) {"
+            if (stack) {
+                // #line 18:29 "total += match (s) {"
+                ldloc __match_1
+                // #line 18:29 "total += match (s) {"
+                ldfld Shape.Circle::radius
+                // #line 18:29 "total += match (s) {"
+                stloc r
+                // #line 19:30 "Circle(r) => 3.14159 * r * r,"
+                ldc.r8 3.14159
+                // #line 19:40 "Circle(r) => 3.14159 * r * r,"
+                ldloc r
+                // #line 19:40 "Circle(r) => 3.14159 * r * r,"
+                mul
+                // #line 19:44 "Circle(r) => 3.14159 * r * r,"
+                ldloc r
+                // #line 19:44 "Circle(r) => 3.14159 * r * r,"
+                mul
+            }
+            else {
+                // #line 18:29 "total += match (s) {"
+                ldloc __match_1
+                // #line 18:29 "total += match (s) {"
+                ldfld Shape::__tag
+                // #line 18:29 "total += match (s) {"
+                ldc.i4 1
+                // #line 18:29 "total += match (s) {"
+                ceq
+                // #line 18:29 "total += match (s) {"
+                if (stack) {
+                    // #line 18:29 "total += match (s) {"
+                    ldloc __match_1
+                    // #line 18:29 "total += match (s) {"
+                    ldfld Shape.Rect::w
+                    // #line 18:29 "total += match (s) {"
+                    stloc w
+                    // #line 18:29 "total += match (s) {"
+                    ldloc __match_1
+                    // #line 18:29 "total += match (s) {"
+                    ldfld Shape.Rect::h
+                    // #line 18:29 "total += match (s) {"
+                    stloc h
+                    // #line 20:31 "Rect(w, h) => w * h,"
+                    ldloc w
+                    // #line 20:35 "Rect(w, h) => w * h,"
+                    ldloc h
+                    // #line 20:35 "Rect(w, h) => w * h,"
+                    mul
+                }
+                else {
+                    // #line 21:30 "Unit      => 0.0     // no wildcard needed: compiler-checked"
+                    ldc.r8 0
+                }
+            }
+            // #line 18:29 "total += match (s) {"
+            add
+            // #line 18:29 "total += match (s) {"
+            dup
+            // #line 18:29 "total += match (s) {"
+            stloc total
+            // #line 18:29 "total += match (s) {"
+            pop
+            // #line 18:29 "total += match (s) {"
+            ldloc __forIdx_1
+            // #line 18:29 "total += match (s) {"
+            ldc.i4 1
+            // #line 18:29 "total += match (s) {"
+            add
+            // #line 18:29 "total += match (s) {"
+            stloc __forIdx_1
+            // #line 18:29 "total += match (s) {"
+            ldloc __forIdx_1
+            // #line 18:29 "total += match (s) {"
+            ldloc __forLen_1
+            // #line 18:29 "total += match (s) {"
+            clt
+        }
+        // #line 17:18 "for s in shapes {"
+        pop
+        // #line 24:20 "IO.Println(total);           // 24.56636"
+        ldloc total
+        // #line 24:20 "IO.Println(total);           // 24.56636"
+        call IO.Println(object) -> void
+        // #line 24:20 "IO.Println(total);           // 24.56636"
+        pop
+        // #line 27:37 "let s: Shape = Shape.Circle(1.0);"
+        ldc.r8 1
+        // #line 27:37 "let s: Shape = Shape.Circle(1.0);"
+        call Shape.Circle(float64) -> Shape
+        // #line 27:37 "let s: Shape = Shape.Circle(1.0);"
+        stloc s
+        // #line 28:35 "let name: string = match (s) {"
+        ldloc s
+        // #line 28:35 "let name: string = match (s) {"
+        stloc __match_2
+        // #line 28:35 "let name: string = match (s) {"
+        ldloc __match_2
+        // #line 28:35 "let name: string = match (s) {"
+        ldfld Shape::__tag
+        // #line 28:35 "let name: string = match (s) {"
+        ldc.i4 1
+        // #line 28:35 "let name: string = match (s) {"
+        ceq
+        // #line 28:35 "let name: string = match (s) {"
+        if (stack) {
+            // #line 29:27 "Rect(_, _) => "rect","
+            ldstr "rect"
+        }
+        else {
+            // #line 30:18 "_ => "other""
+            ldstr "other"
+        }
+        // #line 28:35 "let name: string = match (s) {"
+        stloc name
+        // #line 32:20 "IO.Println(name);            // other"
+        ldloc name
+        // #line 32:20 "IO.Println(name);            // other"
+        call IO.Println(object) -> void
+        // #line 32:20 "IO.Println(name);            // other"
+        pop
+        // #line 35:46 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+        ldc.r8 10
+        // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+        ldc.r8 2
+        // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+        call Shape.Rect(float64, float64) -> Shape
+        // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+        stloc __match_3
+        // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+        ldloc __match_3
+        // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+        ldfld Shape::__tag
+        // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+        ldc.i4 1
+        // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+        ceq
+        // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+        if (stack) {
+            // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+            ldloc __match_3
+            // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+            ldfld Shape.Rect::w
+            // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+            stloc w
+            // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+            ldloc __match_3
+            // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+            ldfld Shape.Rect::h
+            // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+            stloc h
+            // #line 36:27 "Rect(w, h) if w > h => w * h,"
+            ldloc w
+            // #line 36:31 "Rect(w, h) if w > h => w * h,"
+            ldloc h
+            // #line 36:31 "Rect(w, h) if w > h => w * h,"
+            cgt
+        }
+        else {
+            // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+            ldc.i4 0
+        }
+        // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+        if (stack) {
+            // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+            ldloc __match_3
+            // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+            ldfld Shape.Rect::w
+            // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+            stloc w
+            // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+            ldloc __match_3
+            // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+            ldfld Shape.Rect::h
+            // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+            stloc h
+            // #line 36:36 "Rect(w, h) if w > h => w * h,"
+            ldloc w
+            // #line 36:40 "Rect(w, h) if w > h => w * h,"
+            ldloc h
+            // #line 36:40 "Rect(w, h) if w > h => w * h,"
+            mul
+        }
+        else {
+            // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+            ldloc __match_3
+            // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+            ldfld Shape::__tag
+            // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+            ldc.i4 1
+            // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+            ceq
+            // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+            if (stack) {
+                // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+                ldloc __match_3
+                // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+                ldfld Shape.Rect::w
+                // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+                stloc w
+                // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+                ldloc __match_3
+                // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+                ldfld Shape.Rect::h
+                // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+                stloc h
+                // #line 37:27 "Rect(w, h) => w + h,"
+                ldloc w
+                // #line 37:31 "Rect(w, h) => w + h,"
+                ldloc h
+                // #line 37:31 "Rect(w, h) => w + h,"
+                add
+            }
+            else {
+                // #line 38:18 "_ => 0.0"
+                ldc.r8 0
+            }
+        }
+        // #line 35:52 "var area: double = match (Shape.Rect(10.0, 2.0)) {"
+        stloc area
+        // #line 40:20 "IO.Println(area);            // 20"
+        ldloc area
+        // #line 40:20 "IO.Println(area);            // 20"
+        call IO.Println(object) -> void
+        // #line 40:20 "IO.Println(area);            // 20"
+        pop
+        // #line 40:20 "IO.Println(area);            // 20"
+        ret
+    }
+}
+

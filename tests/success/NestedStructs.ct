@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Nested structs (declared inside a contract) must be constructible by their
 // qualified name — short, dotted, and case-insensitively — and their fields
 // must be assignable positionally via `new Type(args)`.

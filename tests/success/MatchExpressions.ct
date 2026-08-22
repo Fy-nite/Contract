@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // PROPOSAL §1 — value-producing match with or-patterns and guards.
 
 Contract Traffic {

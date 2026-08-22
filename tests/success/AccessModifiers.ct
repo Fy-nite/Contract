@@ -1,3 +1,5 @@
+import __builtin.std;
+
 // Access modifiers: private fields/methods are only usable inside the
 // declaring contract. Public members remain callable from anywhere.
 Contract Vault {

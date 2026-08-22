@@ -4,6 +4,8 @@ A statically-typed programming language that compiles to ObjektIL, runs on the O
 ships with editor tooling (LSP + VS Code extension).
 
 ```ct
+import __builtin.std;
+
 Contract Program {
     static fn Main() {
         IO.Println("Hello, World!");
@@ -94,6 +96,8 @@ Options:
 
 ```ct
 // Contracts as classes
+import __builtin.std;
+
 Contract Counter {
     count: int;
 
@@ -123,6 +127,12 @@ var t = Thread.Create(fun -> { IO.Println("work"); });
 Thread.Start(t);
 Thread.Join(t);
 ```
+
+Builtin modules are never implicitly global: import them
+(`import __builtin.std;`) or spell them fully qualified
+(`__builtin.std.IO.Println(...)`). User-declared contracts shadow same-named
+builtin modules — that is what keeps a Contract-written stdlib free to
+replace them.
 
 See [docs/CONTRACT_LANGUAGE.md](docs/CONTRACT_LANGUAGE.md) for the full
 language reference, including the standard library and threading model.
