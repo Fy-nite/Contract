@@ -13,7 +13,7 @@ Contract Config {
     let GREETING: string = "hi, " + APP_NAME;
     let HALF: int = 7 / 2;                          // int division folds to 3
 
-    static fn Main() {
+    static fn main() {
         IO.Println(APP_NAME);            // contract
         IO.Println(TICKS_PER_HOUR);      // 3600000
         IO.Println(DOUBLE_TICKS);        // 7200000
@@ -30,6 +30,6 @@ Contract Program {
     static fn Main() {
         IO.Println(Config.APP_NAME);
         IO.Println(Config::TICKS_PER_HOUR);
-        Config.Main();
+        Config.main();
     }
 }
