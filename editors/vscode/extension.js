@@ -33,6 +33,29 @@ function activate(context) {
     })
   );
 
+  // Zero-config F5: with no launch.json, debug the active .ct file directly
+  // instead of sending the user through the debugger picker first.
+  context.subscriptions.push(
+    vscode.debug.registerDebugConfigurationProvider('contract', {
+      resolveDebugConfiguration(folder, config) {
+        if (config.type || config.request || config.name) {
+          return config; // user has a real launch config — leave it alone
+        }
+        const editor = vscode.window.activeTextEditor;
+        if (!editor || editor.document.languageId !== 'contract') {
+          return null; // nothing sensible to launch — fall back to VS Code's picker
+        }
+        return {
+          name: 'Debug Contract',
+          type: 'contract',
+          request: 'launch',
+          program: '${file}',
+          cwd: folder ? '${workspaceFolder}' : '${fileDirname}',
+        };
+      }
+    })
+  );
+
   // Register debug adapter descriptor factory
   context.subscriptions.push(
     vscode.debug.registerDebugAdapterDescriptorFactory('contract', {
