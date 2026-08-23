@@ -1,5 +1,4 @@
-using System.Linq;
-using System.Reflection;
+﻿using System.Reflection;
 using Contract.Compiler.StandardLibrary;
 using ObjektRT.Core.Attributes;
 using ObjektRT.Core.Model;
@@ -18,12 +17,11 @@ namespace Contract.Runtime;
 /// <see cref="ObjectRT.Runtime.Runtime"/> and pre-registers the standard
 /// library bindings. The stdlib implementations themselves live in the
 /// generic <c>ObjektRT.Stdlib</c> project (registered under both their
-/// qualified and short names); Contract-specific bindings (like the
-/// in-language <c>Reflect</c> bridge) live here. Custom host bindings (game
-/// engines, scripting APIs, whatever) register through
-/// <see cref="RegisterBinding"/> and stay out of the stdlib too.
+/// qualified and short names); custom host bindings (game engines,
+/// scripting APIs, whatever) register through <see cref="RegisterBinding"/>
+/// and stay out of the stdlib too.
 /// </summary>
-public class ContractRuntime : IReflectHost, IHostedRuntime
+public class ContractRuntime : IHostedRuntime
 {
     private readonly ObjectRT.Runtime.Runtime _runtime;
 
@@ -35,7 +33,6 @@ public class ContractRuntime : IReflectHost, IHostedRuntime
     {
         _runtime = new ObjectRT.Runtime.Runtime();
         RegisterDefaultBindings();
-        Contract.Compiler.StandardLibrary.ReflectModule.Host = this;
     }
 
     /// <summary>Creates a runtime wrapping an existing ObjectRT runtime.</summary>
@@ -43,16 +40,15 @@ public class ContractRuntime : IReflectHost, IHostedRuntime
     {
         _runtime = inner;
         RegisterDefaultBindings();
-        Contract.Compiler.StandardLibrary.ReflectModule.Host = this;
     }
 
-    // ── Standard library bindings ──────────────────────────────────
+    // â”€â”€ Standard library bindings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// <summary>
     /// Registers every binding in the standard library. The implementations
     /// live in the generic ObjektRT.Stdlib project and are auto-discovered
     /// via <c>[ClassBinding]</c> attributes on each type. Adding a new
-    /// stdlib module requires only the attribute — no catalog update needed.
+    /// stdlib module requires only the attribute â€” no catalog update needed.
     /// </summary>
     public void RegisterDefaultBindings()
     {
@@ -64,9 +60,6 @@ public class ContractRuntime : IReflectHost, IHostedRuntime
             if (attr != null)
                 RegisterBinding(attr.Name, type);
         }
-
-        // In-language reflection bridge (Contract-specific host).
-        RegisterBinding("Reflect", typeof(Contract.Compiler.StandardLibrary.ReflectModule));
     }
 
     /// <summary>
@@ -94,11 +87,11 @@ public class ContractRuntime : IReflectHost, IHostedRuntime
         }
     }
 
-    // ── Module loading ─────────────────────────────────────────────
+    // â”€â”€ Module loading â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// <summary>
     /// Loads a compiled module file, detecting the format from the extension:
-    /// <c>.orbt</c> → binary, anything else (<c>.oil</c>/<c>.oir</c>) → text.
+    /// <c>.orbt</c> â†’ binary, anything else (<c>.oil</c>/<c>.oir</c>) â†’ text.
     /// </summary>
     public ORBTModule LoadModuleFileAuto(string path)
     {
@@ -112,7 +105,7 @@ public class ContractRuntime : IReflectHost, IHostedRuntime
     /// <summary>Loads a text module (<c>.oil</c>/<c>.oir</c>).</summary>
     public ORBTModule LoadTextModule(string oilSource) => OilFileReader.ParseString(oilSource);
 
-    // ── Running ────────────────────────────────────────────────────
+    // â”€â”€ Running â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// <summary>Loads and runs a compiled module file, using its static Main as the entry.</summary>
     public object? RunModuleFile(string path)
@@ -168,7 +161,7 @@ public class ContractRuntime : IReflectHost, IHostedRuntime
     /// by <c>&lt;ClrImport("System.Math")&gt;</c> facades with the runtime's
     /// reflection resolver (so they link without a host-side
     /// <c>[ClassBinding]</c> wrapper) and scans <c>&lt;DllImport("x.dll")&gt;</c>
-    /// classes so their P/Invoke bridges are generated on first call. Idempotent —
+    /// classes so their P/Invoke bridges are generated on first call. Idempotent â€”
     /// call it before <c>CallMethod</c>/<c>RunModule</c> when running a module
     /// with an explicit entry point.
     /// </summary>
@@ -201,11 +194,11 @@ public class ContractRuntime : IReflectHost, IHostedRuntime
 
                 System.Type? clrType = null;
                 try { clrType = System.Type.GetType(typeName); }
-                catch (System.Exception) { /* malformed name — reported below */ }
+                catch (System.Exception) { /* malformed name â€” reported below */ }
 
                 if (clrType == null)
                 {
-                    Console.Error.WriteLine($"[ClrImport] type '{typeName}' could not be resolved at runtime — no CLR type with that name is loaded (try an assembly-qualified name)");
+                    Console.Error.WriteLine($"[ClrImport] type '{typeName}' could not be resolved at runtime â€” no CLR type with that name is loaded (try an assembly-qualified name)");
                     continue;
                 }
 
@@ -227,7 +220,7 @@ public class ContractRuntime : IReflectHost, IHostedRuntime
 
     /// <summary>
     /// Invokes a delegate value (a lambda passed to a host binding) with the
-    /// given args. Safe to call from host callbacks — the delegate runs on a
+    /// given args. Safe to call from host callbacks â€” the delegate runs on a
     /// fresh interpreter sharing the module state, so it never disturbs the
     /// VM's current execution.
     /// </summary>
@@ -249,206 +242,15 @@ public class ContractRuntime : IReflectHost, IHostedRuntime
         return null;
     }
 
-    // ── Reflection ─────────────────────────────────────────────────
+    // â”€â”€ Reflection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// <summary>
     /// C#-style reflection over the currently loaded module (types, methods,
-    /// fields, attributes, inheritance) — or null when nothing is loaded yet.
+    /// fields, attributes, inheritance) â€” or null when nothing is loaded yet.
     /// </summary>
     public ModuleReflector? Reflector => Inner.GetReflector();
 
     /// <summary>Builds a reflector over a module object without loading it.</summary>
     public static ModuleReflector ReflectModule(ORBTModule module) => new(module);
 
-    // ── IReflectHost — backs the in-language Reflect module ─────────
-
-    private ModuleReflector? HostReflector => Inner.GetReflector();
-
-    string[] IReflectHost.Types()
-        => HostReflector?.GetTypes().Select(t => t.Name).ToArray() ?? Array.Empty<string>();
-
-    bool IReflectHost.HasType(string typeName)
-    {
-        var refl = HostReflector;
-        if (refl == null) return false;
-        if (refl.GetType(typeName) != null) return true;
-        var shortName = ResolveShort(typeName);
-        return shortName != null && refl.GetType(shortName) != null;
-    }
-
-    string[] IReflectHost.Methods(string typeName)
-    {
-        var t = FindHostType(typeName);
-        return t?.GetMethods().Select(m => m.QualifiedName).ToArray() ?? Array.Empty<string>();
-    }
-
-    string[] IReflectHost.Fields(string typeName)
-    {
-        var t = FindHostType(typeName);
-        return t?.GetFields().Select(f => f.QualifiedName).ToArray() ?? Array.Empty<string>();
-    }
-
-    string IReflectHost.BaseType(string typeName)
-        => FindHostType(typeName)?.BaseType?.Name ?? "";
-
-    string IReflectHost.ModuleName()
-        => HostReflector?.ModuleName ?? "";
-
-    string IReflectHost.Kind(string typeName)
-        => FindHostType(typeName)?.Kind.ToString() ?? "";
-
-    bool IReflectHost.IsClass(string typeName)
-        => FindHostType(typeName)?.IsClass ?? false;
-
-    bool IReflectHost.IsInterface(string typeName)
-        => FindHostType(typeName)?.IsInterface ?? false;
-
-    bool IReflectHost.IsStruct(string typeName)
-        => FindHostType(typeName)?.IsStruct ?? false;
-
-    bool IReflectHost.IsEnum(string typeName)
-        => FindHostType(typeName)?.IsEnum ?? false;
-
-    bool IReflectHost.IsAbstract(string typeName)
-        => FindHostType(typeName)?.IsAbstract ?? false;
-
-    bool IReflectHost.IsSealed(string typeName)
-        => FindHostType(typeName)?.IsSealed ?? false;
-
-    string IReflectHost.Access(string typeName)
-        => FindHostType(typeName)?.Access.ToString() ?? "";
-
-    string[] IReflectHost.Interfaces(string typeName)
-        => FindHostType(typeName)?.Interfaces.Select(i => i?.Name ?? "").ToArray() ?? Array.Empty<string>();
-
-    string[] IReflectHost.AllInterfaces(string typeName)
-        => FindHostType(typeName)?.GetInterfaces().Select(i => i.Name).ToArray() ?? Array.Empty<string>();
-
-    string[] IReflectHost.Hierarchy(string typeName)
-        => FindHostType(typeName)?.GetHierarchy().Select(t => t.Name).ToArray() ?? Array.Empty<string>();
-
-    bool IReflectHost.IsSubclassOf(string typeName, string baseTypeName)
-    {
-        var t = FindHostType(typeName);
-        var baseType = FindHostType(baseTypeName);
-        return t != null && baseType != null && t.IsSubclassOf(baseType);
-    }
-
-    bool IReflectHost.IsAssignableFrom(string typeName, string otherTypeName)
-    {
-        var t = FindHostType(typeName);
-        var other = FindHostType(otherTypeName);
-        return t != null && other != null && t.IsAssignableFrom(other);
-    }
-
-    string IReflectHost.Resolve(string qualifiedMethodName)
-    {
-        int dot = qualifiedMethodName.LastIndexOf('.');
-        if (dot <= 0 || dot >= qualifiedMethodName.Length - 1) return "";
-        var typeName = qualifiedMethodName[..dot];
-        var methodName = qualifiedMethodName[(dot + 1)..];
-        return FindHostType(typeName)?.FindMethod(methodName)?.QualifiedName ?? "";
-    }
-
-    string[] IReflectHost.DeclaredMethods(string typeName)
-        => FindHostType(typeName)?.GetDeclaredMethods().Select(m => m.QualifiedName).ToArray() ?? Array.Empty<string>();
-
-    string[] IReflectHost.DeclaredFields(string typeName)
-        => FindHostType(typeName)?.GetDeclaredFields().Select(f => f.QualifiedName).ToArray() ?? Array.Empty<string>();
-
-    string[] IReflectHost.Attributes(string typeName)
-        => FindHostType(typeName)?.GetAttributes().Select(a => a.ToString()).ToArray() ?? Array.Empty<string>();
-
-    string[] IReflectHost.MethodAttributes(string typeName, string methodName)
-        => FindHostMethod(typeName, methodName)?.GetAttributes().Select(a => a.ToString()).ToArray() ?? Array.Empty<string>();
-
-    string IReflectHost.MethodReturn(string typeName, string methodName)
-        => FindHostMethod(typeName, methodName)?.ReturnTypeName ?? "";
-
-    string[] IReflectHost.MethodParams(string typeName, string methodName)
-        => FindHostMethod(typeName, methodName)?.GetParameters().Select(p => p.ToString()).ToArray() ?? Array.Empty<string>();
-
-    bool IReflectHost.MethodStatic(string typeName, string methodName)
-        => FindHostMethod(typeName, methodName)?.IsStatic ?? false;
-
-    bool IReflectHost.MethodVirtual(string typeName, string methodName)
-        => FindHostMethod(typeName, methodName)?.IsVirtual ?? false;
-
-    bool IReflectHost.MethodOverride(string typeName, string methodName)
-        => FindHostMethod(typeName, methodName)?.IsOverride ?? false;
-
-    bool IReflectHost.MethodAbstract(string typeName, string methodName)
-        => FindHostMethod(typeName, methodName)?.IsAbstract ?? false;
-
-    string IReflectHost.MethodDeclaringType(string typeName, string methodName)
-        => FindHostMethod(typeName, methodName)?.DeclaringType.Name ?? "";
-
-    string IReflectHost.MethodBase(string typeName, string methodName)
-        => FindHostMethod(typeName, methodName)?.GetBaseDefinition()?.QualifiedName ?? "";
-
-    string IReflectHost.FieldType(string typeName, string fieldName)
-        => FindHostField(typeName, fieldName)?.TypeName ?? "";
-
-    bool IReflectHost.FieldStatic(string typeName, string fieldName)
-        => FindHostField(typeName, fieldName)?.IsStatic ?? false;
-
-    string IReflectHost.FieldDeclaringType(string typeName, string fieldName)
-        => FindHostField(typeName, fieldName)?.DeclaringType.Name ?? "";
-
-    object? IReflectHost.Invoke(string typeName, string methodName, object? receiver, object?[] args)
-    {
-        var method = FindHostMethod(typeName, methodName);
-        if (method == null) return null;
-        return method.Invoke(Inner, method.IsStatic ? null : receiver, args);
-    }
-
-    object? IReflectHost.GetStatic(string typeName, string fieldName)
-    {
-        var t = FindHostType(typeName);
-        var field = t?.GetField(fieldName);
-        if (field == null || !field.IsStatic) return null;
-        return Inner.GetStaticField(field.QualifiedName);
-    }
-
-    void IReflectHost.SetStatic(string typeName, string fieldName, object? value)
-    {
-        var t = FindHostType(typeName);
-        var field = t?.GetField(fieldName);
-        if (field == null || !field.IsStatic) return;
-        Inner.SetStaticField(field.QualifiedName, value);
-    }
-
-    object? IReflectHost.Call(string typeName, string methodName, object?[] args)
-    {
-        var t = FindHostType(typeName);
-        var method = t?.GetMethod(methodName);
-        if (method == null || !method.IsStatic) return null;
-        return Inner.CallMethod<object?>(method.QualifiedName, args);
-    }
-
-    private ObjectRT.Runtime.Reflection.TypeInfo? FindHostType(string typeName)
-    {
-        var refl = HostReflector;
-        if (refl == null) return null;
-        var direct = refl.GetType(typeName);
-        if (direct != null) return direct;
-        var shortName = ResolveShort(typeName);
-        return shortName != null ? refl.GetType(shortName) : null;
-    }
-
-    /// <summary>Finds a method by name on a type, walking the base chain (most-derived wins).</summary>
-    private ObjectRT.Runtime.Reflection.MethodInfo? FindHostMethod(string typeName, string methodName)
-        => FindHostType(typeName)?.FindMethod(methodName);
-
-    /// <summary>Finds a field by name on a type, walking the base chain.</summary>
-    private ObjectRT.Runtime.Reflection.FieldInfo? FindHostField(string typeName, string fieldName)
-        => FindHostType(typeName)?.GetField(fieldName);
-
-    /// <summary>Finds a short name's qualified form ("Geo" → "com.lib.Geo") in the loaded module.</summary>
-    private string? ResolveShort(string shortName)
-    {
-        if (shortName.Contains('.')) return null;
-        return Reflector?.GetTypes().FirstOrDefault(t =>
-            t.Name == shortName || t.Name.EndsWith("." + shortName, StringComparison.Ordinal))?.Name;
-    }
 }

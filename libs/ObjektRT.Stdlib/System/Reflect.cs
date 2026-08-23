@@ -1,17 +1,17 @@
 using ObjektRT.Core.Attributes;
+using ObjektRT.Core.Hosting;
 
-namespace Contract.Compiler.StandardLibrary;
+namespace ObjektRT.Stdlib.System;
 
 /// <summary>
 /// In-language reflection: <c>Reflect.Types()</c>, <c>Reflect.Methods("Foo")</c>,
 /// <c>Reflect.GetStatic(...)</c>, <c>Reflect.Call(...)</c>, <c>Reflect.Invoke(...)</c>,
-/// <c>Reflect.Hierarchy("Foo")</c>, ... — runtime introspection over the loaded
-/// module. The host (a ContractRuntime) sets <see cref="Host"/>; without one
-/// every call returns empty/false/null. This is a Contract-specific binding —
-/// the generic stdlib stays free of it.
+/// <c>Reflect.Hierarchy("Foo")</c>, ... — runtime introspection over the module
+/// loaded into the runtime. The runtime attaches a host on load; without one
+/// every call returns empty/false/null.
 /// </summary>
 [ClassBinding("Reflect")]
-public static class ReflectModule
+public static class Reflect
 {
     /// <summary>The host providing module metadata + static access, set by the runtime.</summary>
     public static IReflectHost? Host { get; set; }

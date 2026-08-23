@@ -42,10 +42,5 @@ public static class StdlibCatalog
                     table.RegisterExternalType($"{type.Namespace}.{type.Name}", type);
             }
         }
-
-        // The one Contract-specific host module joins the same roots so it
-        // obeys the same import/qualification rules as everything else.
-        table.RegisterExternalType($"{BuiltinPrefix}.Reflect", typeof(ReflectModule));
-        table.RegisterExternalType("Contract.Compiler.StandardLibrary.Reflect", typeof(ReflectModule));
     }
 }

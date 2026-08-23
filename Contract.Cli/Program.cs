@@ -867,12 +867,12 @@ Examples:
             var stdout = Console.Out;
             Console.SetOut(Console.Error);
 
-            Contract.LanguageServer.Dap.DapLog.Write(
+            ObjectRT.Dap.DapLog.Write(
                 $"ccl debug started: args=[{string.Join(" ", args)}] cwd={Directory.GetCurrentDirectory()} version={typeof(Program).Assembly.GetName().Version} dll={typeof(Program).Assembly.Location}");
             AppDomain.CurrentDomain.UnhandledException += (_, e) =>
-                Contract.LanguageServer.Dap.DapLog.Write($"FATAL unhandled: {e.ExceptionObject}");
+                ObjectRT.Dap.DapLog.Write($"FATAL unhandled: {e.ExceptionObject}");
 
-            var server = new Contract.LanguageServer.Dap.DapServer(Console.In, stdout);
+            var server = new ObjectRT.Dap.DapServer(Console.In, stdout, new Contract.LanguageServer.Dap.ContractDapLoader());
             server.RunAsync().GetAwaiter().GetResult();
             return 0;
         }

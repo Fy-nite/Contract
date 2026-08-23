@@ -248,9 +248,14 @@ read/write, and `Reflect.Call` / `Reflect.Invoke` for invoking methods by name
 receiver). See the *In-language reflection* section of
 `docs/CONTRACT_LANGUAGE.md` for the full API table.
 
-The two surfaces map 1:1 onto the same `ModuleReflector` metadata; the
-in-language one additionally reaches the live VM (statics + invocation) via the
-host's `IReflectHost` implementation. Notable differences:
+The binding itself lives with the rest of the standard library
+(`ObjektRT.Stdlib.System.Reflect`, discovered by the usual `[ClassBinding]`
+scan), while the engine side stays in core: when a runtime loads a module it
+attaches a `RuntimeReflectHost` (in `ObjectRT.Runtime.Reflection`) implementing
+`ObjektRT.Core.Hosting.IReflectHost`, so every host gets in-language reflection
+for free — no host-side wiring required. The two surfaces map 1:1 onto the same
+`ModuleReflector` metadata; the in-language one additionally reaches the live
+VM (statics + invocation) through that host. Notable differences:
 
 - The in-language API is string-based (the language has no `TypeInfo` value
   type), so queries like `Kind`/`IsClass`/`MethodReturn` return names and
