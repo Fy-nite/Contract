@@ -582,6 +582,29 @@ public class IRCodeGenerator
         return contract != null && HasFieldIncludingBase(contract, fieldName, staticOnly: true);
     }
 
+    /// <summary>
+    /// Folds a comptime constant (FEATURE_PROPOSALS §15): a static field with
+    /// <see cref="StructField.IsConst"/> — declared by contract-scope
+    /// <c>let X: T = &lt;const&gt;;</c> / <c>const</c>. Returns the folded value
+    /// so reads emit the literal instead of ldsfld. Walks the base chain so
+    /// inherited constants resolve.
+    /// </summary>
+    private bool TryFoldConstField(string? contractName, string fieldName, out object? value)
+    {
+        value = null;
+        var contract = FindContract(contractName ?? "");
+        for (var c = contract; c != null; c = BaseContract(c))
+        {
+            var f = c.Fields.FirstOrDefault(f => f.Name == fieldName && f.IsStatic && f.IsConst);
+            if (f != null)
+            {
+                value = f.ConstantValue;
+                return true;
+            }
+        }
+        return false;
+    }
+
     /// <summary>The static field reference for 'name' on the current contract,
     /// keyed by its DECLARING type so inherited statics resolve.</summary>
     private FieldReference StaticFieldReference(string name)
@@ -1759,6 +1782,12 @@ public class IRCodeGenerator
                 }
                 if (IsStaticField(id.Name))
                 {
+                    // Comptime constant read: emit the folded literal (§15).
+                    if (TryFoldConstField(_currentContractName, id.Name, out var bareConst))
+                    {
+                        EmitLiteralValue(ib, bareConst);
+                        break;
+                    }
                     // Bare static field access — no receiver to push.
                     ib.Ldsfld(StaticFieldReference(id.Name));
                     break;
@@ -2265,6 +2294,12 @@ public class IRCodeGenerator
                     }
                     if (IsStaticField(memObjName, mem.Property))
                     {
+                        // Comptime constant read (Config.APP_NAME): folded literal (§15).
+                        if (TryFoldConstField(memObjName, mem.Property, out var memConst))
+                        {
+                            EmitLiteralValue(ib, memConst);
+                            break;
+                        }
                         // Static field read (Config.count) — no receiver to push.
                         // Key by the DECLARING type so inherited statics resolve.
                         var staticDecl = FieldDeclaringTypeName(memObjName, mem.Property, staticOnly: true) ?? memObjName;
@@ -2366,9 +2401,17 @@ public class IRCodeGenerator
                 // DECLARING type so inherited statics (Dog::count → Animal::count) resolve.
                 if (IsStaticField(scopedExpr.Module, scopedExpr.Member))
                 {
-                    var scopedTarget = FieldDeclaringTypeName(scopedExpr.Module, scopedExpr.Member, staticOnly: true)
-                        ?? ResolveTypeName(scopedExpr.Module);
-                    ib.Ldsfld(new FieldReference(new TypeRef(scopedTarget), scopedExpr.Member, FindFieldType(scopedTarget, scopedExpr.Member)));
+                    // Comptime constant read (Config::APP_NAME): folded literal (§15).
+                    if (TryFoldConstField(scopedExpr.Module, scopedExpr.Member, out var scopedConst))
+                    {
+                        EmitLiteralValue(ib, scopedConst);
+                    }
+                    else
+                    {
+                        var scopedTarget = FieldDeclaringTypeName(scopedExpr.Module, scopedExpr.Member, staticOnly: true)
+                            ?? ResolveTypeName(scopedExpr.Module);
+                        ib.Ldsfld(new FieldReference(new TypeRef(scopedTarget), scopedExpr.Member, FindFieldType(scopedTarget, scopedExpr.Member)));
+                    }
                 }
                 else
                 {

@@ -1621,7 +1621,18 @@ namespace Contract.Compiler.Semantics
                         _fnWrittenNames.Add(assignTarget.Name);
                         if (IsContractField(assignTarget.Name))
                         {
-                            _writtenFields.Add((_currentContractName ?? "", assignTarget.Name));
+                            // Locals shadow fields; a bare name that is not a
+                            // local resolves to the field — reject constants.
+                            if (!IsVariableDefined(assignTarget.Name) && IsCurrentContractConstField(assignTarget.Name))
+                            {
+                                _diagnostics.AddError(
+                                    $"Cannot assign to constant '{assignTarget.Name}' — comptime constants are immutable",
+                                    assignTarget.Line, assignTarget.Column);
+                            }
+                            else
+                            {
+                                _writtenFields.Add((_currentContractName ?? "", assignTarget.Name));
+                            }
                         }
                         else if (IsVariableDefined(assignTarget.Name) && !IsVariableMutable(assignTarget.Name))
                         {
@@ -1650,8 +1661,33 @@ namespace Contract.Compiler.Semantics
                         AnalyzeExpression(bin.Right);
                         AnalyzeExpression(memWrite.Object);
                         if (ResolveOwnerContract(memWrite.Object) is { } writeOwner)
+                        {
                             CheckMemberAccess(writeOwner, memWrite.Property, memWrite.Line, memWrite.Column, checkMethods: false);
+                            // Static member write on a comptime constant
+                            // (Config.VERSION = 2 / Config.VERSION += 1).
+                            if (IsConstField(writeOwner, memWrite.Property))
+                            {
+                                _diagnostics.AddError(
+                                    $"Cannot assign to constant '{writeOwner.Name}.{memWrite.Property}' — comptime constants are immutable",
+                                    memWrite.Line, memWrite.Column);
+                            }
+                        }
                         RecordFieldAccess(memWrite, isWrite: true);
+                        bin.ResolvedType = InferType(bin);
+                        break;
+                    }
+
+                    // Compound assignment to a comptime constant (VERSION += 1).
+                    if (bin.Operator is "+=" or "-=" or "*=" or "/=" or "%="
+                        && bin.Left is IdentifierExpression constCompound
+                        && !IsVariableDefined(constCompound.Name)
+                        && IsCurrentContractConstField(constCompound.Name))
+                    {
+                        AnalyzeExpression(bin.Left);
+                        AnalyzeExpression(bin.Right);
+                        _diagnostics.AddError(
+                            $"Cannot assign to constant '{constCompound.Name}' — comptime constants are immutable",
+                            constCompound.Line, constCompound.Column);
                         bin.ResolvedType = InferType(bin);
                         break;
                     }
@@ -2178,6 +2214,25 @@ namespace Contract.Compiler.Semantics
             if (contract == null) return false;
             return FindFieldDeclaringContract(contract, name, staticOnly: false) != null
                 || FindFieldDeclaringContract(contract, name, staticOnly: true) != null;
+        }
+
+        /// <summary>
+        /// True when 'fieldName' on 'ownerContract' (walking base chains)
+        /// resolves to a comptime constant field (<c>let X: T = &lt;const&gt;;</c>,
+        /// FEATURE_PROPOSALS §15). Constants are immutable — writes are errors.
+        /// </summary>
+        private bool IsConstField(ContractDeclaration ownerContract, string fieldName)
+        {
+            var declaring = FindFieldDeclaringContract(ownerContract, fieldName, staticOnly: true);
+            return declaring?.Fields.Any(f => f.Name == fieldName && f.IsConst) == true;
+        }
+
+        /// <summary>Const-field check against the contract being analyzed.</summary>
+        private bool IsCurrentContractConstField(string name)
+        {
+            if (_currentContractName == null) return false;
+            var contract = FindContract(_currentContractName);
+            return contract != null && IsConstField(contract, name);
         }
 
         // ── Enums ───────────────────────────────────────────────────

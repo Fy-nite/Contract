@@ -7,7 +7,7 @@ namespace Contract.Compiler.Parsing
     public enum TokenType
     {
         // Keywords
-        Contract, Fn, If, Else, While, For, Switch, Case, Return, Var, Let, Static,
+        Contract, Fn, If, Else, While, For, Switch, Case, Return, Var, Let, Const, Static,
         Public, Private, Protected, Internal, Null, Import, Constructor, Struct, Export, Fun, Types, Type, New,
         Break, Continue, True, False, Enum, Namespace,
         Try, Catch, Finally, Throw, Match, In,
@@ -71,6 +71,7 @@ namespace Contract.Compiler.Parsing
             ["return"] = TokenType.Return,
             ["var"] = TokenType.Var,
             ["let"] = TokenType.Let,
+            ["const"] = TokenType.Const,
             ["fun"] = TokenType.Fun,
             ["static"] = TokenType.Static,
             ["public"] = TokenType.Public,

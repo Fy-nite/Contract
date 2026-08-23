@@ -202,6 +202,17 @@ namespace Contract.Compiler.AST
         /// <summary>Access level from <c>public</c>/<c>private</c>/<c>protected</c>/<c>internal</c> modifiers.</summary>
         public AccessModifier Access { get; set; } = AccessModifier.Default;
 
+        /// <summary>
+        /// True for comptime constants (FEATURE_PROPOSALS §15): a contract-scope
+        /// <c>let X: T = &lt;const-expr&gt;;</c> / <c>const X: T = ...;</c>. The
+        /// initializer folds at parse time and every read emits the folded
+        /// literal instead of loading the field.
+        /// </summary>
+        public bool IsConst { get; set; }
+
+        /// <summary>The folded compile-time value of a constant field (int, double, string, bool, or null).</summary>
+        public object? ConstantValue { get; set; }
+
         public StructField(string name, TypeDescriptor type, int line, int column) : base(line, column)
         {
             Name = name;

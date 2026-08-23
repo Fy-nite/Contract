@@ -430,6 +430,24 @@ let p = new Person(); // p: Person
 
 Inference works from literals, `new` expressions, and other variables. `null` and expressions whose type can't be determined still require an explicit annotation.
 
+### Compile-Time Constants (contract scope)
+
+A contract-scope `let` whose initializer is **not** a lambda declares a *comptime constant* (FEATURE_PROPOSALS §15). The initializer must fold at compile time — literals, arithmetic/comparison/logical operators over constants, string concatenation, or constants declared earlier in the same contract. `const` is the explicit spelling of the same declaration:
+
+```ct
+Contract Config {
+    let APP_NAME: string = "contract";
+    const TICKS_PER_HOUR: int = 60 * 60 * 1000;
+    let GREETING: string = "hi, " + APP_NAME;   // constants reference constants
+
+    static fn Main() {
+        IO.Println(TICKS_PER_HOUR);   // folds to 3600000 — no runtime math
+    }
+}
+```
+
+Constants are immutable: assigning to one (`X = 1`, `X += 1`, `Config.X = 1`) is an error. Reads fold to their value everywhere, including bare reads inside the contract and `Config.APP_NAME` / `Config::APP_NAME` from outside. A constant whose initializer cannot be folded (calls, non-constant references) is rejected at compile time.
+
 ## Types
 
 ### Built-in Types
@@ -1819,12 +1837,16 @@ ImportDecl ::= 'import' (STRING | IDENTIFIER ('.' IDENTIFIER)*) ';'
 
 ContractDecl ::= 'Contract' IDENTIFIER (':' IDENTIFIER)? '{' Member* '}'
 Member ::= FieldDecl
+         | ConstDecl
+         | ContractLambdaDecl
          | AccessModifier? 'static'? 'fn' IDENTIFIER '(' ParamList? ')' (ReturnType)? Block
          | 'constructor' '(' ParamList? ')' Block
          | StructDecl
          | EnumDecl
 
 FieldDecl ::= AccessModifier? 'static'? IDENTIFIER ':' Type ';'
+ConstDecl ::= ('let' | 'const') IDENTIFIER (':' Type)? '=' ConstExpr ';'
+ContractLambdaDecl ::= ('let' | 'var') IDENTIFIER (':' Type)? '=' Lambda ';'
 StructDecl ::= 'struct' IDENTIFIER '{' FieldDecl* '}'
 EnumDecl ::= 'enum' IDENTIFIER '{' IDENTIFIER (',' IDENTIFIER)* '}'
 

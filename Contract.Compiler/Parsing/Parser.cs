@@ -551,15 +551,18 @@ namespace Contract.Compiler.Parsing
                     function.Access = access;
                     contract.Members.Add(function);
                 }
-                else if (Match(TokenType.Var) || Match(TokenType.Let))
+                else if (Match(TokenType.Var) || Match(TokenType.Let) || Match(TokenType.Const))
                 {
-                    // Contract-scope let/var: desugar lambda bindings to functions.
-                    //   let name = fn (p) -> body;        → static fn name(p) -> body
-                    //   let name = fun (p) -> body;       → static fn name(p) -> body
-                    //   var name = fn (p) -> body;        → static fn name(p) -> body
+                    // Contract-scope bindings:
+                    //   let/var name = lambda;  → desugars to a static fn.
+                    //   let/const NAME: T = CONST_EXPR;  → a comptime constant
+                    //     (FEATURE_PROPOSALS §15): the initializer folds at parse
+                    //     time and every read emits the folded literal. 'let' is
+                    //     pure sugar for 'const' here.
+                    string keyword = Previous.Text;
                     var memberLine = Previous.Line;
                     var memberCol = Previous.Column;
-                    Consume(TokenType.Identifier, "Expected variable name after 'let' or 'var'");
+                    Consume(TokenType.Identifier, $"Expected variable name after '{keyword}'");
                     var varName = Previous.Text;
 
                     // Optional type annotation: let name: Type = expr;
@@ -574,7 +577,7 @@ namespace Contract.Compiler.Parsing
                     Expression initExpr = ParseExpression();
                     Consume(TokenType.Semicolon, "Expected ';' after contract-scope variable declaration");
 
-                    if (initExpr is LambdaExpression lambda)
+                    if (initExpr is LambdaExpression lambda && keyword != "const")
                     {
                         // Desugar to a static function declaration.
                         var function = new FunctionDeclaration(varName, memberLine, memberCol);
@@ -613,9 +616,38 @@ namespace Contract.Compiler.Parsing
 
                         contract.Members.Add(function);
                     }
+                    else if (keyword == "var")
+                    {
+                        AddError("Contract-scope 'var' must be initialized with a lambda — use 'let' or 'const' for compile-time constants", initExpr.Line, initExpr.Column);
+                    }
                     else
                     {
-                        AddError($"Contract-scope variable initializer must be a lambda expression (use 'static fn' for method declarations)", initExpr.Line, initExpr.Column);
+                        // Comptime constant (§15). Fold the initializer now; the
+                        // field exists so member resolution/access checks see it,
+                        // but codegen folds every read to the literal value.
+                        if (memberAttributes.Count > 0)
+                        {
+                            AddError("Attributes on fields are not supported yet", memberAttributes[0].Line, memberAttributes[0].Column);
+                        }
+
+                        bool folded = TryFoldConstant(initExpr, contract, out object? constValue);
+                        if (!folded)
+                        {
+                            AddError($"Initializer of contract-scope '{keyword}' declaration must be a compile-time constant (literals, operators, or constants declared earlier in this contract)", initExpr.Line, initExpr.Column);
+                        }
+                        else if (explicitReturnType != null && !ConstantTypeMatches(explicitReturnType, constValue))
+                        {
+                            AddError($"Constant '{varName}' is declared '{explicitReturnType}' but its initializer evaluates to '{ConstValueTypeName(constValue)}'", initExpr.Line, initExpr.Column);
+                        }
+
+                        string typeName = explicitReturnType ?? ConstValueTypeName(constValue) ?? "";
+                        contract.Fields.Add(new StructField(varName, TypeDescriptor.Parse(typeName), memberLine, memberCol)
+                        {
+                            IsStatic = true,
+                            Access = access,
+                            IsConst = true,
+                            ConstantValue = constValue,
+                        });
                     }
                 }
                 else if (Match(TokenType.Identifier))
@@ -2573,6 +2605,231 @@ namespace Contract.Compiler.Parsing
             };
         }
 
+        /// <summary>
+        /// Folds a compile-time constant expression (FEATURE_PROPOSALS §15):
+        /// literals; <c>-</c>/<c>!</c>; arithmetic, comparison and logical
+        /// operators over folded operands (int semantics for int/int division);
+        /// and references to constants declared earlier in the same contract.
+        /// Calls, fields, enum members etc. are not foldable — returns false.
+        /// </summary>
+        private bool TryFoldConstant(Expression expr, ContractDeclaration contract, out object? value)
+        {
+            switch (expr)
+            {
+                case LiteralExpression lit:
+                    value = lit.Value;
+                    return true;
+
+                case IdentifierExpression id:
+                {
+                    // Only constants of THIS contract, in declaration order —
+                    // a constant cannot reference one declared after it.
+                    var field = contract.Fields.FirstOrDefault(f => f.IsConst && f.IsStatic && f.Name == id.Name);
+                    if (field == null)
+                    {
+                        value = null;
+                        return false;
+                    }
+                    value = field.ConstantValue;
+                    return true;
+                }
+
+                case UnaryExpression unary:
+                {
+                    if (!TryFoldConstant(unary.Operand, contract, out object? operand))
+                    {
+                        value = null;
+                        return false;
+                    }
+                    switch (unary.Operator)
+                    {
+                        case "-" when operand is int i: value = -i; return true;
+                        case "-" when operand is double d: value = -d; return true;
+                        case "!" when operand is bool b: value = !b; return true;
+                        default: value = null; return false;
+                    }
+                }
+
+                case BinaryExpression bin:
+                {
+                    // Short-circuit forms: the RHS is folded only when its
+                    // value can still change the result.
+                    if (bin.Operator is "&&" or "||")
+                    {
+                        if (!TryFoldConstant(bin.Left, contract, out object? lhs) || lhs is not bool leftBool)
+                        {
+                            value = null;
+                            return false;
+                        }
+                        if ((bin.Operator == "&&" && !leftBool) || (bin.Operator == "||" && leftBool))
+                        {
+                            value = bin.Operator == "&&" ? false : true;
+                            return true;
+                        }
+                        if (!TryFoldConstant(bin.Right, contract, out object? rhs) || rhs is not bool rightBool)
+                        {
+                            value = null;
+                            return false;
+                        }
+                        value = bin.Operator == "&&" ? leftBool && rightBool : leftBool || rightBool;
+                        return true;
+                    }
+
+                    if (!TryFoldConstant(bin.Left, contract, out object? left) ||
+                        !TryFoldConstant(bin.Right, contract, out object? right))
+                    {
+                        value = null;
+                        return false;
+                    }
+                    return FoldConstantBinary(bin.Operator, left, right, out value);
+                }
+
+                default:
+                    value = null;
+                    return false;
+            }
+        }
+
+        /// <summary>Applies a binary operator to two folded constant values. Short-circuit operators are handled by <see cref="TryFoldConstant"/>.</summary>
+        private bool FoldConstantBinary(string op, object? left, object? right, out object? value)
+        {
+            value = null;
+
+            // Equality across any folded values (numeric compares cross int/double).
+            if (op is "==" or "!=")
+            {
+                bool equal = left switch
+                {
+                    int a when right is double b => a == b,
+                    double a when right is int b => a == b,
+                    int a when right is int b => a == b,
+                    double a when right is double b => a == b,
+                    string a when right is string b => a == b,
+                    bool a when right is bool b => a == b,
+                    null when right == null => true,
+                    _ => false
+                };
+                value = op == "==" ? equal : !equal;
+                return true;
+            }
+
+            // Relational comparisons over numbers or strings.
+            if (op is "<" or "<=" or ">" or ">=")
+            {
+                // CompareTo yields -1/0/1; int.MinValue marks incomparable types.
+                int cmp = (left, right) switch
+                {
+                    (int a, int b) => a.CompareTo(b),
+                    (double a, double b) => a.CompareTo(b),
+                    (int a, double b) => a.CompareTo(b),
+                    (double a, int b) => a.CompareTo(b),
+                    (string a, string b) => string.CompareOrdinal(a, b),
+                    _ => int.MinValue
+                };
+                if (cmp == int.MinValue)
+                    return false;
+                value = op switch
+                {
+                    "<" => cmp < 0,
+                    "<=" => cmp <= 0,
+                    ">" => cmp > 0,
+                    _ => cmp >= 0
+                };
+                return true;
+            }
+
+            // String concatenation: either side a string. Source-style string
+            // literals keep their quotes ("\"hi\""), so strip them around the
+            // concatenation and re-quote the result.
+            if (op == "+" && (left is string || right is string))
+            {
+                string ls = left is string lc ? UnquoteConstant(lc) : ConstantToText(left);
+                string rs = right is string rc ? UnquoteConstant(rc) : ConstantToText(right);
+                value = "\"" + ls + rs + "\"";
+                return true;
+            }
+
+            // Arithmetic. Ints stay ints (division truncates); mixing with a
+            // double widens to double.
+            if (left is int li && right is int ri)
+            {
+                switch (op)
+                {
+                    case "+": value = li + ri; return true;
+                    case "-": value = li - ri; return true;
+                    case "*": value = li * ri; return true;
+                    case "/":
+                        if (ri == 0) return false;
+                        value = li / ri;
+                        return true;
+                    case "%":
+                        if (ri == 0) return false;
+                        value = li % ri;
+                        return true;
+                }
+                return false;
+            }
+
+            if ((left is int || left is double) && (right is int || right is double))
+            {
+                double ld = Convert.ToDouble(left, System.Globalization.CultureInfo.InvariantCulture);
+                double rd = Convert.ToDouble(right, System.Globalization.CultureInfo.InvariantCulture);
+                switch (op)
+                {
+                    case "+": value = ld + rd; return true;
+                    case "-": value = ld - rd; return true;
+                    case "*": value = ld * rd; return true;
+                    case "/":
+                        if (rd == 0.0) return false;
+                        value = ld / rd;
+                        return true;
+                    case "%":
+                        if (rd == 0.0) return false;
+                        value = ld % rd;
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>The literal spelling of a folded constant, used for string concatenation.</summary>
+        private static string ConstantToText(object? value) => value switch
+        {
+            null => "null",
+            bool b => b ? "true" : "false",
+            int i => i.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            double d => d.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            string s => s,
+            _ => ""
+        };
+
+        /// <summary>Removes one level of surrounding source quotes from a string constant.</summary>
+        private static string UnquoteConstant(string s)
+            => s.Length >= 2 && s[0] == '"' && s[^1] == '"' ? s[1..^1] : s;
+
+        /// <summary>The primitive type name of a folded constant, or null when unknown.</summary>
+        private static string? ConstValueTypeName(object? value) => value switch
+        {
+            int => "int",
+            double => "double",
+            string => "string",
+            bool => "bool",
+            _ => null
+        };
+
+        /// <summary>
+        /// Light consistency check between a constant's annotated type and its
+        /// folded value. Only the four primitive names are checked — other
+        /// annotations (user types, generics, arrays) are skipped.
+        /// </summary>
+        private static bool ConstantTypeMatches(string annotation, object? value)
+        {
+            string? actual = ConstValueTypeName(value);
+            if (actual == null) return true;   // null folds / unknown kinds: skip
+            return annotation == actual;
+        }
+
         private Token Advance()
         {
             if (!IsAtEnd()) _current++;
@@ -2614,7 +2871,7 @@ namespace Contract.Compiler.Parsing
                 if (Previous.Type == TokenType.Semicolon) return;
 
                 // Stop at statement-starting keywords (including contextual 'fn')
-                if (Current.Type is TokenType.Contract or TokenType.Import or TokenType.If or TokenType.While or TokenType.Return or TokenType.Var or TokenType.Let or TokenType.Switch or TokenType.For or TokenType.Static or TokenType.Public or TokenType.Private or TokenType.Protected or TokenType.Internal or TokenType.Export)
+                if (Current.Type is TokenType.Contract or TokenType.Import or TokenType.If or TokenType.While or TokenType.Return or TokenType.Var or TokenType.Let or TokenType.Const or TokenType.Switch or TokenType.For or TokenType.Static or TokenType.Public or TokenType.Private or TokenType.Protected or TokenType.Internal or TokenType.Export)
                     return;
                 // fn is contextual: only a statement-starter when at the start of a line
                 if (CheckFn())

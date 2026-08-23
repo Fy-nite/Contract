@@ -1,0 +1,35 @@
+import __builtin.std;
+
+// Contract-scope `let NAME: T = <const-expr>;` is sugar for a comptime
+// constant (FEATURE_PROPOSALS §15): the initializer folds at compile time and
+// every read emits the literal. `const` is the explicit spelling.
+Contract Config {
+    let APP_NAME: string = "contract";
+    let TICKS_PER_HOUR: int = 60 * 60 * 1000;
+    const DOUBLE_TICKS: int = TICKS_PER_HOUR * 2;   // const-through-const
+    let RATIO: double = 3.0 / 2;
+    let NEG: int = -(2 + 3);
+    let FLAG: bool = true && !false;
+    let GREETING: string = "hi, " + APP_NAME;
+    let HALF: int = 7 / 2;                          // int division folds to 3
+
+    static fn Main() {
+        IO.Println(APP_NAME);            // contract
+        IO.Println(TICKS_PER_HOUR);      // 3600000
+        IO.Println(DOUBLE_TICKS);        // 7200000
+        IO.Println(RATIO);               // 1.5
+        IO.Println(NEG);                 // -5
+        IO.Println(FLAG);                // True
+        IO.Println(GREETING);            // hi, contract
+        IO.Println(HALF);                // 3
+    }
+}
+
+// Reads from outside the contract fold too — dot and :: forms.
+Contract Program {
+    static fn Main() {
+        IO.Println(Config.APP_NAME);
+        IO.Println(Config::TICKS_PER_HOUR);
+        Config.Main();
+    }
+}

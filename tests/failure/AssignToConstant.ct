@@ -1,0 +1,13 @@
+import __builtin.std;
+
+// Comptime constants are immutable — every write form is an error.
+Contract Config {
+    let VERSION: int = 1;
+    const APP_NAME: string = "contract";
+
+    static fn Main() {
+        VERSION = 2;          // bare =
+        VERSION += 1;         // bare compound
+        Config.VERSION = 3;   // qualified member write
+    }
+}
