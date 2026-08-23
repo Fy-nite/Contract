@@ -15,7 +15,7 @@ namespace Contract.LanguageServer.Dap;
 /// </summary>
 public sealed class ContractDapLoader : IDapProgramLoader
 {
-    public Task<DapProgram> LoadAsync(string program, CancellationToken ct)
+    public Task<DapProgram> LoadAsync(string program, ObjectRT.Dap.DapOutputHandler? output, CancellationToken ct)
     {
         string? ir;
         DiagnosticBag diags;
@@ -46,6 +46,13 @@ public sealed class ContractDapLoader : IDapProgramLoader
 
         var interp = new Interpreter(compiled.Value);
         host.Inner.AttachHostHandlers(interp);
+
+        // Route guest console output (IO.Println etc.) into the debug console.
+        if (output != null)
+        {
+            Console.SetOut(TextWriter.Synchronized(new DapEventTextWriter("stdout", output)));
+            Console.SetError(TextWriter.Synchronized(new DapEventTextWriter("stderr", output)));
+        }
 
         return Task.FromResult(new DapProgram { Interpreter = interp, Module = compiled.Value });
     }
