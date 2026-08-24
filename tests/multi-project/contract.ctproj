@@ -1,0 +1,10 @@
+{
+  "Name": "MultiProjectSolution",
+  "Type": "lib",
+  "Projects": [
+    "LibB/contract.ctproj",
+    "LibA/contract.ctproj",
+    "App/contract.ctproj"
+  ],
+  "Output": "bin"
+}

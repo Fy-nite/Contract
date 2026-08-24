@@ -399,9 +399,10 @@ Options:
 Project commands:
   contract new myapp [--type exe|lib] [--namespace com.example]
                          Create myapp/ with contract.ctproj + src/main.ct
-  contract build [--run] [--output path]
+  contract build [--run] [--static] [--output path]
                          Read ./contract.ctproj, compile the main file
                          (exe → .orbt binary; lib → .oil text module)
+                         --static resolves imports at build time
   contract doc [--format html|md]  Generate API docs from /// comments
   contract install <pkg[@ver]>    Install a package from the Purr registry
   contract remove <pkg>           Remove an installed package
@@ -503,16 +504,18 @@ Examples:
             return 0;
         }
 
-        /// <summary>Builds the project in the current directory: `ccl build [--run] [--output path]`.</summary>
+        /// <summary>Builds the project in the current directory: `ccl build [--run] [--static] [--output path]`.</summary>
         static int BuildProject(string[] args)
         {
             bool run = false;
+            bool staticLink = false;
             string? output = null;
             for (int i = 0; i < args.Length; i++)
             {
                 switch (args[i])
                 {
                     case "--run": run = true; break;
+                    case "--static": staticLink = true; break;
                     case "-o" or "--output":
                         if (++i >= args.Length) { Error("--output requires a path"); return 1; }
                         output = args[i];
@@ -539,15 +542,142 @@ Examples:
                 Error($"No project found — '{Contract.Compiler.ContractProject.FileName}' not found in {Directory.GetCurrentDirectory()} (run `ccl new` first).");
                 return 1;
             }
+
+            // ── Route to the correct build mode ───────────────────────
+            if (project.Projects != null && project.Projects.Count > 0)
+                return BuildSolution(project, staticLink, output);
+
+            if (project.Sources != null && project.Sources.Count > 0)
+                return BuildGlobCompile(project, staticLink, output);
+
+            // Single-file mode (existing behavior)
+            return BuildSingleFile(project, staticLink, run, output);
+        }
+
+        /// <summary>Multi-project solution build: `ccl build` with a Projects array.</summary>
+        static int BuildSolution(Contract.Compiler.ContractProject project, bool staticLink, string? output)
+        {
+            Console.WriteLine($"Solution: {project.Name} ({project.Projects!.Count} project(s))");
+            try
+            {
+                var result = Contract.Compiler.SolutionBuilder.Build(project, staticLink, output);
+                if (!result.Success)
+                {
+                    Error("Solution build failed.");
+                    return 1;
+                }
+                Console.WriteLine($"Build succeeded — {result.Projects.Count} project(s)");
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Error(ex.Message);
+                return 1;
+            }
+        }
+
+        /// <summary>Glob-compile mode: `ccl build` with a Sources array.</summary>
+        static int BuildGlobCompile(Contract.Compiler.ContractProject project, bool staticLink, string? output)
+        {
             if (project.MainPath == null || !File.Exists(project.MainPath))
             {
                 Error($"Project main file not found: {project.Main}");
                 return 1;
             }
 
-            // Library builds (type "lib") don't require a Main entry point; the
-            // analyzer gates the "no Main" info and unused-declaration warnings
-            // on the isExecutable flag.
+            // Expand globs
+            var sourceFiles = new List<string>();
+            foreach (var pattern in project.Sources!)
+            {
+                string dir = project.RootPath!;
+                string searchPattern = Path.GetFileName(pattern);
+                string? searchDir = Path.GetDirectoryName(pattern);
+
+                if (!string.IsNullOrEmpty(searchDir))
+                    dir = Path.Combine(dir, searchDir.Replace('/', Path.DirectorySeparatorChar));
+
+                if (Directory.Exists(dir))
+                {
+                    var files = Directory.GetFiles(dir, searchPattern, SearchOption.AllDirectories);
+                    sourceFiles.AddRange(files.Where(f => f.EndsWith(".ct", StringComparison.OrdinalIgnoreCase)));
+                }
+            }
+
+            if (sourceFiles.Count == 0)
+            {
+                Error("No source files matched the Sources globs.");
+                return 1;
+            }
+
+            Console.WriteLine($"Glob compile: {sourceFiles.Count} file(s)");
+
+            var diagnostics = new Contract.Compiler.Diagnostics.DiagnosticBag();
+            var symbolTable = new Contract.Compiler.StandardLibrary.SymbolTable();
+            Contract.Compiler.StandardLibrary.StdlibCatalog.RegisterInto(symbolTable);
+
+            var driver = new Contract.Compiler.CompilerDriver(diagnostics);
+            var program = driver.Compile(project.MainPath, sourceFiles);
+
+            if (diagnostics.HasErrors)
+            {
+                diagnostics.ReportToConsole();
+                return 1;
+            }
+            diagnostics.ReportWarningsToConsole();
+
+            var analyzer = new Contract.Compiler.Semantics.SemanticAnalyzer(symbolTable, diagnostics, project.MainPath, project.IsExecutable);
+            analyzer.Analyze(program);
+            if (diagnostics.HasErrors)
+            {
+                diagnostics.ReportToConsole();
+                return 1;
+            }
+
+            var codeGen = new Contract.Compiler.CodeGen.IRCodeGenerator(diagnostics);
+            codeGen.Generate(program);
+            if (diagnostics.HasErrors)
+            {
+                diagnostics.ReportToConsole();
+                return 1;
+            }
+
+            string ir = codeGen.GetIRText();
+            string outDir = output != null
+                ? (Path.IsPathRooted(output) ? output : Path.Combine(project.RootPath!, output))
+                : (project.OutputPath ?? Path.Combine(project.RootPath!, "bin"));
+            Directory.CreateDirectory(outDir);
+            string outFile = Path.Combine(outDir,
+                Path.GetFileNameWithoutExtension(project.Main) + (project.IsExecutable ? ".orbt" : ".oil"));
+
+            if (project.IsExecutable)
+            {
+                var module = ObjektRT.Core.Parsing.OilFileReader.ParseString(ir);
+                if (staticLink && module.Imports.Count > 0)
+                {
+                    Console.WriteLine($"Static linking {module.Imports.Count} import(s)...");
+                    module = Contract.Compiler.StaticLinker.Link(module, project.RootPath!);
+                }
+                var bytes = new ObjektRT.Core.Serialization.ORBTWriter().WriteModule(module);
+                File.WriteAllBytes(outFile, bytes);
+            }
+            else
+            {
+                File.WriteAllText(outFile, ir);
+            }
+
+            Console.WriteLine($"[{project.Type}] {project.Name} → {outFile}");
+            return 0;
+        }
+
+        /// <summary>Single-file mode: `ccl build` with a Main entry point.</summary>
+        static int BuildSingleFile(Contract.Compiler.ContractProject project, bool staticLink, bool run, string? output)
+        {
+            if (project.MainPath == null || !File.Exists(project.MainPath))
+            {
+                Error($"Project main file not found: {project.Main}");
+                return 1;
+            }
+
             var ir = Contract.Runtime.ContractCompiler.CompileFile(
                 project.MainPath, out var diagnostics,
                 isExecutable: project.IsExecutable);
@@ -567,6 +697,13 @@ Examples:
             if (project.IsExecutable)
             {
                 var module = ObjektRT.Core.Parsing.OilFileReader.ParseString(ir);
+                if (staticLink && module.Imports.Count > 0)
+                {
+                    string? moduleDir = project.RootPath;
+                    Console.WriteLine($"Static linking {module.Imports.Count} import(s)...");
+                    module = Contract.Compiler.StaticLinker.Link(module, moduleDir!);
+                    Console.WriteLine($"  → {module.Types.Count} type(s), {module.Exports.Count} export(s), 0 import(s)");
+                }
                 var bytes = new ObjektRT.Core.Serialization.ORBTWriter().WriteModule(module);
                 File.WriteAllBytes(outFile, bytes);
             }

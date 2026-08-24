@@ -1,0 +1,7 @@
+import __builtin.std;
+
+Contract MathOps {
+    static fn add(a: int, b: int) -> int {
+        return a + b;
+    }
+}

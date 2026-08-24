@@ -1,0 +1,7 @@
+import __builtin.std;
+
+Contract Program {
+    static fn Main() {
+        IO.Println("Multi-project build works!");
+    }
+}

@@ -1,0 +1,6 @@
+{
+  "Name": "LibB",
+  "Type": "lib",
+  "Main": "src/main.ct",
+  "Output": "bin"
+}

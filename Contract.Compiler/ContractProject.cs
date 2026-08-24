@@ -63,6 +63,22 @@ namespace Contract.Compiler
         /// <summary>Package dependencies from the Purr registry.</summary>
         public List<PackageDependency>? Dependencies { get; set; }
 
+        /// <summary>
+        /// Sub-project paths (relative to this project's root). When present,
+        /// this project acts as a solution: each sub-project is built in
+        /// dependency order. Mutually exclusive with <see cref="Main"/> and
+        /// <see cref="Sources"/>.
+        /// </summary>
+        public List<string>? Projects { get; set; }
+
+        /// <summary>
+        /// Source file globs for single-project multi-file builds (e.g.
+        /// <c>["src/**/*.ct"]</c>). When present (and <see cref="Projects"/>
+        /// is null), all matching .ct files are compiled together into one
+        /// .orbt. Mutually exclusive with <see cref="Projects"/>.
+        /// </summary>
+        public List<string>? Sources { get; set; }
+
         /// <summary>True when the project builds as an executable (requires a Main entry point).</summary>
         [JsonIgnore]
         public bool IsExecutable => !string.Equals(Type, "lib", StringComparison.OrdinalIgnoreCase);

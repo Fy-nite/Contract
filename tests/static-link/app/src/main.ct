@@ -1,0 +1,9 @@
+import __builtin.std;
+import "../lib/bin/main.oil";
+
+Contract Program {
+    static fn Main() {
+        let result = MathOps.add(3, 4);
+        IO.Println("3 + 4 = " + Convert.ToString(result));
+    }
+}

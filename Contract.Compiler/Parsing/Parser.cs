@@ -10,7 +10,7 @@ namespace Contract.Compiler.Parsing
 {
     /// <summary>
     /// Recursive-descent parser for the Contract language. The expression
-    /// parsing is delegated to the F# implementation.
+    /// parsing is delegated to the C# <see cref="CSharpExpressionParser"/> implementation.
     /// </summary>
     public partial class Parser : IParserHost
     {
@@ -25,8 +25,8 @@ namespace Contract.Compiler.Parsing
         /// <summary>When positive, postfix <c>..</c> is left unconsumed.</summary>
         private int _suppressRangeDepth;
 
-        /// <summary>The F# expression parser.</summary>
-        private static readonly IExpressionParser _expressionParser = new FSharpExpressionParser();
+        /// <summary>The C# expression parser.</summary>
+        private static readonly IExpressionParser _expressionParser = (IExpressionParser)new CSharpExpressionParser();
 
         public Parser(IEnumerable<Token> tokens, DiagnosticBag diagnostics, string? sourceFile = null)
         {

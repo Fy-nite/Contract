@@ -35,6 +35,28 @@ namespace Contract.Compiler
         }
 
         /// <summary>
+        /// Compiles a main file together with additional source files (glob-compile mode).
+        /// The additional files are loaded first so they're recognized when reached via
+        /// import statements, and all top-level declarations are merged.
+        /// </summary>
+        public Program Compile(string mainFilePath, IEnumerable<string> additionalFiles)
+        {
+            _mainFileDir = Path.GetDirectoryName(ImportResolver.NormalizeAbsolutePath(mainFilePath));
+            var fullProgram = new Program(1, 1);
+
+            // Pre-load additional files so they're known to the dedup set
+            foreach (var file in additionalFiles)
+            {
+                string abs = ImportResolver.NormalizeAbsolutePath(file);
+                if (!_loadedFiles.Contains(abs) && File.Exists(abs))
+                    LoadFile(abs, fullProgram);
+            }
+
+            LoadFile(mainFilePath, fullProgram);
+            return fullProgram;
+        }
+
+        /// <summary>
         /// Search roots for Python-style namespace imports, after the importing
         /// file's own directory: the main file's directory, then the CWD,
         /// then any Purr package directories.

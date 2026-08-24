@@ -1,0 +1,7 @@
+import __builtin.std;
+
+Contract StringHelper {
+    static fn wrap(s: string) -> string {
+        return "[" + s + "]";
+    }
+}

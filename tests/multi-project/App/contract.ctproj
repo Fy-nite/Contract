@@ -1,0 +1,6 @@
+{
+  "Name": "MultiProjectApp",
+  "Type": "exe",
+  "Main": "src/main.ct",
+  "Output": "bin"
+}

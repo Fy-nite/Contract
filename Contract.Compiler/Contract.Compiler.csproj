@@ -11,6 +11,6 @@
   <ProjectReference Include="..\libs\ObjektRT.Core\ObjektRT.Core.csproj" />
   <ProjectReference Include="..\libs\ObjektRT.Stdlib\ObjektRT.Stdlib.csproj" />
   <ProjectReference Include="..\Contract.Compiler.Abstractions\Contract.Compiler.Abstractions.csproj" />
-  <ProjectReference Include="..\Contract.Compiler.Expressions\Contract.Compiler.Expressions.fsproj" />
+
   </ItemGroup>
 </Project>

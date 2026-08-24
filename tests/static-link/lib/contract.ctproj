@@ -1,0 +1,6 @@
+{
+  "Name": "MathLib",
+  "Type": "lib",
+  "Main": "src/main.ct",
+  "Output": "bin"
+}
