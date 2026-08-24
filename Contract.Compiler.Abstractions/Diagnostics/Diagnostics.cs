@@ -6,7 +6,9 @@ namespace Contract.Compiler.Diagnostics
     {
         Error,
         Warning,
-        Info
+        Info,
+        CompTimeError,
+        ExpectedRuntimeError
     }
 
     public class Diagnostic
@@ -85,6 +87,7 @@ namespace Contract.Compiler.Diagnostics
         public void ReportToConsole()
         {
             var lines = SourceCode?.Split('\n');
+            
 
             foreach (var diagnostic in _diagnostics.OrderBy(d => d.Line).ThenBy(d => d.Column))
             {
@@ -92,6 +95,7 @@ namespace Contract.Compiler.Diagnostics
                 {
                     DiagnosticSeverity.Error => "\u001b[31;1m", // Bold Red
                     DiagnosticSeverity.Warning => "\u001b[33;1m", // Bold Yellow
+                    DiagnosticSeverity.CompTimeError => "\u001b[30;1m", // Bold Grey
                     _ => "\u001b[34;1m" // Bold Blue
                 };
                 string reset = "\u001b[0m";

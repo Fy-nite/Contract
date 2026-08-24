@@ -1,0 +1,117 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="ContractEditor.MainPage"
+             Title="Contract Editor">
+
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
+
+        <!-- Menu Bar -->
+        <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="5" Padding="5" BackgroundColor="{StaticResource Gray900}">
+            <Button Grid.Column="0" Text="📄 New" Clicked="OnNewClicked" FontSize="12" Padding="8,4" CornerRadius="0" />
+            <Button Grid.Column="1" Text="📂 Open" Clicked="OnOpenClicked" FontSize="12" Padding="8,4" CornerRadius="0" />
+            <Button Grid.Column="2" Text="💾 Save" Clicked="OnSaveClicked" FontSize="12" Padding="8,4" CornerRadius="0" />
+            <Button Grid.Column="3" Text="▶ Run" Clicked="OnRunClicked" FontSize="12" Padding="8,4" CornerRadius="0" />
+            <Button Grid.Column="4" Text="🔍 Find" Clicked="OnFindClicked" FontSize="12" Padding="8,4" CornerRadius="0" />
+            <Button Grid.Column="5" Text="👁 Preview" Clicked="OnPreviewClicked" FontSize="12" Padding="8,4" CornerRadius="0" />
+            <Button Grid.Column="6" Text="🔤 A-" Clicked="OnFontSizeDecreaseClicked" FontSize="12" Padding="8,4" CornerRadius="0" />
+            <Button Grid.Column="7" Text="🔤 A+" Clicked="OnFontSizeIncreaseClicked" FontSize="12" Padding="8,4" CornerRadius="0" />
+        </Grid>
+
+        <!-- Tab Bar -->
+        <ScrollView Grid.Row="1" Orientation="Horizontal" BackgroundColor="{StaticResource Gray800}">
+            <HorizontalStackLayout x:Name="TabBar" Spacing="2" Padding="5,0" />
+        </ScrollView>
+
+        <!-- Find/Replace Panel -->
+        <Grid Grid.Row="2" x:Name="FindPanel" IsVisible="False" RowDefinitions="Auto,Auto" Padding="10" BackgroundColor="{StaticResource Gray200}">
+            <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="10" Padding="0,0,0,5">
+                <Label Grid.Column="0" Text="Find:" VerticalOptions="Center" />
+                <Entry Grid.Column="1" x:Name="FindEntry" Placeholder="Search text..." />
+                <Button Grid.Column="2" Text="⬆️" Clicked="OnFindPreviousClicked" Padding="8,4" />
+                <Button Grid.Column="3" Text="⬇️" Clicked="OnFindNextClicked" Padding="8,4" />
+                <Button Grid.Column="4" Text="✖️" Clicked="OnCloseFindClicked" Padding="8,4" />
+            </Grid>
+            <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                <Label Grid.Column="0" Text="Replace:" VerticalOptions="Center" />
+                <Entry Grid.Column="1" x:Name="ReplaceEntry" Placeholder="Replace with..." />
+                <Button Grid.Column="2" Text="Replace All" Clicked="OnReplaceAllClicked" Padding="8,4" />
+            </Grid>
+        </Grid>
+
+        <!-- Run Results Panel -->
+        <Grid Grid.Row="3" x:Name="RunResultsPanel" IsVisible="False" RowDefinitions="Auto,*" Padding="10" BackgroundColor="{StaticResource Gray900}">
+            <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="10" Padding="0,0,0,5">
+                <Label Grid.Column="0" Text="Output" VerticalOptions="Center" TextColor="{StaticResource Gray100}" FontAttributes="Bold" FontSize="12" />
+                <Button Grid.Column="1" Text="✖" Clicked="OnCloseRunResultsClicked" Padding="8,4" CornerRadius="0" FontSize="12" />
+            </Grid>
+            <Editor x:Name="RunResultsEditor" Grid.Row="1" IsReadOnly="True" TextColor="{StaticResource Gray100}" BackgroundColor="{StaticResource Gray950}" FontFamily="CourierNew" FontSize="12" />
+        </Grid>
+
+        <!-- Editor Area with Line Numbers (single scroll to keep them synchronized) -->
+        <Border Grid.Row="4" 
+                Stroke="{StaticResource Gray600}"
+                StrokeThickness="1"
+                Margin="5">
+            <!-- Wrap both line numbers and editor in one vertical ScrollView so they scroll together -->
+            <ScrollView Orientation="Vertical">
+                <Grid ColumnDefinitions="Auto,*" BackgroundColor="{StaticResource Gray950}">
+
+                    <!-- Line Numbers (no separate ScrollView) -->
+                    <VerticalStackLayout x:Name="LineNumbers" Grid.Column="0"
+                                       BackgroundColor="{StaticResource Gray800}"
+                                       Padding="8,10,8,10"
+                                       Spacing="0"/>
+
+                    <!-- Text Editor and Preview -->
+                    <Grid Grid.Column="1">
+                        <!-- Editable text area -->
+                        <Editor x:Name="TextEditor"
+                                Placeholder="Start typing your Contract code here..."
+                                TextChanged="OnTextChanged"
+                                FontSize="14"
+                                FontFamily="CourierNew"
+                                BackgroundColor="{StaticResource Gray950}"
+                                TextColor="{StaticResource Gray100}"
+                                AutoSize="TextChanges"
+                                Margin="5,0,0,0" />
+
+                        <!-- Preview (syntax highlighted) -->
+                        <WebView x:Name="CodeWebView"
+                                 IsVisible="False"
+                                 Navigating="OnWebViewNavigating"
+                                 Navigated="OnWebViewNavigated"
+                                 BackgroundColor="{StaticResource Gray950}"
+                                 Margin="5,0,0,0" />
+                    </Grid>
+                </Grid>
+            </ScrollView>
+        </Border>
+
+        <!-- Status Bar -->
+        <Grid Grid.Row="5" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="15" Padding="8,5" BackgroundColor="{StaticResource Gray900}">
+            <Label x:Name="FileNameLabel" 
+                   Grid.Column="0"
+                   Text="📝 Untitled-1.ct" 
+                   VerticalOptions="Center"
+                   TextColor="{StaticResource Gray100}"
+                   FontAttributes="Bold"
+                   FontSize="12"/>
+            <Label x:Name="PositionLabel" 
+                   Grid.Column="2"
+                   Text="Ln 1, Col 1" 
+                   VerticalOptions="Center"
+                   TextColor="{StaticResource Gray100}"
+                   FontSize="12"/>
+            <Label x:Name="StatsLabel" 
+                   Grid.Column="3"
+                   Text="Chars: 0 | Words: 0 | Lines: 1" 
+                   VerticalOptions="Center"
+                   HorizontalOptions="End"
+                   TextColor="{StaticResource Gray100}"
+                   FontSize="12"/>
+        </Grid>
+
+    </Grid>
+
+</ContentPage>
