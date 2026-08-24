@@ -1167,12 +1167,15 @@ scope. Reading it pushes its value; in IR it lowers to `ldloc`/`ldarg`, or
 Binary arithmetic (`+ - * / %`), comparison (`== != < <= > >=`), and logical
 (`&& ||`) operators follow their usual numeric semantics. The IR lowers them
 to the corresponding stack opcodes (`add`, `sub`, `mul`, `div`, `rem`, `ceq`,
-`cne`, `clt`, `cle`, `cgt`, `cge`, `and`, `or`).
+`cne`, `clt`, `cle`, `cgt`, `cge`) with short-circuit control flow for
+logical operators.
 
 Notably, in version 1.0:
 
-- `&&` and `||` are *not* short-circuiting — both operands are always
-  evaluated.
+- `&&` is *short-circuiting*: when the left operand is `false`, the right
+  operand is not evaluated and the result is `false`.
+- `||` is *short-circuiting*: when the left operand is `true`, the right
+  operand is not evaluated and the result is `true`.
 - string `+` (and `+=`) is *not* the `add` opcode — it lowers to a call to
   `String.Concat` (see @lowering).
 
@@ -1427,8 +1430,8 @@ calls to a lambda bound to a known variable bypass this and emit a plain
 == Capture
 
 A lambda may reference variables from its enclosing *function* scope. Such
-free variables are *captured*: the compiler generates a per-lambda closure
-class and copies the variables into it at the point the lambda is created:
+free variables are *captured*: the compiler hoists them into a per-function
+*display* object shared by the function body and all lambdas it creates:
 
 ```text
 var base: int = 10;
@@ -1438,31 +1441,43 @@ let addBase = fun x -> x + base;   // captures base
 lowers to:
 
 ```text
-class __closure_1 { field base: int32 }
-// lambda site:
+class __display_0 { field base: int32 }
+// at function entry:
+newobj __display_0
+stloc __display
+ldloc base
+stfld __display_0::base
+
+// lambda site (reuses the shared display):
 newobj Delegate
 dup
-newobj __closure_1
-dup
-ldloc base
-stfld __closure_1::base
+ldloc __display               // shared display, no copy
 stfld Delegate::closure
 dup
 ldstr Global.__lambda_N
 stfld Delegate::target
 ```
 
-The lambda's compiled method takes the closure object as its first parameter
+The lambda's compiled method takes the display object as its first parameter
 (`__closure`), and reads/writes captured variables through its fields.
 
 === Capture Semantics
 
-Capture is *by value* in version 1.0: the closure field copies the variable's
-value at creation. Writes *through the closure field* (e.g. a counter lambda
-doing `n += 1`) work and are visible across invocations, including across
-threads. But mutations of the original variable *after* the lambda was created
-are not observed. A C\#-style closure cell (by-reference capture) is planned
-but not implemented.
+Capture is *by reference* (C\#-style closure cells). The compiler hoists
+captured variables into a per-function *display* object. The display is
+allocated once when the enclosing function is called; all lambdas created in
+that function share the same display. Reads and writes to captured variables
+go through the display's fields, so mutations are visible across invocations
+and across lambdas — including to the enclosing function itself after the
+lambda was created:
+
+```text
+var count: int = 0;
+let bump = fun -> { count += 1; return count; };
+IO.Println(bump());   // 1
+IO.Println(bump());   // 2
+IO.Println(count);    // 2 — visible from outer scope
+```
 
 === Capture Scope
 
@@ -2025,10 +2040,8 @@ with a table of contents.
 
 The following are planned but not part of version 1.0:
 
-- by-reference capture (C\#-style closure cells).
 - nested-lambda capture of outer lambda scopes.
 - `for`-loop `break`/`continue` with values, and `switch` fallthrough.
-- short-circuit `&&`/`||`.
 - implicit numeric-to-string coercion across the native boundary.
 - method overloading (currently all method names must be unique per contract).
 - operator overloading.

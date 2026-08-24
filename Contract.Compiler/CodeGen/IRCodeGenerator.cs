@@ -2002,6 +2002,28 @@ public class IRCodeGenerator
                     return;
                 }
 
+                if (bin.Operator == "&&")
+                {
+                    // Short-circuit &&: if left is false, result is false
+                    // without evaluating right.
+                    GenerateExpression(ib, bin.Left, paramMap);
+                    ib.If("stack",
+                        then => GenerateExpression(then, bin.Right, paramMap),
+                        els => els.LdcI4(0));
+                    return;
+                }
+
+                if (bin.Operator == "||")
+                {
+                    // Short-circuit ||: if left is true, result is true
+                    // without evaluating right.
+                    GenerateExpression(ib, bin.Left, paramMap);
+                    ib.If("stack",
+                        then => then.LdcI4(1),
+                        els => GenerateExpression(els, bin.Right, paramMap));
+                    return;
+                }
+
                 GenerateExpression(ib, bin.Left, paramMap);
                 GenerateExpression(ib, bin.Right, paramMap);
                 switch (bin.Operator)
@@ -2017,8 +2039,6 @@ public class IRCodeGenerator
                     case ">=": ib.Cge(); break;
                     case "<": ib.Clt(); break;
                     case "<=": ib.Cle(); break;
-                    case "&&": ib.And(); break;
-                    case "||": ib.Or(); break;
                 }
                 break;
 
