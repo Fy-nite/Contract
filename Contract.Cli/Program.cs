@@ -67,6 +67,11 @@ namespace Contract.Cli
                 return ListPackages(args.Skip(1).ToArray());
             }
 
+            if (args.Length > 0 && args[0] == "project")
+            {
+                return ProjectCommand(args.Skip(1).ToArray());
+            }
+
             if (args.Length > 0 && args[0] == "debug")
             {
                 return DebugProject(args.Skip(1).ToArray());
@@ -321,6 +326,8 @@ namespace Contract.Cli
         }
 
         static void Error(string msg) => Console.Error.WriteLine($"Error: {msg}");
+
+        static int ErrorReturn(string msg) { Error(msg); return 1; }
 
         /// <summary>Module names provided by the Contract standard library —
         /// the bundle-time counterpart of <c>ContractRuntime.RegisterDefaultBindings()</c>.</summary>
@@ -984,6 +991,243 @@ Examples:
                 Console.WriteLine($"  {pkg.Name} v{pkg.Version}");
 
             return 0;
+        }
+
+        // ── Project management ──────────────────────────────────────────
+
+        /// <summary>Routes `ccl project add|remove|list` subcommands.</summary>
+        static int ProjectCommand(string[] args)
+        {
+            if (args.Length == 0 || args[0] is "-h" or "--help")
+            {
+                Console.WriteLine("Usage: ccl project <command>");
+                Console.WriteLine();
+                Console.WriteLine("Commands:");
+                Console.WriteLine("  ccl project add <path>      Add a sub-project to the solution");
+                Console.WriteLine("  ccl project remove <name>   Remove a sub-project from the solution");
+                Console.WriteLine("  ccl project list            List sub-projects in the solution");
+                return 0;
+            }
+
+            return args[0] switch
+            {
+                "add"    => ProjectAdd(args.Skip(1).ToArray()),
+                "remove" => ProjectRemove(args.Skip(1).ToArray()),
+                "list"   => ProjectList(args.Skip(1).ToArray()),
+                _        => ErrorReturn($"Unknown project command: {args[0]}")
+            };
+        }
+
+        /// <summary>Adds a sub-project: `ccl project add <path-to-ctproj-dir>`.</summary>
+        static int ProjectAdd(string[] args)
+        {
+            if (args.Length == 0 || args[0] is "-h" or "--help")
+            {
+                Console.WriteLine("Usage: ccl project add <path>");
+                Console.WriteLine();
+                Console.WriteLine("Adds a sub-project to the Projects array in the current solution ctproj.");
+                Console.WriteLine("The path should point to a directory containing a contract.ctproj, or a .ctproj file.");
+                Console.WriteLine();
+                Console.WriteLine("Examples:");
+                Console.WriteLine("  ccl project add ../LibB              Add a sibling project");
+                Console.WriteLine("  ccl project add libs/collections    Add a nested project");
+                return 0;
+            }
+
+            string inputPath = args[0];
+            Contract.Compiler.ContractProject? project = null;
+            try { project = Contract.Compiler.ContractProject.Load(Directory.GetCurrentDirectory()); }
+            catch (FormatException ex) { Error(ex.Message); return 1; }
+
+            if (project == null)
+            {
+                Error($"No project found — '{Contract.Compiler.ContractProject.FileName}' not found in {Directory.GetCurrentDirectory()}.");
+                return 1;
+            }
+
+            // Resolve the target: directory → look for contract.ctproj inside
+            string targetPath = Contract.Compiler.ImportResolver.NormalizeAbsolutePath(inputPath);
+            if (Directory.Exists(targetPath))
+                targetPath = Path.Combine(targetPath, Contract.Compiler.ContractProject.FileName);
+
+            if (!File.Exists(targetPath))
+            {
+                Error($"No contract.ctproj found at: {targetPath}");
+                return 1;
+            }
+
+            // Verify it loads as a valid project
+            var subProject = Contract.Compiler.ContractProject.Load(targetPath);
+            if (subProject == null)
+            {
+                Error($"Invalid project file: {targetPath}");
+                return 1;
+            }
+
+            // Compute relative path from the root project to the sub-project
+            string rootDir = project.RootPath!;
+            string subDir = Path.GetDirectoryName(targetPath)!;
+            string relativePath = GetRelativePath(rootDir, subDir)
+                .Replace(Path.DirectorySeparatorChar, '/');
+
+            // Initialize Projects array if needed
+            project.Projects ??= new();
+
+            // Check for duplicates
+            if (project.Projects.Any(p => p.Replace('\\', '/').Equals(relativePath, StringComparison.OrdinalIgnoreCase)))
+            {
+                Console.WriteLine($"Project already in solution: {relativePath}");
+                return 0;
+            }
+
+            project.Projects.Add(relativePath);
+            project.Save(rootDir);
+
+            string subName = subProject.Name ?? Path.GetFileName(subDir);
+            Console.WriteLine($"Added {subName} ({relativePath}) to {project.Name}");
+            return 0;
+        }
+
+        /// <summary>Removes a sub-project: `ccl project remove <name>`.</summary>
+        static int ProjectRemove(string[] args)
+        {
+            if (args.Length == 0 || args[0] is "-h" or "--help")
+            {
+                Console.WriteLine("Usage: ccl project remove <name>");
+                Console.WriteLine();
+                Console.WriteLine("Removes a sub-project from the Projects array by name or path.");
+                return 0;
+            }
+
+            string target = args[0];
+            Contract.Compiler.ContractProject? project = null;
+            try { project = Contract.Compiler.ContractProject.Load(Directory.GetCurrentDirectory()); }
+            catch (FormatException ex) { Error(ex.Message); return 1; }
+
+            if (project == null)
+            {
+                Error($"No project found — '{Contract.Compiler.ContractProject.FileName}' not found in {Directory.GetCurrentDirectory()}.");
+                return 1;
+            }
+
+            if (project.Projects == null || project.Projects.Count == 0)
+            {
+                Error("This solution has no sub-projects (no Projects array in ctproj).");
+                return 1;
+            }
+
+            // Try to find by name (load each sub-project and match Name)
+            // or by path substring
+            int idx = -1;
+            for (int i = 0; i < project.Projects.Count; i++)
+            {
+                string rel = project.Projects[i];
+                string normalizedRel = rel.Replace('/', Path.DirectorySeparatorChar);
+                string absPath = Path.Combine(project.RootPath!, normalizedRel);
+
+                string absCtproj;
+                if (Directory.Exists(absPath))
+                    absCtproj = Path.Combine(absPath, Contract.Compiler.ContractProject.FileName);
+                else
+                    absCtproj = absPath;
+
+                if (File.Exists(absCtproj))
+                {
+                    var sub = Contract.Compiler.ContractProject.Load(absCtproj);
+                    if (sub != null && sub.Name.Equals(target, StringComparison.OrdinalIgnoreCase))
+                    {
+                        idx = i;
+                        break;
+                    }
+                }
+
+                // Also match by path
+                if (rel.Replace('\\', '/').Equals(target.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase)
+                    || rel.Contains(target, StringComparison.OrdinalIgnoreCase))
+                {
+                    idx = i;
+                }
+            }
+
+            if (idx < 0)
+            {
+                Error($"Sub-project '{target}' not found in solution.");
+                return 1;
+            }
+
+            string removed = project.Projects[idx];
+            project.Projects.RemoveAt(idx);
+            project.Save(project.RootPath!);
+            Console.WriteLine($"Removed {removed} from {project.Name}");
+            return 0;
+        }
+
+        /// <summary>Lists sub-projects: `ccl project list`.</summary>
+        static int ProjectList(string[] args)
+        {
+            Contract.Compiler.ContractProject? project = null;
+            try { project = Contract.Compiler.ContractProject.Load(Directory.GetCurrentDirectory()); }
+            catch (FormatException ex) { Error(ex.Message); return 1; }
+
+            if (project == null)
+            {
+                Error($"No project found — '{Contract.Compiler.ContractProject.FileName}' not found in {Directory.GetCurrentDirectory()}.");
+                return 1;
+            }
+
+            if (project.Projects == null || project.Projects.Count == 0)
+            {
+                Console.WriteLine("No sub-projects. Use `ccl project add <path>` to add one.");
+                return 0;
+            }
+
+            Console.WriteLine($"Sub-projects in {project.Name}:");
+            foreach (var rel in project.Projects)
+            {
+                // rel can be "LibB/contract.ctproj" or "LibB"
+                string normalizedRel = rel.Replace('/', Path.DirectorySeparatorChar);
+                string absPath = Path.Combine(project.RootPath!, normalizedRel);
+
+                // If it's a directory, look for ctproj inside
+                string absCtproj;
+                if (Directory.Exists(absPath))
+                    absCtproj = Path.Combine(absPath, Contract.Compiler.ContractProject.FileName);
+                else
+                    absCtproj = absPath;
+
+                string absDir = Path.GetDirectoryName(absCtproj)!;
+                string name = Path.GetFileName(absDir);
+                string type = "?";
+
+                if (File.Exists(absCtproj))
+                {
+                    var sub = Contract.Compiler.ContractProject.Load(absCtproj);
+                    if (sub != null)
+                    {
+                        name = sub.Name ?? name;
+                        type = sub.Type ?? "exe";
+                    }
+                }
+
+                Console.WriteLine($"  {name} [{type}] — {rel}");
+            }
+
+            return 0;
+        }
+
+        /// <summary>Computes a relative path from <paramref name="from"/> to <paramref name="to"/>.</summary>
+        private static string GetRelativePath(string from, string to)
+        {
+            from = Path.GetFullPath(from);
+            to = Path.GetFullPath(to);
+
+            var fromUri = new Uri(from.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar);
+            var toUri = new Uri(to);
+
+            string relative = Uri.UnescapeDataString(fromUri.MakeRelativeUri(toUri).ToString())
+                .Replace('/', Path.DirectorySeparatorChar);
+
+            return relative;
         }
 
         /// <summary>Launches the DAP debug server: `ccl debug [file.ct]`.</summary>

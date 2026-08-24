@@ -1,10 +1,19 @@
 {
   "Name": "MultiProjectSolution",
   "Type": "lib",
+  "Main": "src/main.ct",
+  "Namespace": null,
+  "Output": "bin",
+  "Version": null,
+  "Author": null,
+  "Description": null,
+  "License": null,
+  "Tags": null,
+  "Dependencies": null,
   "Projects": [
     "LibB/contract.ctproj",
-    "LibA/contract.ctproj",
-    "App/contract.ctproj"
+    "App/contract.ctproj",
+    "LibA"
   ],
-  "Output": "bin"
+  "Sources": null
 }
