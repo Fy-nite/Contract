@@ -20,8 +20,10 @@
     This document covers:
 
     - the complete lexical structure and grammar.
-    - the type system, including arrays, function types, and inference.
+    - the type system, including arrays, tuples, function types, generics, and inference.
     - contracts, functions, statements, and expressions.
+    - sum types, enums, pattern matching, and error handling.
+    - inheritance, interfaces, and attributes.
     - delegates and closures.
     - the standard library surface.
     - documentation comments and the API documentation generator.
@@ -54,9 +56,11 @@ modules executed by the ObjektRT runtime.
 
 Contract is designed around a small, familiar core: C-style control flow and
 operators, Rust-flavoured `let`/`var` bindings, and lightweight functional
-programming via lambdas, higher-order functions, and a pipe operator. It is
-intended to be self-hosting in the long term, so every feature is designed to
-be expressible in the language itself.
+programming via lambdas, higher-order functions, and a pipe operator. It
+supports generics (on contracts and functions), sum types with exhaustive
+pattern matching, inheritance with interfaces, and structured error handling
+via `try`/`catch`/`throw`. It is intended to be self-hosting in the long term,
+so every feature is designed to be expressible in the language itself.
 
 ```text
 Contract Program {
@@ -134,9 +138,10 @@ be used as identifiers.
 
 The following words are reserved and may not be used as identifiers:
 
-`Contract` `fn` `fun` `var` `let` `if` `else` `while` `for` `break`
-`continue` `switch` `case` `return` `struct` `new` `constructor` `static`
-`public` `private` `protected` `internal` `import` `Types` `type` `export`
+`Contract` `fn` `fun` `var` `let` `const` `if` `else` `while` `for` `in`
+`break` `continue` `switch` `case` `return` `struct` `new` `constructor`
+`static` `public` `private` `protected` `internal` `import` `Types` `type`
+`export` `enum` `namespace` `match` `try` `catch` `finally` `throw`
 `null` `true` `false`
 
 Their meanings, together with every operator and punctuation symbol, are
@@ -222,20 +227,26 @@ their meanings:
   [`fun`], [keyword], [Declares a lambda],
   [`var`], [keyword], [Declares a mutable variable],
   [`let`], [keyword], [Declares an immutable variable],
-  [`if` `else`], [keyword], [Conditional statement],
+  [`const`], [keyword], [Declares a compile-time constant (synonym for `let` at contract scope)],
+  [`if` `else`], [keyword], [Conditional statement / expression],
   [`while`], [keyword], [Loop],
-  [`for`], [keyword], [C-style loop],
+  [`for`], [keyword], [C-style loop, `for`-in iteration],
+  [`in`], [keyword], [`for`-in loop iterator binding],
   [`break` `continue`], [keyword], [Loop control],
-  [`switch` `case`], [keyword], [Multi-way branch],
+  [`switch` `case`], [keyword], [Multi-way branch statement],
+  [`match`], [keyword], [Pattern-matching expression],
   [`return`], [keyword], [Returns from a function],
   [`struct`], [keyword], [Declares a struct],
+  [`enum`], [keyword], [Declares an enum],
   [`new`], [keyword], [Allocates an object or array],
   [`constructor`], [keyword], [Declares a constructor],
   [`static`], [keyword], [Declares a static member],
   [`public` `private` `protected` `internal`], [keyword], [Access modifiers],
-  [`import`], [keyword], [Imports another source file],
-  [`Types` `type`], [keyword], [Custom type declarations],
+  [`import`], [keyword], [Imports another source file or namespace],
+  [`namespace`], [keyword], [Declares a namespace for subsequent declarations],
+  [`Types` `type`], [keyword], [Custom type / sum type declarations],
   [`export`], [keyword], [Marks a declaration as exported],
+  [`try` `catch` `finally` `throw`], [keyword], [Error handling],
   [`null` `true` `false`], [keyword], [Literals],
   [`+` `-` `*` `/` `%`], [operator], [Arithmetic],
   [`==` `!=` `<` `<=` `>` `>=`], [operator], [Comparison],
@@ -243,11 +254,17 @@ their meanings:
   [`=` `+=` `-=` `*=` `/=` `%=`], [operator], [Assignment],
   [`->`], [operator], [Lambda arrow, return-type arrow],
   [`|>`], [operator], [Pipe],
+  [`>>`], [operator], [Function composition],
   [`::`], [operator], [Scoped member access],
+  [`..`], [operator], [Range (end-exclusive)],
+  [`..=`], [operator], [Range (end-inclusive)],
+  [`=>`], [operator], [Match arm arrow],
+  [`?` `:`], [operator], [Ternary conditional],
   [`.`], [operator], [Member access],
   [`[` `]`], [punctuation], [Array index, array type, array literal],
-  [`(` `)`], [punctuation], [Grouping, call, parameter list],
-  [`{` `}`], [punctuation], [Block, struct/type body],
+  [`(` `)`], [punctuation], [Grouping, call, parameter list, tuple],
+  [`{` `}`], [punctuation], [Block, struct/type body, match body],
+  [`<` `>`], [punctuation], [Attribute brackets, generic type arguments],
   [`,` `;` `:`], [punctuation], [Separators],
 )
 
@@ -256,6 +273,10 @@ Notes:
 - The `!` token is a prefix operator (logical not) only; there is no
   `!=`-style postfix.
 - There is no `++` or `--` operator — use `x += 1`.
+- `::` is scoped member access (`Type::member`); `..` and `..=` are range
+  operators; `=>` is the match arm arrow.
+- `<` and `>` double as generic type argument delimiters and attribute brackets,
+  distinguished by context.
 
 #linebreak()
 
@@ -272,6 +293,11 @@ includes three composite shapes: named, array, and function types.
   table.header([*Type*], [*IR name*], [*Description*]),
   [`int`], [`int32`], [32-bit signed integer],
   [`int64` (alias `long`)], [`int64`], [64-bit signed integer],
+  [`uint`], [`uint32`], [32-bit unsigned integer],
+  [`byte`], [`uint8`], [Unsigned 8-bit integer],
+  [`sbyte`], [`int8`], [Signed 8-bit integer],
+  [`short`], [`int16`], [Signed 16-bit integer],
+  [`ushort`], [`uint16`], [Unsigned 16-bit integer],
   [`string`], [`string`], [Text string (reference)],
   [`bool`], [`bool`], [Boolean (`true`/`false`)],
   [`double`], [`float64`], [64-bit IEEE 754 float],
@@ -279,6 +305,7 @@ includes three composite shapes: named, array, and function types.
   [`object`], [`object`], [Opaque reference handle],
   [`void`], [`void`], [No value (return type only)],
   [`null`], [—], [The null literal's type],
+  [`Attribute`], [`object`], [Base type for custom attribute declarations],
 )
 
 Type names are case-insensitive: `int`, `Int`, and `INT` all denote the same
@@ -351,7 +378,67 @@ fn sum(xs: List<int>) -> int { ... }
 
 Generic types are valid when the unbound name is a known generic and every
 argument is a valid type. Custom generic types (user-defined type parameters)
-are planned but not yet part of version 1.0.
+are supported in version 1.0 (see @generics-user-defined).
+
+== Tuple Types
+
+A tuple type groups multiple types into a single composite:
+
+```ebnf
+tuple_type ::= '(' type (',' type)+ ')'
+```
+
+```text
+(int, string)
+(bool, object)
+(int, int, bool)
+```
+
+Tuples are used for multi-value returns and are lowered to `object[]` at the
+wire level. A single-element parenthesised type is just grouping, not a tuple.
+
+== User-Defined Generic Types
+
+<generics-user-defined>
+
+Contracts and functions may declare type parameters. A generic contract is
+written with `<`-delimited type parameter names after the contract name:
+
+```text
+Contract Box<T> {
+    public value: T;
+
+    constructor(val: T) { this.value = val; }
+
+    fn get() -> T { return this.value; }
+}
+
+var intBox: Box<int> = new Box<int>(42);
+var strBox: Box<string> = new Box<string>("hi");
+```
+
+Generic functions declare type parameters between the function name and the
+parameter list:
+
+```text
+fn identity<T>(x: T) -> T { return x; }
+fn first<T>(xs: T[]) -> T { return xs[0]; }
+
+identity(42);          // T inferred as int
+first<int>(xs);        // T explicit
+```
+
+Type parameters are inferred from call-site arguments when possible. Each
+generic instantiation is materialised as a separate class at runtime with its
+own static state. Multiple type parameters use commas:
+
+```text
+Contract Pair<T, U> {
+    public first: T;
+    public second: U;
+    constructor(a: T, b: U) { this.first = a; this.second = b; }
+}
+```
 
 == The `object` Type
 
@@ -395,15 +482,19 @@ types are valid.
 
 A Contract *program* is a single source file (plus any imported files merged
 by the driver). A program consists of top-level declarations: contracts,
-functions, and structs, in any order.
+functions, structs, enums, sum types, and namespaces, in any order.
 
 ```ebnf
 program ::= toplevel*
 toplevel ::= import
+           | namespace
            | contract
-           | struct
+           | struct_decl
+           | enum_decl
+           | sum_type
            | fn
-           | access_modifier? 'static'? (Contract | fn | struct)
+           | access_modifier? 'static'? (contract | fn | struct_decl | enum_decl)
+           | 'export' toplevel
 ```
 
 == Contracts
@@ -547,6 +638,153 @@ before the instance is returned.
 > `new` currently supports the no-argument form `new Type()`. Constructor
 > parameters can be declared but are not yet passed through the call site.
 
+== Enums
+
+An `enum` declares a set of named integer constants. Members are
+comma-separated identifiers that fold to their zero-based index at compile time:
+
+```ebnf
+enum_decl ::= 'enum' identifier '{' identifier (',' identifier)* '}'
+```
+
+```text
+enum Color { Red, Green, Blue }
+
+var c: int = Color.Red;    // 0
+var g: int = Color.Green;  // 1
+```
+
+Enums may be top-level or nested inside a contract. Scoped access via `::` is
+supported: `Color::Blue` evaluates to `2`.
+
+== Sum Types
+
+<sum-types>
+
+A `type` declaration defines a tagged union (sum type). Variants are separated
+by `|` (or `,`) and may carry named parameters:
+
+```ebnf
+sum_type  ::= 'type' identifier '{' variant (('|' | ',') variant)* '}'
+variant   ::= identifier ('(' param (',' param)* ')')?
+param     ::= identifier ':' type
+```
+
+```text
+type Shape {
+    Circle(radius: double)
+  | Rect(w: double, h: double)
+  | Unit
+}
+
+type Color {
+    Red | Green | Blue
+}
+```
+
+Each variant becomes a separate contract inheriting from a compiler-generated
+base class. Variants are constructed via static factory methods on the base:
+
+```text
+var c: Shape = Shape.Circle(2.0);
+var r: Shape = Shape.Rect(3.0, 4.0);
+var u: Shape = Shape.Unit;
+```
+
+Sum types work with `match` expressions for exhaustive pattern matching
+(see @match-expressions).
+
+== Inheritance and Interfaces
+
+<inheritance>
+
+Contracts support single inheritance for the primary base and multiple
+interface-style parents. An interface is an ordinary contract whose instance
+methods have no bodies (abstract methods):
+
+```ebnf
+contract ::= 'Contract' identifier (':' type (',' type)*)? '{' member* '}'
+```
+
+```text
+Contract Drawable {
+    fn Draw();
+    fn Area() -> double;
+}
+
+Contract Circle : Drawable {
+    radius: double;
+
+    constructor(r: double) { this.radius = r; }
+
+    fn Draw() { IO.Println("(o)"); }
+    fn Area() -> double { return 3.14159 * this.radius * this.radius; }
+}
+```
+
+The first type after `:` is the primary base; additional types are interfaces.
+Interface parents must be stateless (no instance fields, no constructors). The
+compiler verifies that all abstract methods are implemented by derived
+contracts and detects inheritance cycles.
+
+== Attributes
+
+<attributes>
+
+Declarations may carry attributes in angle brackets. Attributes are contracts
+that inherit (transitively) from the built-in `Attribute` base type:
+
+```ebnf
+attribute   ::= '<' attribute_name ('(' arg_list? ')')? '>'
+attribute_name ::= identifier
+arg_list    ::= argument (',' argument)*
+argument    ::= integer | float | string | 'true' | 'false' | identifier
+             | '-' (integer | float)
+```
+
+```text
+<NativeBinding("ModuleIO")>
+Contract IO { ... }
+
+<Deprecated("use hello2")>
+fn oldHelper() -> int { ... }
+
+<Serializable>
+struct Point { ... }
+```
+
+Multiple attributes may be stacked: `<A> <B> Contract X { }`. Attributes are
+supported on contracts, structs, enums, functions, and constructors. The
+compiler validates that argument counts match the attribute type's constructors.
+
+== Namespaces
+
+A `namespace` declaration sets the fully-qualified name prefix for all
+subsequent declarations in the file:
+
+```ebnf
+namespace_decl ::= 'namespace' dotted_name ';'
+dotted_name    ::= identifier ('.' identifier)*
+```
+
+```text
+namespace com.example;
+
+Contract Foo { }   // fully qualified as com.example.Foo
+```
+
+Namespaces interact with `import` statements. A namespace import (without a
+string path) brings all types in that namespace into scope:
+
+```text
+import ObjektRT.Stdlib.System;   // IO, String, etc. available by short name
+import com.lib;                  // types in com.lib available by short name
+```
+
+Scoped access via `::` resolves against the current namespace, imported
+namespaces, and the unique short-name match: `Counter::Reset()`,
+`IO::Println("hi")`.
+
 #linebreak()
 
 = Functions
@@ -566,6 +804,22 @@ fn ::= access_modifier? 'static'? 'fn' identifier '(' params? ')' ('->' type)? b
 fn add(a: int, b: int) -> int {
     return a + b;
 }
+```
+
+=== Expression-Bodied Functions
+
+A function may use `=` instead of a block body, with the expression as an
+implicit return:
+
+```ebnf
+fn ::= access_modifier? 'static'? 'fn' identifier '(' params? ')' ('->' | ':')? type '=' expression ';'
+     | access_modifier? 'static'? 'fn' identifier '(' params? ')' '=' expression ';'
+```
+
+```text
+static fn double(x: int) -> int = x * 2;
+static fn add(a: int, b: int) = a + b;        // inferred return type
+static fn negate(x: int) : int = 0 - x;       // colon variant
 ```
 
 == Parameters
@@ -605,6 +859,21 @@ Lambdas are expressions that produce function values (see
 returned from functions, and invoked through the delegate mechanism (see
 @delegates).
 
+=== Implicit Lambda with `_`
+
+The markers `_` and `@` act as holes for an implicit lambda. When an expression
+contains `_`, it is automatically wrapped in `fun _ -> <expr>`:
+
+```text
+let incr = _ + 1;              // equivalent to: fun x -> x + 1
+let sq = 7 |> _ * _;          // implicit lambda in pipe RHS
+let padded = "hi" |> String.Concat(_, "!");
+```
+
+Multiple `_` markers in one expression are bound to the same parameter. The
+implicit form works in variable initializers, pipe right-hand sides, match arm
+results, and if-expression branches.
+
 #linebreak()
 
 = Variables
@@ -638,6 +907,39 @@ Variables are scoped to the enclosing block. A variable declared in a `for`
 initializer is scoped to the loop body (like C). Shadowing an outer variable
 with an inner declaration is permitted.
 
+== Tuple Destructuring
+
+A `var` or `let` declaration may destructure a tuple into individual bindings:
+
+```text
+var (q, r) = divmod(17, 5);
+let (ok, value) = Dict.TryGetValue(dict, "name");
+```
+
+Each name binds to the corresponding element of the tuple (zero-indexed). The
+expression on the right must return a tuple.
+
+== Compile-Time Constants
+
+At contract scope, `let` and `const` both declare compile-time constants.
+Their initializers are folded at compile time:
+
+```text
+Contract Config {
+    let APP_NAME: string = "contract";
+    const TICKS_PER_HOUR: int = 60 * 60 * 1000;
+    let DOUBLE_TICKS: int = TICKS_PER_HOUR * 2;
+    let RATIO: double = 3.0 / 2;
+    let FLAG: bool = true && !false;
+    let GREETING: string = "hi, " + APP_NAME;
+}
+```
+
+Supported folding: arithmetic, boolean logic, string concatenation,
+comparisons, unary negation, and references to previously declared constants.
+At contract scope, `var` must be initialised with a lambda (which becomes a
+static function).
+
 #linebreak()
 
 = Statements
@@ -653,8 +955,11 @@ statement ::= block
             | if_statement
             | while_statement
             | for_statement
+            | for_in_statement
+            | foreach_statement
             | switch_statement
             | return_statement
+            | try_statement
             | break_statement
             | continue_statement
 ```
@@ -700,6 +1005,54 @@ All three clauses are optional, so `for (;;)` is an infinite loop. The
 initializer runs once; the condition is checked before each iteration; the
 update runs at the end of each iteration.
 
+== `for`-in
+
+```ebnf
+for_in_statement ::= 'for' '(' identifier (',' identifier)? 'in' expression ')' statement
+                   | 'for' '(' identifier 'in' range_expression ')' statement
+```
+
+Iterates over the elements of an array, a `List<T>`, the keys of a `Dict<K, V>`,
+or a range. The `Dict` pair form binds both key and value:
+
+```text
+for (x in nums) { IO.Println(x); }
+for (k, v in scores) { IO.Println(k); }
+for (i in 0..5) { IO.Println(i); }
+for (i in 0..=10 by 2) { IO.Println(i); }
+```
+
+=== Ranges
+
+Range expressions generate a sequence of integers:
+
+```text
+0..5          // 0, 1, 2, 3, 4  (end-exclusive)
+0..=10        // 0, 1, 2, ..., 10  (end-inclusive)
+0..10 by 2    // 0, 2, 4, 6, 8  (with step)
+10..=0 by -2  // 10, 8, 6, 4, 2, 0  (descending)
+```
+
+Outside `for`-in, `start..end` with integer literal bounds is folded to an
+array literal at parse time.
+
+== `foreach` (sugar)
+
+```ebnf
+foreach_statement ::= 'for' '(' identifier ':' expression ')' statement
+```
+
+A shorthand for indexed array iteration, desugared at parse time:
+
+```text
+for (item : collection) { IO.Println(item); }
+// desugars to:
+for (var __i: int = 0; __i < Array.Length(collection); __i += 1) {
+    var item = collection[__i];
+    IO.Println(item);
+}
+```
+
 == `break` and `continue`
 
 `break` exits the innermost enclosing loop. `continue` skips to the next
@@ -738,6 +1091,40 @@ Returns the given value (for non-void functions) or exits the function (for
 void functions). A function with a return type must return a value on every
 path; falling off the end returns the zero value (see @functions).
 
+== Error Handling (`try` / `catch` / `throw`)
+
+<error-handling>
+
+```ebnf
+try_statement  ::= 'try' block (catch_clause)+ (finally_block)?
+                 | 'try' block finally_block
+catch_clause   ::= 'catch' ('(' identifier? identifier ')')? block
+finally_block  ::= 'finally' block
+throw_statement ::= 'throw' expression ';'
+```
+
+Any value may be thrown. Multiple `catch` clauses are evaluated in order; the
+first whose type matches (or the bare `catch`) handles the exception:
+
+```text
+try {
+    var result = riskyOperation();
+    IO.Println(result);
+} catch (IOError e) {
+    IO.Println("IO failed: " + e);
+} catch {
+    IO.Println("unknown error");
+} finally {
+    cleanup();
+}
+```
+
+A bare `catch { ... }` catches all exceptions. A typed catch
+`catch (SomeException e) { ... }` matches when the thrown value's type matches
+the declared exception type. `throw expression;` raises an exception, unwinding
+the call stack until a matching `catch` is found. If no `catch` handles it, the
+runtime reports an unhandled exception with a stack trace.
+
 #linebreak()
 
 = Expressions
@@ -752,14 +1139,16 @@ Expressions are parsed with the following precedence, from lowest to highest:
   columns: (auto, auto, auto),
   table.header([*Level*], [*Operators*], [*Associativity*]),
   [Assignment], [`=` `+=` `-=` `*=` `/=` `%=`], [right],
+  [Ternary], [`?` `:`], [right],
   [Logical or], [`||`], [left],
   [Logical and], [`&&`], [left],
   [Equality], [`==` `!=`], [left],
   [Comparison], [`<` `<=` `>` `>=`], [left],
   [Additive], [`+` `-`], [left],
   [Multiplicative], [`*` `/` `%`], [left],
+  [Pipe], [`|>` `>>`], [left],
   [Unary], [`-` `!`], [prefix],
-  [Postfix], [`()` `.` `[]` `::` `|>`], [left],
+  [Postfix], [`()` `.` `[]` `::`], [left],
 )
 
 == Literals
@@ -856,6 +1245,30 @@ The element type is inferred from the elements (all elements must share a
 type). The literal lowers to `ldc.i4 count; newarr T` followed by
 `dup; ldc.i4 i; <elem>; stelem` per element.
 
+== Tuple Literals
+
+`(e1, e2, ...)` creates a tuple value (two or more comma-separated expressions
+in parentheses):
+
+```text
+return (a / b, a % b);      // multi-value return
+var pair = (42, "hello");
+```
+
+A single expression in parentheses is just grouping, not a tuple. Tuples are
+lowered to `object[]` on the wire.
+
+== If-Expressions
+
+An `if`/`else` may be used as an expression, returning a value:
+
+```text
+let max = if (a > b) { a } else { b };
+let sign = if (a > 0) { "+" } else if (a < 0) { "-" } else { "0" };
+```
+
+Both branches must be present and must produce the same type.
+
 == Lambdas
 
 <lambdas>
@@ -888,6 +1301,76 @@ let result = 3 |> addOne |> square;   // square(addOne(3))
 ```
 
 The right side must be a function name or a lambda.
+
+== Function Composition
+
+`left >> right` composes two named functions into a new function:
+
+```text
+let dblThenInc = double >> addOne;         // fun x -> addOne(double(x))
+let lenOfUpper = String.ToUpper >> String.Length;
+```
+
+Both operands must be named functions (not lambdas) in version 1.0. The result
+is a lambda that applies the left function first, then the right.
+
+== Ternary Conditional
+
+```ebnf
+ternary ::= expression '?' expression ':' expression
+```
+
+```text
+let max = if (a > b) { a } else { b };   // if-expression
+var label = (x > 0) ? "positive" : "non-positive";
+```
+
+The condition must be truthy-compatible. The ternary evaluates the condition,
+then evaluates and returns exactly one of the two branches.
+
+== Match Expressions
+
+<match-expressions>
+
+A `match` expression performs pattern matching on a value, returning the result
+of the matching arm:
+
+```ebnf
+match_expression ::= 'match' '(' expression ')' '{' match_arm (',' match_arm)* '}'
+match_arm        ::= pattern ('if' expression)? '=>' expression
+pattern          ::= literal_pattern
+                   | wildcard_pattern
+                   | binding_pattern
+                   | variant_pattern
+                   | or_pattern
+literal_pattern  ::= integer | float | string | 'true' | 'false' | 'null'
+wildcard_pattern ::= '_'
+binding_pattern  ::= identifier
+variant_pattern  ::= identifier ('(' pattern (',' pattern)* ')')?
+or_pattern       ::= pattern ('|' pattern)+
+```
+
+```text
+let label = match (x) {
+    0 => "ok",
+    1 | 2 => "retryable",
+    n if n >= 500 => "server error",
+    _ => "unknown"
+};
+```
+
+Pattern types:
+
+- *Literal*: matches a specific integer, float, string, or boolean value.
+- *Wildcard* (`_`): matches anything, no binding.
+- *Binding*: a bare identifier that binds the scrutinee to that name.
+- *Variant*: destructures a sum type variant, e.g. `Circle(r)` binds `r`.
+- *Or*: multiple patterns separated by `|` for the same arm.
+
+Guard conditions (`if guard`) may follow a pattern. The compiler checks
+exhaustiveness on sum types: every variant must be covered by an arm, or a
+`_` / binding catch-all must be present. A non-exhaustive match without `_`
+is a compile error on sum types and a warning on other types.
 
 == String Interpolation
 
@@ -1238,30 +1721,50 @@ The complete EBNF grammar:
 program ::= toplevel*
 
 toplevel ::= import
-           | types_block
+           | namespace_decl
            | contract
            | struct_decl
+           | enum_decl
+           | sum_type
+           | types_block
            | access_modifier? 'static'? 'fn' function_header
            | 'export' toplevel
 
 import ::= 'import' string ';'
+         | 'import' dotted_name ';'
+
+namespace_decl ::= 'namespace' dotted_name ';'
+
+dotted_name ::= identifier ('.' identifier)*
 
 types_block ::= 'Types' '{' type_def* '}'
 type_def ::= 'type' identifier '{' struct_field+ '}'
 
-contract ::= 'Contract' identifier '{' member* '}'
+contract ::= 'Contract' identifier (':' type (',' type)*)? '{' member* '}'
 member ::= field
          | access_modifier? 'static'? 'fn' function_header
          | 'constructor' '(' params? ')' (block | ';')
          | struct_decl
+         | enum_decl
 field ::= identifier ':' type ';'
 
 struct_decl ::= access_modifier? 'struct' identifier '{' struct_field+ '}'
 struct_field ::= identifier ':' type ';'
 
-function_header ::= identifier '(' params? ')' ('->' type)? (block | ';')
+enum_decl ::= 'enum' identifier '{' identifier (',' identifier)* '}'
+
+sum_type ::= 'type' identifier '{' variant (('|' | ',') variant)* '}'
+variant ::= identifier ('(' param (',' param)* ')')?
+
+function_header ::= identifier '(' params? ')' ('->' | ':')? type ('=' expression ';')?
+                  | identifier '(' params? ')' ('=' expression ';')?
+                  | identifier '(' params? ')' ('->' type)? (block | ';')
 params ::= param (',' param)*
 param ::= identifier (':' type)?
+
+attribute ::= '<' identifier ('(' (argument (',' argument)*)? ')')? '>'
+argument ::= integer | float | string | 'true' | 'false' | identifier
+           | '-' (integer | float)
 
 block ::= '{' statement* '}'
 statement ::= block
@@ -1270,52 +1773,88 @@ statement ::= block
             | if_statement
             | while_statement
             | for_statement
+            | for_in_statement
+            | foreach_statement
             | switch_statement
+            | try_statement
             | return_statement
             | 'break' ';'
             | 'continue' ';'
 
-var_decl ::= ('var' | 'let') identifier (':' type)? ('=' expression)? ';'
+var_decl ::= ('var' | 'let' | 'const') destructuring_or_decl
+destructuring_or_decl ::= identifier (':' type)? ('=' expression)? ';'
+                        | '(' identifier (',' identifier)+ ')' ('=' expression)? ';'
+
 expression_statement ::= expression ';'
+
 if_statement ::= 'if' '(' expression ')' statement ('else' statement)?
 while_statement ::= 'while' '(' expression ')' statement
 for_statement ::= 'for' '(' (var_decl | expression_statement | ';')
                         expression? ';' expression? ')' statement
+for_in_statement ::= 'for' '(' identifier (',' identifier)? 'in' expression ')' statement
+                   | 'for' '(' identifier 'in' range_expression ')' statement
+foreach_statement ::= 'for' '(' identifier ':' expression ')' statement
+
+range_expression ::= integer '..' integer
+                   | integer '..=' integer
+                   | integer '..' integer 'by' expression
+                   | integer '..=' integer 'by' expression
+
 switch_statement ::= 'switch' '(' expression ')' '{'
                        ('case' (integer | string) ':' statement*)*
                        ('else' ':' statement*)?
                      '}'
+
+try_statement ::= 'try' block ('catch' ('(' identifier? identifier ')')? block)+ ('finally' block)?
+                | 'try' block 'finally' block
+
 return_statement ::= 'return' expression? ';'
 
 expression ::= assignment
-assignment ::= logical_or (('=' | '+=' | '-=' | '*=' | '/=' | '%=') assignment)?
+assignment ::= ternary (('=' | '+=' | '-=' | '*=' | '/=' | '%=') assignment)?
+ternary ::= logical_or ('?' expression ':' logical_or)?
 logical_or ::= logical_and ('||' logical_and)*
 logical_and ::= equality ('&&' equality)*
 equality ::= comparison (('==' | '!=') comparison)*
 comparison ::= additive (('<' | '<=' | '>' | '>=') additive)*
 additive ::= multiplicative (('+' | '-') multiplicative)*
-multiplicative ::= unary (('*' | '/' | '%') unary)*
+multiplicative ::= pipe (('*' | '/' | '%') pipe)*
+pipe ::= unary (('|>' | '>>') unary)*
 unary ::= ('-' | '!') unary | postfix
 postfix ::= primary ( '(' arg_list? ')'
                     | '.' identifier
                     | '::' identifier
-                    | '[' expression ']'
-                    | '|>' primary )*
+                    | '[' expression ']')*
 primary ::= integer | float | string | interpolated_string
           | 'true' | 'false' | 'null'
           | identifier
           | array_literal
+          | tuple_literal
           | lambda
+          | match_expression
           | 'new' identifier ('(' ')' | '[' expression ']')
           | '(' expression ')'
+
+match_expression ::= 'match' '(' expression ')' '{' match_arm (',' match_arm)* '}'
+match_arm ::= pattern ('if' expression)? '=>' expression
+pattern ::= integer | float | string | 'true' | 'false' | 'null'
+          | '_'
+          | identifier
+          | identifier ('(' pattern (',' pattern)* ')')?
+          | pattern ('|' pattern)+
+
 arg_list ::= expression (',' expression)*
 array_literal ::= '[' (expression (',' expression)*)? ']'
+tuple_literal ::= '(' expression ',' expression (',' expression)* ')'
 
 lambda ::= 'fun' (identifier+ | '(' params? ')') '->' (expression | block)
+         | 'fn' (identifier+ | '(' params? ')') '->' (expression | block)
+         | 'fn' '(' params? ')' '->' expression
 
 type ::= identifier ('[' ']')*
        | identifier '<' type (',' type)* '>'
        | '(' (type (',' type)*)? ')' '->' type
+       | '(' type (',' type)+ ')'
 ```
 
 #linebreak()
@@ -1339,6 +1878,19 @@ Key validation programs:
 - `Threading.ct` — `Thread.Spawn` with capturing lambdas.
 - `Classes.ct` — instance fields, `this`, constructors, instance methods.
 - `Generics.ct` — `List<int>`/`Dict<string, int>` end-to-end.
+- `UserGenerics.ct` — user-defined generic contracts and functions.
+- `MaterializedGenerics.ct` — generic instantiations with static state.
+- `Inheritance.ct` — contract inheritance and interface implementation.
+- `Interfaces.ct` — abstract methods and multiple inheritance.
+- `Enums.ct` — enum declarations and scoped access.
+- `SumTypes.ct` — tagged unions and variant construction.
+- `MatchExpressions.ct` — pattern matching with guards and or-patterns.
+- `Attributes.ct` — custom and built-in attribute declarations.
+- `Namespaces.ct` — namespace declarations and scoped access.
+- `ImportNamespaces.ct` — namespace imports and short-name resolution.
+- `FunctionalSyntax.ct` — composition, implicit lambdas, expression bodies.
+- `ForIn.ct` — for-in loops, ranges, and foreach sugar.
+- `ComptimeConstants.ct` — compile-time constant folding.
 
 #linebreak()
 
@@ -1478,6 +2030,8 @@ The following are planned but not part of version 1.0:
 - `for`-loop `break`/`continue` with values, and `switch` fallthrough.
 - short-circuit `&&`/`||`.
 - implicit numeric-to-string coercion across the native boundary.
-- custom user-defined generic types (type parameters).
-- contracts as objects (metaclasses), exceptions, `try`/`throw`,
-  and first-class array operations in the IR.
+- method overloading (currently all method names must be unique per contract).
+- operator overloading.
+- async/await or coroutine support.
+- `Option<T>` / `Result<T, E>` algebraic data types.
+- nested generic type arguments in pattern matching.
