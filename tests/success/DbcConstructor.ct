@@ -1,0 +1,27 @@
+import __builtin.std;
+
+Contract PositiveCounter {
+    private count: int;
+
+    invariant {
+        this.count >= 0
+    }
+
+    constructor(initial: int)
+        requires initial >= 0
+    {
+        this.count = initial;
+    }
+
+    fn increment() -> int
+        ensures this.count >= 0
+    {
+        this.count += 1;
+        return this.count;
+    }
+
+    static fn Main() {
+        var c = new PositiveCounter(5);
+        IO.Println("constructor dbc ok");
+    }
+}

@@ -143,6 +143,7 @@ The following words are reserved and may not be used as identifiers:
 `static` `public` `private` `protected` `internal` `import` `Types` `type`
 `export` `enum` `namespace` `match` `try` `catch` `finally` `throw`
 `null` `true` `false`
+`requires` `ensures` `invariant` `extend`
 
 Their meanings, together with every operator and punctuation symbol, are
 listed in the token reference table in @tokens.
@@ -248,6 +249,10 @@ their meanings:
   [`export`], [keyword], [Marks a declaration as exported],
   [`try` `catch` `finally` `throw`], [keyword], [Error handling],
   [`null` `true` `false`], [keyword], [Literals],
+  [`requires`], [keyword], [Design-by-contract pre-condition clause],
+  [`ensures`], [keyword], [Design-by-contract post-condition clause],
+  [`invariant`], [keyword], [Design-by-contract class invariant clause],
+  [`extend`], [keyword], [Extension method declaration block],
   [`+` `-` `*` `/` `%`], [operator], [Arithmetic],
   [`==` `!=` `<` `<=` `>` `>=`], [operator], [Comparison],
   [`&&` `||` `!`], [operator], [Logical and / or / not],
@@ -509,7 +514,13 @@ member   ::= field
            | access_modifier? 'static'? fn
            | 'constructor' '(' params ')' block-or-semicolon
            | 'struct' struct_body
-field    ::= identifier ':' type ';'
+field ::= identifier ':' type ';'
+
+extend_decl ::= 'extend' type '{' function_declaration* '}'
+
+requires_clause ::= 'requires' expression
+ensures_clause  ::= 'ensures' expression
+invariant_block ::= 'invariant' '{' expression* '}'
 ```
 
 ```text
@@ -662,10 +673,12 @@ supported: `Color::Blue` evaluates to `2`.
 <sum-types>
 
 A `type` declaration defines a tagged union (sum type). Variants are separated
-by `|` (or `,`) and may carry named parameters:
+by `|` (or `,`) and may carry named parameters. Sum types may declare generic
+type parameters:
 
 ```ebnf
-sum_type  ::= 'type' identifier '{' variant (('|' | ',') variant)* '}'
+sum_type  ::= 'type' identifier ('<' type_param (',' type_param)* '>')?
+              '{' variant (('|' | ',') variant)* '}'
 variant   ::= identifier ('(' param (',' param)* ')')?
 param     ::= identifier ':' type
 ```
@@ -679,6 +692,11 @@ type Shape {
 
 type Color {
     Red | Green | Blue
+}
+
+type Result<T, E> {
+    Ok(value: T)
+  | Err(error: E)
 }
 ```
 
@@ -756,6 +774,126 @@ struct Point { ... }
 Multiple attributes may be stacked: `<A> <B> Contract X { }`. Attributes are
 supported on contracts, structs, enums, functions, and constructors. The
 compiler validates that argument counts match the attribute type's constructors.
+
+== Design by Contract
+
+<dbc>
+
+Contract supports pre-conditions (`requires`), post-conditions (`ensures`),
+and class invariants (`invariant`) as first-class language features.
+
+=== Pre-conditions (`requires`)
+
+A `requires` clause declares a condition that must hold when a function or
+constructor is called. Multiple `requires` clauses may appear, and each is
+checked independently:
+
+```text
+fn withdraw(amount: int)
+    requires amount > 0
+    requires amount <= this.balance
+{
+    this.balance -= amount;
+}
+```
+
+The condition is evaluated at function entry, before the body executes. If the
+condition is `false`, the runtime throws a fault with the source line.
+
+=== Post-conditions (`ensures`)
+
+An `ensures` clause declares a condition that must hold after a function
+returns. The keyword `result` refers to the return value:
+
+```text
+fn divide(a: int, b: int) -> int
+    requires b != 0
+    ensures result >= 0
+{
+    return a / b;
+}
+```
+
+`ensures` clauses are checked on the implicit return path (when the body falls
+off the end without an explicit `return`). Explicit `return` statements bypass
+the ensures check in version 1.0. `ensures` may not be used on `void`
+functions.
+
+=== Class Invariants (`invariant`)
+
+An `invariant` block declares conditions that must hold after every field write
+on a contract. The `this` keyword refers to the current instance:
+
+```text
+Contract BankAccount {
+    private balance: double;
+
+    invariant {
+        this.balance >= 0
+    }
+
+    constructor(initial: double)
+        requires initial >= 0
+    {
+        this.balance = initial;
+    }
+}
+```
+
+Invariants are checked at constructor exit in version 1.0.
+
+=== Semantics
+
+- Conditions must be boolean expressions.
+- Contract clauses are type-checked by the semantic analyser; parameters and
+  `this` are in scope as appropriate.
+- Violations throw a fault string containing the source line, which surfaces as
+  a runtime error with a stack trace.
+- In version 1.0, contract checks execute on every call. Future versions may
+  support opt-out via flags or attributes.
+
+== Extension Methods
+
+<extension-methods>
+
+Extension methods allow adding methods to existing types without modifying
+them. They are declared with `extend` at the top level:
+
+```ebnf
+extend_decl ::= 'extend' type '{' function_declaration* '}'
+```
+
+```text
+extend string {
+    fn shout() -> string {
+        return this + "!!!";
+    }
+}
+
+extend int {
+    fn isEven() -> bool {
+        return this % 2 == 0;
+    }
+}
+```
+
+Extension methods are syntactic sugar for static calls. When `obj.method(args)`
+is called and `method` is not found as an instance method on the receiver's
+type, the compiler checks for an extension method. If found, the call is
+lowered to `Type.Method(obj, args)`:
+
+```text
+"hello".shout()    // lowered to: string.shout("hello")
+4.isEven()         // lowered to: int.isEven(4)
+```
+
+=== Rules
+
+- Extension methods are implicitly `static`.
+- Inside the method body, `this` refers to the receiver (the first parameter).
+- Extension methods are resolved as a fallback: instance methods on the
+  receiver's type take priority.
+- Extension methods are declared at the top level (not inside a contract).
 
 == Namespaces
 
@@ -1742,6 +1880,7 @@ toplevel ::= import
            | enum_decl
            | sum_type
            | types_block
+           | extend_decl
            | access_modifier? 'static'? 'fn' function_header
            | 'export' toplevel
 
@@ -1757,10 +1896,11 @@ type_def ::= 'type' identifier '{' struct_field+ '}'
 
 contract ::= 'Contract' identifier (':' type (',' type)*)? '{' member* '}'
 member ::= field
-         | access_modifier? 'static'? 'fn' function_header
-         | 'constructor' '(' params? ')' (block | ';')
+         | access_modifier? 'static'? fn
+         | 'constructor' '(' params? ')' requires_clause* (block | ';')
          | struct_decl
          | enum_decl
+         | invariant_block
 field ::= identifier ':' type ';'
 
 struct_decl ::= access_modifier? 'struct' identifier '{' struct_field+ '}'
@@ -1768,12 +1908,17 @@ struct_field ::= identifier ':' type ';'
 
 enum_decl ::= 'enum' identifier '{' identifier (',' identifier)* '}'
 
-sum_type ::= 'type' identifier '{' variant (('|' | ',') variant)* '}'
+sum_type ::= 'type' identifier ('<' identifier (',' identifier)* '>')?
+             '{' variant (('|' | ',') variant)* '}'
 variant ::= identifier ('(' param (',' param)* ')')?
 
-function_header ::= identifier '(' params? ')' ('->' | ':')? type ('=' expression ';')?
-                  | identifier '(' params? ')' ('=' expression ';')?
-                  | identifier '(' params? ')' ('->' type)? (block | ';')
+function_header ::= identifier '(' params? ')' ('->' | ':')? type
+                    (requires_clause | ensures_clause)*
+                    ('=' expression ';' | block | ';')
+                  | identifier '(' params? ')' ('=' expression ';')
+                  | identifier '(' params? ')' ('->' type)?
+                    (requires_clause | ensures_clause)*
+                    (block | ';')
 params ::= param (',' param)*
 param ::= identifier (':' type)?
 
@@ -1906,6 +2051,10 @@ Key validation programs:
 - `FunctionalSyntax.ct` — composition, implicit lambdas, expression bodies.
 - `ForIn.ct` — for-in loops, ranges, and foreach sugar.
 - `ComptimeConstants.ct` — compile-time constant folding.
+- `DbcBasic.ct` — requires and ensures on functions.
+- `DbcConstructor.ct` — requires on constructors, invariant on contracts.
+- `ExtensionMethods.ct` — extend blocks on string and int.
+- `GenericSumTypes.ct` — generic type parameters on sum types.
 
 #linebreak()
 
@@ -2046,5 +2195,8 @@ The following are planned but not part of version 1.0:
 - method overloading (currently all method names must be unique per contract).
 - operator overloading.
 - async/await or coroutine support.
-- `Option<T>` / `Result<T, E>` algebraic data types.
+- `Option<T>` algebraic data type.
 - nested generic type arguments in pattern matching.
+- explicit `return` triggering `ensures` checks (currently only implicit return).
+- invariant checking on every field write (currently constructor exit only).
+- generic sum type materialization in the VM (variant factory type propagation).

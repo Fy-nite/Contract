@@ -1,0 +1,16 @@
+import __builtin.std;
+
+fn add(a: int, b: int) -> int
+    requires a >= 0
+    requires b >= 0
+    ensures result >= 0
+{
+    return a + b;
+}
+
+Contract Program {
+    static fn Main() {
+        var r = add(3, 4);
+        IO.Println("requires/ensures ok");
+    }
+}

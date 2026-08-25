@@ -122,6 +122,8 @@ namespace Contract.Compiler
                     fullProgram.Enums.Add(enumDecl);
                 foreach (var ns in program.NamespaceImports)
                     fullProgram.NamespaceImports.Add(ns);
+                foreach (var ext in program.Extensions)
+                    fullProgram.Extensions.Add(ext);
 
                 // Recursively load imports.
                 //

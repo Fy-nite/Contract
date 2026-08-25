@@ -8,7 +8,7 @@
 #show: xyznote.with(
   title: "Contract — A Quick Tour",
   author: "charlie santana — Finite",
-  abstract: "A hands-on walkthrough of the Contract programming language: eight lessons with complete, runnable programs — from \"hello world\" to the standard library.",
+  abstract: "A hands-on walkthrough of the Contract programming language: nine lessons with complete, runnable programs — from \"hello world\" to design by contract, extension methods, and the standard library.",
   createtime: "2026-08-02",
   lang: "en",
   bibliography-style: "ieee",
@@ -55,7 +55,7 @@
 
 #linebreak()
 
-The tour is eight short lessons, meant to be read in order — each one builds
+The tour is nine short lessons, meant to be read in order — each one builds
 on the last, and cross-references point both ways so you can also jump
 straight to a topic.
 
@@ -972,15 +972,203 @@ prints `"yes"` if it equals `"go"`.
 ]
 
 That's the full tour — every concept in the language, from `hello world` to
-the standard library, in eight programs. @sec-next points you at the deeper
-reference material.
+the standard library, in eight programs. But there's more: the language is
+still growing. @sec-advanced covers the newest features that make Contract
+stand out.
+
+#linebreak()
+
+= Design by Contract and Extension Methods <sec-advanced>
+
+Contract is named after its defining idea: *design by contract*. This lesson
+covers the three newest features — pre/post-conditions, extension methods, and
+generic sum types — that give the language its identity.
+
+== Pre-conditions with `requires`
+
+A `requires` clause declares what must be true when a function is called. If
+the condition is `false`, the runtime throws a fault:
+
+```ct
+fn divide(a: int, b: int) -> int
+    requires b != 0
+{
+    return a / b;
+}
+```
+
+You can stack multiple `requires` clauses:
+
+```ct
+fn withdraw(amount: int)
+    requires amount > 0
+    requires amount <= this.balance
+{
+    this.balance -= amount;
+}
+```
+
+Constructors support `requires` too:
+
+```ct
+Contract PositiveCounter {
+    private count: int;
+
+    constructor(initial: int)
+        requires initial >= 0
+    {
+        this.count = initial;
+    }
+}
+```
+
+== Post-conditions with `ensures`
+
+An `ensures` clause declares what must be true after a function returns. The
+keyword `result` refers to the return value:
+
+```ct
+fn add(a: int, b: int) -> int
+    requires a >= 0
+    requires b >= 0
+    ensures result >= 0
+{
+    return a + b;
+}
+```
+
+`ensures` only works on non-void functions.
+
+== Class invariants with `invariant`
+
+An `invariant` block declares conditions that must hold on a contract's fields.
+The `this` keyword refers to the current instance:
+
+```ct
+Contract BankAccount {
+    private balance: double;
+
+    invariant {
+        this.balance >= 0
+    }
+
+    constructor(initial: double)
+        requires initial >= 0
+    {
+        this.balance = initial;
+    }
+
+    fn withdraw(amount: double)
+        requires amount > 0
+        requires amount <= this.balance
+        ensures this.balance >= 0
+    {
+        this.balance -= amount;
+    }
+}
+```
+
+== Extension methods with `extend`
+
+Extension methods let you add methods to existing types without modifying them.
+Declare an `extend` block at the top level:
+
+```ct
+extend string {
+    fn shout() -> string {
+        return this + "!!!";
+    }
+}
+
+extend int {
+    fn isEven() -> bool {
+        return this % 2 == 0;
+    }
+}
+```
+
+Then call them like instance methods:
+
+```ct
+Contract Program {
+    static fn Main() {
+        var s = "hello";
+        IO.Println(s.shout());  // "hello!!!"
+
+        IO.Println(4.isEven());  // true
+        IO.Println(7.isEven());  // false
+    }
+}
+```
+
+Inside an extension method, `this` refers to the receiver value.
+
+== Generic sum types
+
+Sum types can now declare generic type parameters, just like contracts:
+
+```ct
+type Result<T, E> {
+    Ok(value: T)
+  | Err(error: E)
+}
+
+type Pair<A, B> {
+    First(a: A, b: B)
+  | Second(x: A)
+}
+```
+
+The base contract gets `@Generic` attributes for runtime materialization, and
+variant fields can reference the type parameters.
+
+== Exercise
+
+Write a `safeDivide(a: int, b: int) -> int` function with `requires b != 0`
+and `ensures result * b == a`. Then write an `extend int` block with a
+`square() -> int` method and print `5.square()`.
+
+#block(
+  width: 100%,
+  fill: rgb("#f2f2f2"),
+  inset: 8pt,
+  radius: 4pt,
+)[
+  *Solution*
+
+  ```ct
+  fn safeDivide(a: int, b: int) -> int
+      requires b != 0
+      ensures result * b == a
+  {
+      return a / b;
+  }
+
+  extend int {
+      fn square() -> int {
+          return this * this;
+      }
+  }
+
+  Contract Program {
+      static fn Main() {
+          IO.Println(safeDivide(10, 2));  // 5
+          IO.Println(5.square());          // 25
+      }
+  }
+  ```
+]
+
+That's the full tour with the newest features. @sec-next points you at the
+deeper reference material.
 
 #linebreak()
 
 = Where to Go Next <sec-next>
 
 - The full language definition lives in `docs/CONTRACT_SPEC.typ` — the
-  complete Contract v1.0 specification.
+  complete Contract v1.0 specification, including design by contract,
+  extension methods, and generic sum types.
 - Every example here is a complete program: save it as `name.ct` and run
   `dotnet run --project .\Contract.Cli\ -- name.ct` to compile and execute.
 - Sample solutions for every exercise live next to each lesson in

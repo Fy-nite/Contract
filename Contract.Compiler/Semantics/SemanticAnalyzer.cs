@@ -39,6 +39,9 @@ namespace Contract.Compiler.Semantics
         private readonly List<(string Name, int Line, int Column)> _fnDeclared = new(); // locals declared in the current function
         private TypeDescriptor? _currentReturnType;                     // the function being analyzed, if any
         private string? _currentSourceFile;                             // the file whose body is being analyzed
+        // Extension methods: target type (lowercase) → method name → FunctionDeclaration
+        private readonly Dictionary<string, Dictionary<string, FunctionDeclaration>> _extensionMethods
+            = new(StringComparer.OrdinalIgnoreCase);
 
         public SemanticAnalyzer(SymbolTable symbolTable, DiagnosticBag diagnostics, string? mainSourceFile = null, bool isExecutable = true)
         {
@@ -174,6 +177,17 @@ namespace Contract.Compiler.Semantics
             // facades — no fields, no constructors, empty-bodied methods whose
             // call sites dispatch to a host module / CLR type / native library.
             ValidateNativeImports(program);
+
+            // Register extension methods
+            foreach (var ext in program.Extensions)
+            {
+                if (!_extensionMethods.ContainsKey(ext.TargetType))
+                    _extensionMethods[ext.TargetType] = new Dictionary<string, FunctionDeclaration>(StringComparer.OrdinalIgnoreCase);
+                foreach (var method in ext.Methods)
+                {
+                    _extensionMethods[ext.TargetType][method.Name] = method;
+                }
+            }
 
             // Second pass: detailed analysis
             foreach (var contract in program.Contracts)
@@ -374,6 +388,10 @@ namespace Contract.Compiler.Semantics
                     AnalyzeFunction(func);
                 }
             }
+
+            // Analyze invariant clauses
+            AnalyzeInvariantClauses(contract);
+
             PopTypeParams();
         }
 
@@ -909,6 +927,9 @@ namespace Contract.Compiler.Semantics
                 AnalyzeStatement(ctor.Body);
             }
 
+            // Analyze design-by-contract pre-conditions on constructors
+            AnalyzeRequiresClauses(ctor.Requires, null);
+
             if (_currentContractName != null && FindGenericContract(_currentContractName) != null)
                 PopTypeParams();
             _scopes.Pop();
@@ -975,6 +996,10 @@ namespace Contract.Compiler.Semantics
                 AnalyzeStatement(func.Body);
             }
             _currentReturnType = null;
+
+            // Analyze design-by-contract clauses
+            AnalyzeRequiresClauses(func.Requires, func);
+            AnalyzeEnsuresClauses(func.Ensures, func);
 
             EmitFunctionWarnings(func);
             PopTypeParams();
@@ -1939,12 +1964,16 @@ namespace Contract.Compiler.Semantics
                     else if (_typeRegistry.IsGenericType(newExpr.TypeName)
                              && FindGenericContract(newExpr.TypeName) != null)
                     {
-                        // A user generic contract used without type arguments
-                        // (new Box(5)) is an error — the type parameter must be
-                        // supplied.
-                        _diagnostics.AddError(
-                            $"Generic contract '{newExpr.TypeName}' requires type arguments — use 'new {newExpr.TypeName}<...>(...)'",
-                            newExpr.Line, newExpr.Column);
+                        // Sum-type variant contracts inherit type parameters from
+                        // the base but don't require explicit type arguments —
+                        // the base's materialization handles substitution.
+                        var newContract = FindContract(newExpr.TypeName);
+                        if (newContract == null || newContract.SumTypeOf == null)
+                        {
+                            _diagnostics.AddError(
+                                $"Generic contract '{newExpr.TypeName}' requires type arguments — use 'new {newExpr.TypeName}<...>(...)'",
+                                newExpr.Line, newExpr.Column);
+                        }
                     }
 
                     // Native-bound contracts construct through the host module's
@@ -3064,6 +3093,35 @@ namespace Contract.Compiler.Semantics
                         }
                     }
 
+                    // Extension method fallback: obj.method(args) where method
+                    // is declared as an extension on the receiver's type.
+                    if (IsVariableDefined(className))
+                    {
+                        var varType = FindVariableType(className);
+                        if (varType is TypeDescriptor.Named n)
+                        {
+                            var extMethod = FindExtensionMethod(n.Name, methodName);
+                            if (extMethod != null)
+                            {
+                                call.Symbol = extMethod;
+                                _usedFunctions.Add(extMethod.Name);
+                                _usedTypes.Add(n.Name);
+                                return;
+                            }
+                        }
+                        if (varType is TypeDescriptor.GenericInstance g)
+                        {
+                            var extMethod = FindExtensionMethod(g.Name, methodName);
+                            if (extMethod != null)
+                            {
+                                call.Symbol = extMethod;
+                                _usedFunctions.Add(extMethod.Name);
+                                _usedTypes.Add(g.Name);
+                                return;
+                            }
+                        }
+                    }
+
                     _diagnostics.AddError($"External method '{className}.{methodName}' not found.", call.Line, call.Column);
                 }
             }
@@ -3231,5 +3289,115 @@ namespace Contract.Compiler.Semantics
         /// <summary>True when a member chain's base is a qualified user type reference (com.lib.Geo.Member).</summary>
         private bool IsTypeAccessChain(MemberExpression mem)
             => TryGetModuleAccessPath(mem, out var path) && IsUserType(path);
+
+        // ── Design-by-contract analysis ──────────────────────────────
+
+        /// <summary>
+        /// Type-checks requires clauses. Each condition must be a boolean expression.
+        /// Parameters are in scope (from the enclosing function/constructor).
+        /// </summary>
+        private void AnalyzeRequiresClauses(List<RequiresClause> requires, FunctionDeclaration? func)
+        {
+            foreach (var req in requires)
+            {
+                AnalyzeExpression(req.Condition);
+                var condType = InferType(req.Condition);
+                if (condType != null && condType is TypeDescriptor.Named n
+                    && !n.Name.Equals("bool", StringComparison.OrdinalIgnoreCase)
+                    && !n.IsEmpty)
+                {
+                    _diagnostics.AddWarning(
+                        $"Requires condition should be a boolean expression, got '{condType}'",
+                        req.Line, req.Column);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Type-checks ensures clauses. A synthetic 'result' variable is in scope
+        /// with the function's return type.
+        /// </summary>
+        private void AnalyzeEnsuresClauses(List<EnsuresClause> ensures, FunctionDeclaration func)
+        {
+            if (func.ReturnType == null || func.ReturnType is TypeDescriptor.Named r && r.Name.Equals("void", StringComparison.OrdinalIgnoreCase))
+            {
+                if (ensures.Count > 0)
+                {
+                    _diagnostics.AddError(
+                        "ensures clauses cannot be used on void functions",
+                        ensures[0].Line, ensures[0].Column);
+                }
+                return;
+            }
+
+            // Push a synthetic 'result' variable with the function's return type
+            _scopes.Push(new Dictionary<string, VariableDeclaration>());
+            _varMutability.Push(new Dictionary<string, bool>());
+            DeclareVariable("result", func.ReturnType, func.Line, func.Column, trackUsage: false, warnOnShadow: false);
+
+            foreach (var ens in ensures)
+            {
+                AnalyzeExpression(ens.Condition);
+                var condType = InferType(ens.Condition);
+                if (condType != null && condType is TypeDescriptor.Named n
+                    && !n.Name.Equals("bool", StringComparison.OrdinalIgnoreCase)
+                    && !n.IsEmpty)
+                {
+                    _diagnostics.AddWarning(
+                        $"Ensures condition should be a boolean expression, got '{condType}'",
+                        ens.Line, ens.Column);
+                }
+            }
+
+            _scopes.Pop();
+            _varMutability.Pop();
+        }
+
+        /// <summary>
+        /// Type-checks invariant clauses on a contract. 'this' is in scope.
+        /// </summary>
+        private void AnalyzeInvariantClauses(ContractDeclaration contract)
+        {
+            if (contract.Invariants.Count == 0) return;
+
+            // Push a scope with 'this' for the invariant expressions
+            _scopes.Push(new Dictionary<string, VariableDeclaration>());
+            _varMutability.Push(new Dictionary<string, bool>());
+            DeclareVariable("this", new TypeDescriptor.Named(contract.Name), contract.Line, contract.Column, trackUsage: false, warnOnShadow: false);
+
+            foreach (var inv in contract.Invariants)
+            {
+                foreach (var cond in inv.Conditions)
+                {
+                    AnalyzeExpression(cond);
+                    var condType = InferType(cond);
+                    if (condType != null && condType is TypeDescriptor.Named n
+                        && !n.Name.Equals("bool", StringComparison.OrdinalIgnoreCase)
+                        && !n.IsEmpty)
+                    {
+                        _diagnostics.AddWarning(
+                            $"Invariant condition should be a boolean expression, got '{condType}'",
+                            cond.Line, cond.Column);
+                    }
+                }
+            }
+
+            _scopes.Pop();
+            _varMutability.Pop();
+        }
+
+        /// <summary>
+        /// Checks if a method name exists as an extension method on the given type.
+        /// Returns the FunctionDeclaration if found, null otherwise.
+        /// </summary>
+        public FunctionDeclaration? FindExtensionMethod(string targetType, string methodName)
+        {
+            if (_extensionMethods.TryGetValue(targetType, out var methods)
+                && methods.TryGetValue(methodName, out var func))
+            {
+                return func;
+            }
+            return null;
+        }
     }
 }

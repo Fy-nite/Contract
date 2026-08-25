@@ -66,6 +66,21 @@ namespace Contract.Compiler.Parsing
             Consume(TokenType.Identifier, "Expected sum type name after 'type'");
             string name = Previous.Text;
 
+            // Parse optional generic type parameters: type Result<T, E> { ... }
+            var typeParams = new List<string>();
+            if (Match(TokenType.Less))
+            {
+                if (!Check(TokenType.Greater))
+                {
+                    do
+                    {
+                        Consume(TokenType.Identifier, "Expected type parameter name");
+                        typeParams.Add(Previous.Text);
+                    } while (Match(TokenType.Comma));
+                }
+                Consume(TokenType.Greater, "Expected '>' after type parameters");
+            }
+
             Consume(TokenType.LBrace, "Expected '{' after sum type name");
 
             var variants = new List<(string Name, List<Parameter> Params)>();
@@ -121,6 +136,8 @@ namespace Contract.Compiler.Parsing
                 SourceFile = _sourceFile,
                 IsSumTypeBase = true,
             };
+            // Add generic type parameters to the base contract
+            baseDecl.TypeParameters.AddRange(typeParams);
             baseDecl.Fields.Add(new StructField("__tag", TypeDescriptor.Parse("int"), line, column));
 
             program.Contracts.Add(baseDecl);
@@ -139,6 +156,9 @@ namespace Contract.Compiler.Parsing
                     SumTypeOf = name,
                     SumVariantIndex = baseDecl.SumVariants.Count - 1,
                 };
+                // Variant contracts inherit the base's type parameters for
+                // field validation, but the codegen emits @Generic on the base.
+                variant.TypeParameters.AddRange(typeParams);
 
                 foreach (var p in vparams)
                     variant.Fields.Add(new StructField(p.Name, p.Type, p.Line, p.Column));
@@ -355,6 +375,21 @@ namespace Contract.Compiler.Parsing
                     function.Access = access;
                     contract.Members.Add(function);
                 }
+                else if (Match(TokenType.Invariant))
+                {
+                    var invLine = Previous.Line;
+                    var invCol = Previous.Column;
+                    Consume(TokenType.LBrace, "Expected '{' after 'invariant'");
+                    var invariant = new InvariantClause(invLine, invCol);
+                    while (!Check(TokenType.RBrace) && !IsAtEnd())
+                    {
+                        var expr = ParseExpression();
+                        invariant.Conditions.Add(expr);
+                        Match(TokenType.Semicolon);
+                    }
+                    Consume(TokenType.RBrace, "Expected '}' after invariant body");
+                    contract.Invariants.Add(invariant);
+                }
                 else if (Match(TokenType.Var) || Match(TokenType.Let) || Match(TokenType.Const))
                 {
                     string keyword = Previous.Text;
@@ -516,6 +551,15 @@ namespace Contract.Compiler.Parsing
 
             Consume(TokenType.RParen, "Expected ')' after parameters");
 
+            // Parse requires clauses before the body
+            while (Match(TokenType.Requires))
+            {
+                var reqLine = Previous.Line;
+                var reqCol = Previous.Column;
+                var condition = ParseExpression();
+                ctor.Requires.Add(new RequiresClause(condition, reqLine, reqCol));
+            }
+
             if (Match(TokenType.LBrace))
             {
                 ctor.Body = ParseBlock();
@@ -600,6 +644,22 @@ namespace Contract.Compiler.Parsing
                 }
             }
 
+            // Parse requires/ensures clauses before the body
+            while (Match(TokenType.Requires))
+            {
+                var reqLine = Previous.Line;
+                var reqCol = Previous.Column;
+                var condition = ParseExpression();
+                function.Requires.Add(new RequiresClause(condition, reqLine, reqCol));
+            }
+            while (Match(TokenType.Ensures))
+            {
+                var ensLine = Previous.Line;
+                var ensCol = Previous.Column;
+                var condition = ParseExpression();
+                function.Ensures.Add(new EnsuresClause(condition, ensLine, ensCol));
+            }
+
             if (Match(TokenType.LBrace))
             {
                 function.Body = ParseBlock();
@@ -610,6 +670,58 @@ namespace Contract.Compiler.Parsing
             }
 
             return function;
+        }
+
+        private ExtendDeclaration ParseExtend()
+        {
+            int line = Previous.Line;
+            int column = Previous.Column;
+
+            string targetType = ParseType();
+            var extend = new ExtendDeclaration(targetType, line, column)
+            {
+                SourceFile = _sourceFile,
+                Namespace = _currentNamespace,
+            };
+
+            Consume(TokenType.LBrace, "Expected '{' after extend target type");
+
+            while (!Check(TokenType.RBrace) && !IsAtEnd())
+            {
+                int startPos = _current;
+
+                AccessModifier access = AccessModifier.Default;
+                if (Match(TokenType.Public)) access = AccessModifier.Public;
+                else if (Match(TokenType.Private)) access = AccessModifier.Private;
+                else if (Match(TokenType.Protected)) access = AccessModifier.Protected;
+                else if (Match(TokenType.Internal)) access = AccessModifier.Internal;
+
+                bool isStatic = Match(TokenType.Static);
+
+                if (MatchFn())
+                {
+                    var function = ParseFunction();
+                    function.IsExtension = true;
+                    function.ExtensionTargetType = targetType;
+                    function.IsStatic = true; // extension methods are always static
+                    function.Access = access;
+                    extend.Methods.Add(function);
+                }
+                else
+                {
+                    AddError($"Expected function declaration in extend block, got {Current.Type}", Current.Line, Current.Column);
+                    Advance();
+                }
+
+                if (_current == startPos && !IsAtEnd())
+                {
+                    Advance();
+                }
+            }
+
+            Consume(TokenType.RBrace, "Expected '}' after extend body");
+
+            return extend;
         }
     }
 }

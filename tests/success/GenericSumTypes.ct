@@ -1,0 +1,17 @@
+import __builtin.std;
+
+type Result<T, E> {
+    Ok(value: T)
+  | Err(error: E)
+}
+
+type Pair<A, B> {
+    First(a: A, b: B)
+  | Second(x: A)
+}
+
+Contract Program {
+    static fn Main() {
+        IO.Println("generic sum types compile ok");
+    }
+}

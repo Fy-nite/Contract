@@ -40,6 +40,7 @@ namespace Contract.Compiler.AST
         public List<StructDeclaration> Structs { get; } = new();
         public List<EnumDeclaration> Enums { get; } = new();
         public List<FunctionDeclaration> Functions { get; } = new();
+        public List<ExtendDeclaration> Extensions { get; } = new();
 
         /// <summary>
         /// Compiled modules pulled in via <c>import "lib.orbt";</c> (DLL-style
@@ -109,6 +110,9 @@ namespace Contract.Compiler.AST
 
         /// <summary>True when this contract (transitively) inherits from the built-in Attribute type. Set by the analyzer.</summary>
         public bool IsAttributeType { get; set; }
+
+        /// <summary>Invariant clauses (design-by-contract): expressions that must hold after every field write.</summary>
+        public List<InvariantClause> Invariants { get; } = new();
 
         /// <summary>
         /// When the contract is marked <c>&lt;NativeBinding("Module")&gt;</c>, the
@@ -237,6 +241,9 @@ namespace Contract.Compiler.AST
         public BlockStatement? Body { get; set; }
         public List<AttributeUsage> Attributes { get; } = new();
 
+        /// <summary>Pre-condition clauses (design-by-contract).</summary>
+        public List<RequiresClause> Requires { get; } = new();
+
         public ConstructorDeclaration(int line, int column) : base(line, column) { }
     }
 
@@ -265,6 +272,16 @@ namespace Contract.Compiler.AST
         public List<TypeDescriptor> TypeArguments { get; } = new();
         public TypeDescriptor? ReturnType { get; set; }
         public List<AttributeUsage> Attributes { get; } = new();
+
+        /// <summary>Pre-condition clauses (design-by-contract).</summary>
+        public List<RequiresClause> Requires { get; } = new();
+        /// <summary>Post-condition clauses (design-by-contract).</summary>
+        public List<EnsuresClause> Ensures { get; } = new();
+
+        /// <summary>True when this is an extension method (declared inside an extend block).</summary>
+        public bool IsExtension { get; set; }
+        /// <summary>The target type of the extension method, when <see cref="IsExtension"/> is true.</summary>
+        public string? ExtensionTargetType { get; set; }
 
         public FunctionDeclaration(string name, int line, int column) : base(line, column)
         {
@@ -828,6 +845,68 @@ namespace Contract.Compiler.AST
         {
             Left = left;
             Right = right;
+        }
+    }
+
+    // ── Design-by-contract clauses ─────────────────────────────────
+
+    /// <summary>
+    /// A pre-condition clause: <c>requires expr</c>.
+    /// Attached to functions and constructors.
+    /// </summary>
+    public class RequiresClause : Node
+    {
+        public Expression Condition { get; }
+
+        public RequiresClause(Expression condition, int line, int column) : base(line, column)
+        {
+            Condition = condition;
+        }
+    }
+
+    /// <summary>
+    /// A post-condition clause: <c>ensures expr</c>.
+    /// The identifier <c>result</c> in the expression refers to the return value.
+    /// Attached to non-void functions only.
+    /// </summary>
+    public class EnsuresClause : Node
+    {
+        public Expression Condition { get; }
+
+        public EnsuresClause(Expression condition, int line, int column) : base(line, column)
+        {
+            Condition = condition;
+        }
+    }
+
+    /// <summary>
+    /// A class invariant: <c>invariant { expr; ... }</c>.
+    /// All expressions must hold after every field write.
+    /// Attached to contracts.
+    /// </summary>
+    public class InvariantClause : Node
+    {
+        public List<Expression> Conditions { get; } = new();
+
+        public InvariantClause(int line, int column) : base(line, column) { }
+    }
+
+    // ── Extension methods ──────────────────────────────────────────
+
+    /// <summary>
+    /// An extension method block: <c>extend Type { fn ... }</c>.
+    /// Declares methods that can be called as instance methods on the target type.
+    /// </summary>
+    public class ExtendDeclaration : Node
+    {
+        public string TargetType { get; }
+        public List<FunctionDeclaration> Methods { get; } = new();
+        public string? SourceFile { get; set; }
+        public string? Namespace { get; set; }
+
+        public ExtendDeclaration(string targetType, int line, int column) : base(line, column)
+        {
+            TargetType = targetType;
         }
     }
 }

@@ -168,6 +168,11 @@ namespace Contract.Compiler.Parsing
                     {
                         ParseSumType(program);
                     }
+                    else if (Match(TokenType.Extend))
+                    {
+                        var extend = ParseExtend();
+                        program.Extensions.Add(extend);
+                    }
                     else if (MatchFn())
                     {
                         var func = ParseFunction();

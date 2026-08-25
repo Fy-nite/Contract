@@ -519,9 +519,18 @@ public class IRCodeGenerator
             }
         }
 
+        // Inject requires checks at function entry
+        EmitRequiresChecks(ib, func.Requires, paramMap);
+
         if (func.Body != null)
         {
             GenerateStatement(ib, func.Body, paramMap);
+        }
+
+        // Inject ensures checks before implicit return
+        if (!_lastIsReturn && func.Ensures.Count > 0)
+        {
+            EmitEnsuresChecks(ib, func.Ensures, returnType, paramMap);
         }
 
         // Implicit return safety
@@ -1006,9 +1015,22 @@ public class IRCodeGenerator
             }
         }
 
+        // Inject requires checks at constructor entry
+        EmitRequiresChecks(ib, ctor.Requires, paramMap);
+
         if (ctor.Body != null)
         {
             GenerateStatement(ib, ctor.Body, paramMap);
+        }
+
+        // Inject invariant checks at constructor exit
+        if (_currentContractName != null && _program != null)
+        {
+            var contract = _program.Contracts.FirstOrDefault(c => c.Name == _currentContractName || c.FullName == _currentContractName);
+            if (contract != null && contract.Invariants.Count > 0)
+            {
+                EmitInvariantChecks(ib, contract, paramMap);
+            }
         }
 
         if (!_lastIsReturn)
@@ -2048,6 +2070,7 @@ public class IRCodeGenerator
                 // receiver must be pushed FIRST (before the arguments) to land
                 // in locals[0]. (Delegates keep the receiver-last convention.)
                 bool isInstanceCall = call.Symbol is FunctionDeclaration instCallFunc && instCallFunc.IsInstance;
+                bool isExtensionCall = call.Symbol is FunctionDeclaration extCheck && extCheck.IsExtension;
 
                 // A bare call to a sibling instance method (method() inside an
                 // instance method of the same contract) implicitly passes
@@ -2064,6 +2087,11 @@ public class IRCodeGenerator
                         GenerateExpression(ib, recvMem.Object, paramMap);
                     else if (call.Callee is IdentifierExpression recvSelf)
                         ib.Ldarg(_thisArgIndex!.Value);
+                }
+                else if (isExtensionCall && call.Callee is MemberExpression extRecv)
+                {
+                    // Extension method: push the receiver as the first argument
+                    GenerateExpression(ib, extRecv.Object, paramMap);
                 }
 
                 // Push arguments to stack
@@ -2100,6 +2128,23 @@ public class IRCodeGenerator
                         MapTypeFromSystemType(em.Info.ReturnType),
                         em.Info.GetParameters().Select(p => MapTypeFromSystemType(p.ParameterType)).ToList()
                     );
+                    ib.Call(target);
+                }
+                else if (call.Symbol is FunctionDeclaration extFunc && extFunc.IsExtension)
+                {
+                    // Extension method call: obj.method(args) → Type.Method(obj, args).
+                    // The receiver is the first argument to the static method.
+                    var returnType = extFunc.ReturnType != null
+                        ? MapType(extFunc.ReturnType)
+                        : TypeRef.Int32;
+                    var paramTypes = extFunc.Parameters.Select(p => MapType(p.Type)).ToList();
+                    // The extension method's first parameter is the receiver type;
+                    // we already pushed the receiver above via the argument loop.
+                    var target = new MethodReference(
+                        new TypeRef(extFunc.ExtensionTargetType ?? "TODO"),
+                        extFunc.Name,
+                        returnType,
+                        paramTypes);
                     ib.Call(target);
                 }
                 else if (call.Symbol is FunctionDeclaration instanceFunc && instanceFunc.IsInstance)
@@ -3201,4 +3246,95 @@ public class IRCodeGenerator
 
     private string? GetSourceLine(int line) 
         => (line > 0 && line <= _sourceLines.Length) ? _sourceLines[line - 1] : null;
+
+    // ── Design-by-contract codegen ─────────────────────────────────
+
+    /// <summary>
+    /// Emits requires checks at function/constructor entry. Each condition is
+    /// evaluated; if false, a fault string is thrown.
+    /// </summary>
+    private void EmitRequiresChecks(InstructionBuilder ib, List<RequiresClause> requires, Dictionary<string, int> paramMap)
+    {
+        foreach (var req in requires)
+        {
+            GenerateExpression(ib, req.Condition, paramMap);
+            ib.If("stack",
+                then => { /* condition true: continue */ },
+                els =>
+                {
+                    els.Ldstr($"requires: {GetSourceLine(req.Line)?.Trim() ?? "contract violation"}");
+                    els.Throw();
+                });
+        }
+    }
+
+    /// <summary>
+    /// Emits ensures checks before the implicit return. The return value is
+    /// captured in a temp, the ensures condition is checked, and if it fails
+    /// a fault is thrown. The temp is then reloaded for the actual return.
+    /// </summary>
+    private void EmitEnsuresChecks(InstructionBuilder ib, List<EnsuresClause> ensures, TypeRef returnType, Dictionary<string, int> paramMap)
+    {
+        if (ensures.Count == 0) return;
+        if (returnType == TypeRef.Void) return;
+
+        // Capture the default return value in a temp
+        string tempName = $"__ensures_result_{_lambdaCounter++}";
+        EnsureLocal(ib, tempName, returnType);
+
+        // The implicit return already loaded a default value onto the stack.
+        // Store it in the temp.
+        ib.Stloc(tempName);
+
+        foreach (var ens in ensures)
+        {
+            // Set up 'result' local with the temp value for the ensures expression
+            EnsureLocal(ib, "result", returnType);
+            ib.Ldloc(tempName);
+            ib.Stloc("result");
+
+            // Generate the ensures condition
+            GenerateExpression(ib, ens.Condition, paramMap);
+
+            ib.If("stack",
+                then => { /* condition true: continue */ },
+                els =>
+                {
+                    els.Ldstr($"ensures: {GetSourceLine(ens.Line)?.Trim() ?? "contract violation"}");
+                    els.Throw();
+                });
+        }
+
+        // Reload the temp for the actual return
+        ib.Ldloc(tempName);
+    }
+
+    /// <summary>
+    /// Emits invariant checks for a contract. Each invariant condition is
+    /// evaluated with 'this' on the stack; if false, a fault is thrown.
+    /// </summary>
+    private void EmitInvariantChecks(InstructionBuilder ib, ContractDeclaration contract, Dictionary<string, int> paramMap)
+    {
+        foreach (var inv in contract.Invariants)
+        {
+            foreach (var cond in inv.Conditions)
+            {
+                var endLabel = $"__invariant_end_{_lambdaCounter++}";
+
+                // Load 'this' for the invariant expression
+                if (paramMap.TryGetValue("this", out int thisIdx))
+                    ib.Ldarg(thisIdx);
+
+                GenerateExpression(ib, cond, paramMap);
+
+                ib.If("stack",
+                    then => { /* condition true: continue */ },
+                    els =>
+                    {
+                        els.Ldstr($"invariant on '{contract.Name}' violated");
+                        els.Throw();
+                    });
+            }
+        }
+    }
 }

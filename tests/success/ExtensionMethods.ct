@@ -1,0 +1,29 @@
+import __builtin.std;
+
+extend string {
+    fn shout() -> string {
+        return this + "!!!";
+    }
+
+    fn exclaim() -> string {
+        return this + "!";
+    }
+}
+
+extend int {
+    fn isEven() -> bool {
+        return this % 2 == 0;
+    }
+}
+
+Contract Program {
+    static fn Main() {
+        var s = "hello";
+        var loud = s.shout();
+        IO.Println(loud);
+
+        var n = 4;
+        var even = n.isEven();
+        IO.Println("extension methods ok");
+    }
+}

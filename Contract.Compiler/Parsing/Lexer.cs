@@ -51,7 +51,11 @@ namespace Contract.Compiler.Parsing
             ["finally"] = TokenType.Finally,
             ["throw"] = TokenType.Throw,
             ["match"] = TokenType.Match,
-            ["in"] = TokenType.In
+            ["in"] = TokenType.In,
+            ["requires"] = TokenType.Requires,
+            ["ensures"] = TokenType.Ensures,
+            ["invariant"] = TokenType.Invariant,
+            ["extend"] = TokenType.Extend
         };
 
         public Lexer(string source, DiagnosticBag diagnostics, string? sourceFile = null)

@@ -7,6 +7,7 @@ namespace Contract.Compiler.Parsing
         Public, Private, Protected, Internal, Null, Import, Constructor, Struct, Export, Fun, Types, Type, New,
         Break, Continue, True, False, Enum, Namespace,
         Try, Catch, Finally, Throw, Match, In,
+        Requires, Ensures, Invariant, Extend,
 
         // Literals
         Identifier, IntLiteral, FloatLiteral, StringLiteral, InterpolatedString,
