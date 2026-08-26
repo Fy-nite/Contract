@@ -9,7 +9,7 @@ namespace Contract.Compiler.Documentation;
 
 /// <summary>
 /// Generates HTML documentation from extracted doc blocks.
-/// Produces a single-file static site with navigation and search.
+/// Produces a single-file static site with responsive layout, navigation and search.
 /// </summary>
 public class DocGenerator
 {
@@ -82,12 +82,22 @@ public class DocGenerator
         sb.AppendLine("</head>");
         sb.AppendLine("<body>");
 
+        // Mobile nav toggle
+        sb.AppendLine("<button class=\"nav-toggle\" id=\"nav-toggle\" aria-label=\"Toggle navigation\">");
+        sb.AppendLine("  <span></span><span></span><span></span>");
+        sb.AppendLine("</button>");
+
+        // Overlay for mobile sidebar
+        sb.AppendLine("<div class=\"nav-overlay\" id=\"nav-overlay\"></div>");
+
         // Sidebar
-        sb.AppendLine("<nav class=\"sidebar\">");
-        sb.AppendLine($"  <h2>{WebUtility.HtmlEncode(_options.Title)}</h2>");
+        sb.AppendLine("<nav class=\"sidebar\" id=\"sidebar\">");
+        sb.AppendLine("  <div class=\"sidebar-header\">");
+        sb.AppendLine($"    <h1 class=\"sidebar-title\">{WebUtility.HtmlEncode(_options.Title)}</h1>");
         if (_options.Version != null)
-            sb.AppendLine($"  <span class=\"version\">v{WebUtility.HtmlEncode(_options.Version)}</span>");
-        sb.AppendLine("  <input type=\"text\" id=\"search\" placeholder=\"Search...\" autocomplete=\"off\">");
+            sb.AppendLine($"    <span class=\"version\">v{WebUtility.HtmlEncode(_options.Version)}</span>");
+        sb.AppendLine("  </div>");
+        sb.AppendLine("  <input type=\"text\" id=\"search\" placeholder=\"Search declarations...\" autocomplete=\"off\">");
         sb.AppendLine("  <ul id=\"nav-list\">");
 
         // Root declarations
@@ -95,7 +105,7 @@ public class DocGenerator
         {
             sb.AppendLine("    <li class=\"nav-section\">Root</li>");
             foreach (var doc in rootDocs.OrderBy(d => d.Name))
-                sb.AppendLine($"      <li><a href=\"#-{WebUtility.HtmlEncode(doc.Name)}\" data-kind=\"{doc.Kind}\">{WebUtility.HtmlEncode(doc.Name)}</a></li>");
+                sb.AppendLine($"      <li><a href=\"#-{WebUtility.HtmlEncode(doc.Name)}\" data-kind=\"{doc.Kind}\"><span class=\"kind-dot\"></span>{WebUtility.HtmlEncode(doc.Name)}</a></li>");
         }
 
         // Namespaces
@@ -103,17 +113,21 @@ public class DocGenerator
         {
             sb.AppendLine($"    <li class=\"nav-section\">{WebUtility.HtmlEncode(ns.Key)}</li>");
             foreach (var doc in ns.OrderBy(d => d.Name))
-                sb.AppendLine($"      <li><a href=\"#-{WebUtility.HtmlEncode(doc.Name)}\" data-kind=\"{doc.Kind}\">{WebUtility.HtmlEncode(doc.Name)}</a></li>");
+                sb.AppendLine($"      <li><a href=\"#-{WebUtility.HtmlEncode(doc.Name)}\" data-kind=\"{doc.Kind}\"><span class=\"kind-dot\"></span>{WebUtility.HtmlEncode(doc.Name)}</a></li>");
         }
 
         sb.AppendLine("  </ul>");
         sb.AppendLine("</nav>");
 
         // Main content
-        sb.AppendLine("<main class=\"content\">");
+        sb.AppendLine("<main class=\"content\" id=\"content\">");
 
+        // Page header
+        sb.AppendLine("  <header class=\"page-header\">");
+        sb.AppendLine($"    <h1>{WebUtility.HtmlEncode(_options.Title)}</h1>");
         if (_options.Description != null)
-            sb.AppendLine($"  <p class=\"description\">{WebUtility.HtmlEncode(_options.Description)}</p>");
+            sb.AppendLine($"    <p class=\"description\">{WebUtility.HtmlEncode(_options.Description)}</p>");
+        sb.AppendLine("  </header>");
 
         // Render root declarations
         foreach (var doc in rootDocs.OrderBy(d => d.Name))
@@ -122,14 +136,16 @@ public class DocGenerator
         // Render by namespace
         foreach (var ns in byNamespace)
         {
-            sb.AppendLine($"  <h2 class=\"namespace\">{WebUtility.HtmlEncode(ns.Key)}</h2>");
+            sb.AppendLine($"  <section class=\"ns-section\">");
+            sb.AppendLine($"    <h2 class=\"namespace\">{WebUtility.HtmlEncode(ns.Key)}</h2>");
             foreach (var doc in ns.OrderBy(d => d.Name))
                 RenderDocBlock(sb, doc);
+            sb.AppendLine("  </section>");
         }
 
         sb.AppendLine("</main>");
 
-        // Search script
+        // Search + nav script
         sb.AppendLine("<script>");
         sb.AppendLine(EmbeddedScript());
         sb.AppendLine("</script>");
@@ -143,41 +159,83 @@ public class DocGenerator
     private void RenderDocBlock(StringBuilder sb, DocCommentExtractor.DocBlock doc)
     {
         string id = $"-{doc.Name}";
-        sb.AppendLine($"  <div class=\"decl\" id=\"{WebUtility.HtmlEncode(id)}\" data-kind=\"{doc.Kind}\">");
+        string kindClass = doc.Kind.Replace(" ", "-");
+
+        sb.AppendLine($"  <article class=\"decl\" id=\"{WebUtility.HtmlEncode(id)}\" data-kind=\"{doc.Kind}\">");
+
+        // Header row
         sb.AppendLine("    <div class=\"decl-header\">");
-        sb.AppendLine($"      <span class=\"kind-badge {doc.Kind}\">{WebUtility.HtmlEncode(doc.Kind)}</span>");
+        sb.AppendLine($"      <span class=\"kind-badge {kindClass}\">{WebUtility.HtmlEncode(doc.Kind)}</span>");
         sb.AppendLine($"      <h3 class=\"decl-name\">{WebUtility.HtmlEncode(doc.Name)}</h3>");
-        if (!string.IsNullOrEmpty(doc.ReturnType))
+
+        // Modifiers
+        if (doc.Modifiers.Count > 0)
         {
-            string arrow = doc.Kind == "field" ? ":" : "-&gt;";
-            sb.AppendLine($"      <span class=\"type-chip\">{arrow}&nbsp;{WebUtility.HtmlEncode(doc.ReturnType)}</span>");
+            sb.AppendLine("      <span class=\"modifiers\">");
+            foreach (var mod in doc.Modifiers)
+                sb.Append($"<span class=\"mod\">{WebUtility.HtmlEncode(mod)}</span>");
+            sb.AppendLine("      </span>");
         }
+
+        // Type parameters
+        if (doc.TypeParameters.Count > 0)
+        {
+            sb.AppendLine($"      <span class=\"type-params\">&lt;{WebUtility.HtmlEncode(string.Join(", ", doc.TypeParameters))}&gt;</span>");
+        }
+
+        // Base / interface types
+        if (doc.BaseType != null || doc.InterfaceTypes.Count > 0)
+        {
+            sb.Append("      <span class=\"extends\">: ");
+            var parts = new List<string>();
+            if (doc.BaseType != null) parts.Add(WebUtility.HtmlEncode(doc.BaseType));
+            foreach (var iface in doc.InterfaceTypes) parts.Add(WebUtility.HtmlEncode(iface));
+            sb.Append(string.Join(", ", parts));
+            sb.AppendLine("</span>");
+        }
+
         sb.AppendLine("    </div>");
 
-        sb.AppendLine($"    <pre class=\"signature\">{RenderSignature(doc)}</pre>");
+        // Signature
+        sb.AppendLine($"    <pre class=\"signature\"><code>{RenderSignature(doc)}</code></pre>");
 
+        // Attributes
+        if (doc.Attributes.Count > 0)
+        {
+            sb.AppendLine("    <div class=\"attributes\">");
+            foreach (var attr in doc.Attributes)
+                sb.AppendLine($"      <span class=\"attr\">{WebUtility.HtmlEncode(attr)}</span>");
+            sb.AppendLine("    </div>");
+        }
+
+        // Summary
         if (doc.Summary != null)
             sb.AppendLine($"    <p class=\"summary\">{WebUtility.HtmlEncode(doc.Summary)}</p>");
 
+        // Parameters table
         var paramRows = OrderedParams(doc);
         if (paramRows.Count > 0)
         {
             sb.AppendLine("    <div class=\"params\">");
             sb.AppendLine("      <h4>Parameters</h4>");
-            sb.AppendLine("      <div class=\"param-list\">");
+            sb.AppendLine("      <table class=\"param-table\">");
+            sb.AppendLine("        <thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>");
+            sb.AppendLine("        <tbody>");
             foreach (var (paramName, paramType) in paramRows)
             {
                 doc.Params.TryGetValue(paramName, out var paramDoc);
-                sb.AppendLine("        <div class=\"param-row\">");
-                sb.AppendLine($"          <span class=\"param-name\">{WebUtility.HtmlEncode(paramName)}</span>");
-                sb.AppendLine($"          <span class=\"param-type\">{WebUtility.HtmlEncode(paramType ?? "")}</span>");
-                sb.AppendLine($"          <span class=\"param-desc\">{WebUtility.HtmlEncode(paramDoc ?? "")}</span>");
-                sb.AppendLine("        </div>");
+                sb.AppendLine("          <tr>");
+                sb.AppendLine($"            <td class=\"param-name\"><code>{WebUtility.HtmlEncode(paramName)}</code></td>");
+                sb.AppendLine($"            <td class=\"param-type\"><code>{WebUtility.HtmlEncode(paramType ?? "")}</code></td>");
+                sb.AppendLine($"            <td class=\"param-desc\">{WebUtility.HtmlEncode(paramDoc ?? "")}</td>");
+                sb.AppendLine("          </tr>");
             }
-            sb.AppendLine("      </div>");
+            sb.AppendLine("        </tbody>");
+            sb.AppendLine("      </table>");
             sb.AppendLine("    </div>");
         }
 
+        // Returns
         if (doc.ReturnType != null || doc.Returns != null)
         {
             sb.AppendLine("    <div class=\"returns\">");
@@ -191,23 +249,25 @@ public class DocGenerator
             sb.AppendLine("    </div>");
         }
 
+        // Remarks
         if (doc.Remarks != null)
             sb.AppendLine($"    <div class=\"remarks\"><h4>Remarks</h4><p>{WebUtility.HtmlEncode(doc.Remarks)}</p></div>");
 
+        // Example
         if (doc.Example != null)
-            sb.AppendLine($"    <div class=\"example\"><h4>Example</h4><pre>{WebUtility.HtmlEncode(doc.Example)}</pre></div>");
+            sb.AppendLine($"    <div class=\"example\"><h4>Example</h4><pre><code>{WebUtility.HtmlEncode(doc.Example)}</code></pre></div>");
 
-        // Render children (nested members)
+        // Children (nested members)
         if (doc.Children.Count > 0)
         {
             sb.AppendLine("    <div class=\"members\">");
-            sb.AppendLine("      <h4>Members</h4>");
+            sb.AppendLine($"      <h4>Members <span class=\"member-count\">({doc.Children.Count})</span></h4>");
             foreach (var child in doc.Children.OrderBy(c => c.Name))
                 RenderDocBlock(sb, child);
             sb.AppendLine("    </div>");
         }
 
-        sb.AppendLine("  </div>");
+        sb.AppendLine("  </article>");
     }
 
     /// <summary>
@@ -224,7 +284,6 @@ public class DocGenerator
         foreach (var mod in doc.Modifiers)
             sb.Append($"<span class=\"sig-mod\">{WebUtility.HtmlEncode(mod)}</span> ");
 
-        // Constructors carry no separate name; the keyword is the whole head.
         bool isCtor = doc.Keyword?.Equals("constructor", StringComparison.OrdinalIgnoreCase) == true;
         if (doc.Keyword != null)
             sb.Append($"<span class=\"sig-kw\">{WebUtility.HtmlEncode(doc.Keyword)}</span>");
@@ -233,6 +292,17 @@ public class DocGenerator
         if (!isCtor)
             sb.Append($"<span class=\"sig-name\">{WebUtility.HtmlEncode(doc.Name)}</span>");
 
+        if (doc.TypeParameters.Count > 0 && !isCtor)
+        {
+            sb.Append("<span class=\"sig-type-params\">&lt;");
+            for (int i = 0; i < doc.TypeParameters.Count; i++)
+            {
+                if (i > 0) sb.Append(", ");
+                sb.Append($"<span class=\"sig-type\">{WebUtility.HtmlEncode(doc.TypeParameters[i])}</span>");
+            }
+            sb.Append("&gt;</span>");
+        }
+
         if (doc.HasParenList)
         {
             sb.Append('(');
@@ -240,11 +310,9 @@ public class DocGenerator
             {
                 if (i > 0) sb.Append(", ");
                 var p = doc.Parameters[i];
-                sb.Append("<span class=\"sig-param\">");
                 sb.Append($"<span class=\"sig-pname\">{WebUtility.HtmlEncode(p.Name)}</span>");
                 if (p.Type != null)
                     sb.Append($": <span class=\"sig-type\">{WebUtility.HtmlEncode(p.Type)}</span>");
-                sb.Append("</span>");
             }
             sb.Append(')');
             if (doc.ReturnType != null)
@@ -354,7 +422,7 @@ public class DocGenerator
             if (doc.ReturnType != null)
                 line += $" `{doc.ReturnType}`";
             if (doc.Returns != null)
-                line += (doc.ReturnType != null ? " — " : " ") + doc.Returns;
+                line += (doc.ReturnType != null ? " -- " : " ") + doc.Returns;
             sb.AppendLine(line + "\n");
         }
 
@@ -377,72 +445,555 @@ public class DocGenerator
     }
 
     private static string EmbeddedCss() => @"
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; min-height: 100vh; background: #0d1117; color: #c9d1d9; }
-      .sidebar { width: 280px; background: #161b22; border-right: 1px solid #30363d; padding: 20px; position: fixed; height: 100vh; overflow-y: auto; }
-      .sidebar h2 { font-size: 16px; color: #58a6ff; margin-bottom: 4px; }
-      .version { font-size: 12px; color: #8b949e; }
-      .sidebar input { width: 100%; padding: 8px; margin: 12px 0; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; font-size: 13px; }
-      .sidebar ul { list-style: none; }
-      .sidebar li a { display: block; padding: 4px 8px; color: #c9d1d9; text-decoration: none; border-radius: 4px; font-size: 13px; }
-      .sidebar li a:hover { background: #21262d; }
-      .sidebar li a[data-kind=""contract""]::before { content: 'C '; color: #f0883e; font-weight: bold; }
-      .sidebar li a[data-kind=""struct""]::before { content: 'S '; color: #a371f7; font-weight: bold; }
-      .sidebar li a[data-kind=""enum""]::before { content: 'E '; color: #3fb950; font-weight: bold; }
-      .sidebar li a[data-kind=""function""]::before { content: 'f '; color: #58a6ff; font-weight: bold; }
-      .sidebar li a[data-kind=""constructor""]::before { content: 'ct '; color: #d2a8ff; font-weight: bold; }
-      .sidebar li a[data-kind=""field""]::before { content: 'F '; color: #8b949e; font-weight: bold; }
-      .nav-section { font-size: 11px; text-transform: uppercase; color: #8b949e; padding: 8px 8px 2px; letter-spacing: 0.5px; }
-      .content { margin-left: 280px; padding: 40px; max-width: 900px; }
-      .description { color: #8b949e; margin-bottom: 24px; font-size: 15px; }
-      .decl { margin-bottom: 32px; padding-bottom: 24px; border-bottom: 1px solid #21262d; }
-      .decl-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-      .decl-name { font-size: 20px; color: #f0f6fc; }
-      .kind-badge { font-size: 11px; padding: 2px 8px; border-radius: 12px; font-weight: 600; text-transform: uppercase; }
-      .kind-badge.contract { background: #f0883e22; color: #f0883e; }
-      .kind-badge.struct { background: #a371f722; color: #a371f7; }
-      .kind-badge.enum { background: #3fb95022; color: #3fb950; }
-      .kind-badge.function { background: #58a6ff22; color: #58a6ff; }
-      .kind-badge.constructor { background: #d2a8ff22; color: #d2a8ff; }
-      .kind-badge.field { background: #8b949e22; color: #8b949e; }
-      .type-chip { font-family: 'SF Mono', Consolas, monospace; font-size: 12px; font-weight: 600; color: #3fb950; background: #3fb95022; padding: 2px 8px; border-radius: 12px; }
-      .signature { background: #161b22; padding: 12px 16px; border-radius: 6px; border: 1px solid #30363d; font-family: 'SF Mono', Consolas, monospace; font-size: 13px; color: #e6edf3; overflow-x: auto; margin: 8px 0; }
-      .sig-mod { color: #f0883e; }
-      .sig-kw { color: #ff7b72; }
-      .sig-name { color: #79c0ff; font-weight: 600; }
-      .sig-pname { color: #ffa657; }
-      .sig-type { color: #a5d6ff; }
-      .sig-arrow { color: #8b949e; }
-      .summary { margin: 8px 0; line-height: 1.6; }
-      .params h4, .returns h4, .remarks h4, .example h4 { font-size: 13px; color: #8b949e; margin: 12px 0 6px; }
-      .param-list { display: grid; grid-template-columns: minmax(90px, max-content) minmax(110px, max-content) 1fr; gap: 5px 20px; align-items: baseline; }
-      .param-name { font-family: 'SF Mono', Consolas, monospace; font-size: 13px; color: #ffa657; }
-      .param-type { font-family: 'SF Mono', Consolas, monospace; font-size: 13px; color: #a5d6ff; }
-      .param-desc { font-size: 14px; }
-      .returns p { font-size: 14px; line-height: 1.6; }
-      .ret-type { font-family: 'SF Mono', Consolas, monospace; font-size: 13px; color: #3fb950; background: #161b22; border: 1px solid #30363d; padding: 1px 6px; border-radius: 4px; }
-      .remarks p { font-size: 14px; line-height: 1.6; }
-      .example pre { background: #161b22; padding: 12px 16px; border-radius: 6px; border: 1px solid #30363d; font-family: 'SF Mono', Consolas, monospace; font-size: 13px; overflow-x: auto; }
-      .namespace { color: #58a6ff; margin: 32px 0 16px; font-size: 18px; border-bottom: 1px solid #21262d; padding-bottom: 8px; }
-      .members { margin-left: 20px; padding-left: 16px; border-left: 2px solid #21262d; }
-      .hidden { display: none; }
-    ";
+/* ── Reset & base ─────────────────────────────────────────── */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg: #111216;
+  --bg-raised: #18191e;
+  --bg-surface: #1e2028;
+  --bg-hover: #252830;
+  --border: #2a2d37;
+  --border-subtle: #22242c;
+  --text: #d1d5de;
+  --text-dim: #888d9a;
+  --text-muted: #5c6070;
+  --accent: #6e8efb;
+  --accent-dim: #4a629c;
+  --kind-contract: #e8945a;
+  --kind-struct: #b686e8;
+  --kind-enum: #5cc98e;
+  --kind-function: #6e8efb;
+  --kind-constructor: #d4a0e8;
+  --kind-field: #888d9a;
+  --kind-extension: #e8c85a;
+  --sig-kw: #e06070;
+  --sig-name: #7cb5f5;
+  --sig-pname: #e8a860;
+  --sig-type: #80c8f0;
+  --sig-mod: #e8945a;
+  --mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace;
+  --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --sidebar-w: 272px;
+  --content-pad: clamp(16px, 3vw, 48px);
+}
+
+html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+body {
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--text);
+  background: var(--bg);
+  display: flex;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Mobile nav toggle ─────────────────────────────────────── */
+.nav-toggle {
+  display: none;
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 1001;
+  width: 40px;
+  height: 40px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.nav-toggle span {
+  display: block;
+  width: 18px;
+  height: 2px;
+  background: var(--text);
+  border-radius: 1px;
+  transition: transform 0.2s, opacity 0.2s;
+}
+.nav-toggle.open span:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+.nav-toggle.open span:nth-child(2) { opacity: 0; }
+.nav-toggle.open span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+
+.nav-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 999;
+  backdrop-filter: blur(2px);
+}
+
+/* ── Sidebar ───────────────────────────────────────────────── */
+.sidebar {
+  width: var(--sidebar-w);
+  background: var(--bg-raised);
+  border-right: 1px solid var(--border);
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.sidebar-header {
+  padding: 24px 20px 8px;
+}
+.sidebar-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+.version {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--bg-surface);
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-top: 6px;
+  font-family: var(--mono);
+}
+.sidebar input {
+  display: block;
+  width: calc(100% - 40px);
+  margin: 12px 20px;
+  padding: 8px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: var(--sans);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.sidebar input:focus { border-color: var(--accent-dim); }
+.sidebar ul {
+  list-style: none;
+  padding: 0 8px 24px;
+  flex: 1;
+}
+.sidebar li a {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  color: var(--text-dim);
+  text-decoration: none;
+  border-radius: 5px;
+  font-size: 13px;
+  transition: color 0.12s, background 0.12s;
+}
+.sidebar li a:hover { color: var(--text); background: var(--bg-hover); }
+.sidebar li a.active { color: var(--text); background: var(--bg-surface); }
+
+/* Kind indicators in nav */
+.sidebar li a .kind-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.sidebar li a[data-kind=""contract""] .kind-dot { background: var(--kind-contract); }
+.sidebar li a[data-kind=""struct""] .kind-dot { background: var(--kind-struct); }
+.sidebar li a[data-kind=""enum""] .kind-dot { background: var(--kind-enum); }
+.sidebar li a[data-kind=""function""] .kind-dot { background: var(--kind-function); }
+.sidebar li a[data-kind=""constructor""] .kind-dot { background: var(--kind-constructor); }
+.sidebar li a[data-kind=""field""] .kind-dot { background: var(--kind-field); }
+.sidebar li a[data-kind=""extension""] .kind-dot { background: var(--kind-extension); }
+
+/* Fallback for links without .kind-dot (legacy markup) */
+.sidebar li a[data-kind=""contract""]::before { content: ''; }
+.sidebar li a[data-kind=""struct""]::before { content: ''; }
+.sidebar li a[data-kind=""enum""]::before { content: ''; }
+.sidebar li a[data-kind=""function""]::before { content: ''; }
+.sidebar li a[data-kind=""constructor""]::before { content: ''; }
+.sidebar li a[data-kind=""field""]::before { content: ''; }
+.sidebar li a[data-kind=""extension""]::before { content: ''; }
+
+.nav-section {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding: 16px 12px 4px;
+}
+
+/* ── Main content ──────────────────────────────────────────── */
+.content {
+  margin-left: var(--sidebar-w);
+  padding: var(--content-pad);
+  padding-top: clamp(24px, 3vw, 48px);
+  max-width: 780px;
+  width: 100%;
+}
+.page-header {
+  margin-bottom: 40px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.page-header h1 {
+  font-size: clamp(22px, 3vw, 30px);
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+.description {
+  color: var(--text-dim);
+  margin-top: 8px;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+/* ── Declaration blocks ────────────────────────────────────── */
+.decl {
+  margin-bottom: 36px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.decl:last-child { border-bottom: none; }
+
+.decl-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.decl-name {
+  font-size: clamp(17px, 2.2vw, 21px);
+  font-weight: 600;
+  color: #f0f2f8;
+  letter-spacing: -0.01em;
+}
+
+.kind-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+.kind-badge.contract { background: rgba(232,148,90,0.15); color: var(--kind-contract); }
+.kind-badge.struct { background: rgba(182,134,232,0.15); color: var(--kind-struct); }
+.kind-badge.enum { background: rgba(92,201,142,0.15); color: var(--kind-enum); }
+.kind-badge.function { background: rgba(110,142,251,0.15); color: var(--kind-function); }
+.kind-badge.constructor { background: rgba(212,160,232,0.15); color: var(--kind-constructor); }
+.kind-badge.field { background: rgba(136,141,154,0.15); color: var(--kind-field); }
+.kind-badge.extension { background: rgba(232,200,90,0.15); color: var(--kind-extension); }
+
+.modifiers {
+  display: inline-flex;
+  gap: 4px;
+}
+.mod {
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--sig-mod);
+  background: rgba(232,148,90,0.1);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.type-params, .extends {
+  font-size: 13px;
+  font-family: var(--mono);
+  color: var(--sig-type);
+}
+
+/* ── Signature ─────────────────────────────────────────────── */
+.signature {
+  background: var(--bg-raised);
+  padding: 12px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  font-family: var(--mono);
+  font-size: 13px;
+  color: #e2e5ed;
+  overflow-x: auto;
+  margin: 8px 0 12px;
+  line-height: 1.5;
+  -webkit-overflow-scrolling: touch;
+}
+.signature code { font-family: inherit; }
+.sig-mod { color: var(--sig-mod); }
+.sig-kw { color: var(--sig-kw); }
+.sig-name { color: var(--sig-name); font-weight: 600; }
+.sig-pname { color: var(--sig-pname); }
+.sig-type { color: var(--sig-type); }
+.sig-arrow { color: var(--text-muted); }
+.sig-type-params { color: var(--sig-type); }
+
+/* ── Attributes ────────────────────────────────────────────── */
+.attributes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+.attr {
+  font-size: 12px;
+  font-family: var(--mono);
+  color: var(--accent);
+  background: rgba(110,142,251,0.1);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+/* ── Summary ───────────────────────────────────────────────── */
+.summary {
+  margin: 8px 0 12px;
+  line-height: 1.65;
+  color: var(--text);
+}
+
+/* ── Parameters table ──────────────────────────────────────── */
+.params { margin: 12px 0; }
+.params h4, .returns h4, .remarks h4, .example h4 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 16px 0 8px;
+}
+.param-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.param-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  padding: 6px 12px 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.param-table td {
+  padding: 8px 12px 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: top;
+}
+.param-table td:first-child { padding-left: 0; }
+.param-name code {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--sig-pname);
+  background: none;
+  padding: 0;
+  border: none;
+}
+.param-type code {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--sig-type);
+  background: none;
+  padding: 0;
+  border: none;
+}
+.param-desc { color: var(--text-dim); }
+
+/* ── Returns ───────────────────────────────────────────────── */
+.returns p { font-size: 14px; line-height: 1.6; }
+.ret-type {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--kind-enum);
+  background: rgba(92,201,142,0.1);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+/* ── Remarks & Example ─────────────────────────────────────── */
+.remarks p { font-size: 14px; line-height: 1.65; }
+.example pre {
+  background: var(--bg-raised);
+  padding: 14px 18px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  font-family: var(--mono);
+  font-size: 13px;
+  overflow-x: auto;
+  line-height: 1.55;
+  -webkit-overflow-scrolling: touch;
+}
+.example code { font-family: inherit; }
+
+/* ── Namespace sections ─────────────────────────────────────── */
+.namespace {
+  color: var(--accent);
+  font-size: clamp(16px, 2vw, 20px);
+  font-weight: 600;
+  margin: 40px 0 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  letter-spacing: -0.01em;
+}
+
+/* ── Nested members ────────────────────────────────────────── */
+.members {
+  margin-top: 16px;
+  padding-left: 16px;
+  border-left: 2px solid var(--border);
+}
+.members h4 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 16px 0 8px;
+}
+.member-count { font-weight: 400; color: var(--text-muted); font-size: 11px; }
+
+/* ── Utilities ─────────────────────────────────────────────── */
+.hidden { display: none !important; }
+
+/* ── Responsive: tablet ─────────────────────────────────────── */
+@media (max-width: 860px) {
+  .content {
+    margin-left: 0;
+    max-width: 100%;
+  }
+  .sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 1000;
+    box-shadow: 4px 0 24px rgba(0,0,0,0.4);
+  }
+  .sidebar.open {
+    transform: translateX(0);
+  }
+  .nav-toggle { display: flex; }
+  .nav-overlay.visible { display: block; }
+
+  .content {
+    padding-top: 60px;
+  }
+
+  .param-table thead { display: none; }
+  .param-table, .param-table tbody, .param-table tr, .param-table td {
+    display: block;
+  }
+  .param-table tr {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .param-table td {
+    padding: 2px 0;
+    border: none;
+  }
+  .param-table td:first-child { font-weight: 600; }
+}
+
+/* ── Responsive: phone ──────────────────────────────────────── */
+@media (max-width: 480px) {
+  .page-header h1 { font-size: 20px; }
+  .decl-name { font-size: 17px; }
+  .signature { font-size: 12px; padding: 10px 12px; }
+  .members { padding-left: 10px; }
+  .decl { margin-bottom: 28px; padding-bottom: 20px; }
+}
+
+/* ── Print ──────────────────────────────────────────────────── */
+@media print {
+  .sidebar, .nav-toggle, .nav-overlay { display: none !important; }
+  .content { margin-left: 0; max-width: 100%; }
+  body { background: white; color: #1a1a1a; }
+  .signature { background: #f5f5f5; border-color: #ddd; }
+  .decl { page-break-inside: avoid; }
+}
+";
 
     private static string EmbeddedScript() => @"
-      const search = document.getElementById('search');
-      const navList = document.getElementById('nav-list');
-      const decls = document.querySelectorAll('.decl');
-      search.addEventListener('input', () => {
-        const q = search.value.toLowerCase();
-        navList.querySelectorAll('li a').forEach(a => {
-          const match = a.textContent.toLowerCase().includes(q);
-          a.parentElement.style.display = match || !q ? '' : 'none';
+(function() {
+  const sidebar = document.getElementById('sidebar');
+  const toggle = document.getElementById('nav-toggle');
+  const overlay = document.getElementById('nav-overlay');
+  const search = document.getElementById('search');
+  const navList = document.getElementById('nav-list');
+  const decls = document.querySelectorAll('.decl');
+  const navLinks = navList.querySelectorAll('li a');
+
+  // Mobile sidebar toggle
+  toggle.addEventListener('click', () => {
+    sidebar.classList.toggle('open');
+    toggle.classList.toggle('open');
+    overlay.classList.toggle('visible');
+  });
+  overlay.addEventListener('click', () => {
+    sidebar.classList.remove('open');
+    toggle.classList.remove('open');
+    overlay.classList.remove('visible');
+  });
+
+  // Close sidebar on nav click (mobile)
+  navLinks.forEach(a => {
+    a.addEventListener('click', () => {
+      if (window.innerWidth <= 860) {
+        sidebar.classList.remove('open');
+        toggle.classList.remove('open');
+        overlay.classList.remove('visible');
+      }
+    });
+  });
+
+  // Search
+  search.addEventListener('input', () => {
+    const q = search.value.toLowerCase();
+    navLinks.forEach(a => {
+      const match = a.textContent.toLowerCase().includes(q);
+      a.parentElement.style.display = match || !q ? '' : 'none';
+    });
+    // Also show/hide section headers when all their children are hidden
+    navList.querySelectorAll('.nav-section').forEach(sec => {
+      let next = sec.nextElementSibling;
+      let anyVisible = false;
+      while (next && !next.classList.contains('nav-section')) {
+        if (next.style.display !== 'none') anyVisible = true;
+        next = next.nextElementSibling;
+      }
+      sec.style.display = anyVisible || !q ? '' : 'none';
+    });
+    decls.forEach(d => {
+      const name = d.querySelector('.decl-name')?.textContent.toLowerCase() || '';
+      const sig = d.querySelector('.signature')?.textContent.toLowerCase() || '';
+      const summary = d.querySelector('.summary')?.textContent.toLowerCase() || '';
+      d.classList.toggle('hidden', q && !name.includes(q) && !sig.includes(q) && !summary.includes(q));
+    });
+  });
+
+  // Scrollspy: highlight current declaration in nav
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const id = entry.target.id;
+        navLinks.forEach(a => {
+          a.classList.toggle('active', a.getAttribute('href') === '#' + id);
         });
-        decls.forEach(d => {
-          const name = d.querySelector('.decl-name')?.textContent.toLowerCase() || '';
-          const sig = d.querySelector('.signature')?.textContent.toLowerCase() || '';
-          d.classList.toggle('hidden', q && !name.includes(q) && !sig.includes(q));
-        });
-      });
-    ";
+      }
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+
+  decls.forEach(d => observer.observe(d));
+})();
+";
 }

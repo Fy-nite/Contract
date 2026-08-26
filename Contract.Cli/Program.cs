@@ -799,13 +799,28 @@ Examples:
 
             Console.WriteLine($"Scanning {sourceFiles.Count} source file(s)...");
 
-            // Extract doc comments from each file
+            // Extract doc comments from each file using AST parsing
             var fileDocs = new Dictionary<string, List<Contract.Compiler.Documentation.DocCommentExtractor.DocBlock>>();
             foreach (var file in sourceFiles)
             {
                 string source = File.ReadAllText(file);
                 string relPath = Path.GetRelativePath(projectRoot, file);
-                var docs = Contract.Compiler.Documentation.DocCommentExtractor.ExtractFromSource(source, relPath);
+                List<Contract.Compiler.Documentation.DocCommentExtractor.DocBlock> docs;
+
+                // Try to parse the AST for richer type info; fall back to regex on parse errors
+                try
+                {
+                    var diags = new Contract.Compiler.Diagnostics.DiagnosticBag();
+                    var lexer = new Contract.Compiler.Parsing.Lexer(source, diags, file);
+                    var tokens = lexer.Tokenize();
+                    var parser = new Contract.Compiler.Parsing.Parser(tokens, diags, file);
+                    var program = parser.Parse();
+                    docs = Contract.Compiler.Documentation.DocCommentExtractor.ExtractFromAst(program, source, relPath);
+                }
+                catch
+                {
+                    docs = Contract.Compiler.Documentation.DocCommentExtractor.ExtractFromSource(source, relPath);
+                }
 
                 // Assign namespace from the project or file path
                 string ns = project?.Namespace ?? "";
