@@ -1,0 +1,39 @@
+import __builtin.std;
+
+Contract Program {
+    static fn Main() {
+        // Test basic try/catch with typed exception
+        try {
+            IO.Println("before throw");
+            throw "something went wrong";
+            IO.Println("this should not print");
+        } catch (string e) {
+            IO.Println("caught: " + e);
+        }
+
+        // Test catch-all
+        try {
+            throw 42;
+        } catch {
+            IO.Println("caught something");
+        }
+
+        // Test finally
+        try {
+            IO.Println("in try");
+        } finally {
+            IO.Println("in finally");
+        }
+
+        // Test finally with exception
+        try {
+            throw "error";
+        } catch {
+            IO.Println("caught in finally test");
+        } finally {
+            IO.Println("finally runs");
+        }
+
+        IO.Println("try/catch/finally tests passed");
+    }
+}

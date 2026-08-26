@@ -1789,6 +1789,50 @@ public class IRCodeGenerator
                 GenerateMatchExpression(ib, matchExpr, paramMap);
                 break;
 
+            case IsExpression isExpr:
+                // expr is TypeName — check runtime type via Isinst opcode
+                GenerateExpression(ib, isExpr.Value, paramMap);
+                // Resolve the type name to its wire name
+                string isTypeName = ResolveTypeName(isExpr.TypeName);
+                ib.Isinst(isTypeName);
+                // Isinst returns null if not the type, or the object if it is.
+                // We need a boolean, so check != null.
+                ib.Ldnull();
+                ib.Cne();
+                break;
+
+            case NullCoalesceExpression ncExpr:
+                // expr ?? default — desugar to: temp = expr; temp != null ? temp : default
+                GenerateExpression(ib, ncExpr.Left, paramMap);
+                var ncTemp = $"__nc_{_lambdaCounter++}";
+                EnsureLocal(ib, ncTemp, TypeRef.Object);
+                ib.Stloc(ncTemp);
+                ib.Ldloc(ncTemp);
+                ib.If("stack",
+                    then => then.Ldloc(ncTemp),
+                    els => GenerateExpression(els, ncExpr.Right, paramMap));
+                break;
+
+            case SafeAccessExpression safeExpr:
+                // expr?.member — desugar to: if (expr != null) { expr.member } else { null }
+                GenerateExpression(ib, safeExpr.Object, paramMap);
+                var saTemp = $"__safe_{_lambdaCounter++}";
+                EnsureLocal(ib, saTemp, TypeRef.Object);
+                ib.Stloc(saTemp);
+                ib.Ldloc(saTemp);
+                ib.If("stack",
+                    then =>
+                    {
+                        // Load the object and access the member
+                        then.Ldloc(saTemp);
+                        // Determine the field type
+                        string saTypeName = ResolveExpressionObjectType(safeExpr.Object);
+                        var saFieldType = FindFieldType(saTypeName, safeExpr.Property);
+                        then.Ldfld(new FieldReference(new TypeRef(saTypeName), safeExpr.Property, saFieldType));
+                    },
+                    els => els.Ldnull());
+                break;
+
             case IdentifierExpression id:
                 if (id.Name == "this" && _thisArgIndex != null)
                 {

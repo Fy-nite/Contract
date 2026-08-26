@@ -1916,6 +1916,21 @@ namespace Contract.Compiler.Semantics
                 case MatchExpression match:
                     AnalyzeMatchExpression(match);
                     break;
+                case IsExpression isExpr:
+                    AnalyzeExpression(isExpr.Value);
+                    // Validate the type name
+                    if (!_typeRegistry.IsValidTypeName(isExpr.TypeName) && !IsTypeParamInScope(isExpr.TypeName))
+                    {
+                        _diagnostics.AddWarning($"Unknown type '{isExpr.TypeName}' in type check", isExpr.Line, isExpr.Column);
+                    }
+                    break;
+                case NullCoalesceExpression ncExpr:
+                    AnalyzeExpression(ncExpr.Left);
+                    AnalyzeExpression(ncExpr.Right);
+                    break;
+                case SafeAccessExpression safeExpr:
+                    AnalyzeExpression(safeExpr.Object);
+                    break;
                 case ArrayLiteralExpression arrLit:
                     foreach (var element in arrLit.Elements)
                         AnalyzeExpression(element);
@@ -2545,6 +2560,12 @@ namespace Contract.Compiler.Semantics
                     }
                     return null;
                 }
+                case IsExpression:
+                    return new TypeDescriptor.Named("bool");
+                case NullCoalesceExpression ncExpr:
+                    return InferType(ncExpr.Left) ?? InferType(ncExpr.Right);
+                case SafeAccessExpression safeExpr:
+                    return InferType(safeExpr.Object);
                 case RangeExpression:
                     // Ranges only exist inside for-in headers.
                     return new TypeDescriptor.Named("int");

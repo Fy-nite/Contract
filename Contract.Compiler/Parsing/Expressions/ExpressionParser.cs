@@ -64,7 +64,14 @@ namespace Contract.Compiler.Expressions
                 var thenBranch = ParseAssignment(ctx, host);
                 ctx.Consume(TokenType.Colon, "Expected ':' in ternary expression");
                 var elseBranch = ParseAssignment(ctx, host);
-                return new TernaryExpression(expr, thenBranch, elseBranch, expr.Line, expr.Column);
+                expr = new TernaryExpression(expr, thenBranch, elseBranch, expr.Line, expr.Column);
+            }
+
+            // Null coalescing: expr ?? default
+            if (ctx.Match(TokenType.NullCoalesce))
+            {
+                var right = ParseAssignment(ctx, host);
+                expr = new NullCoalesceExpression(expr, right, expr.Line, expr.Column);
             }
 
             if (ctx.Match(TokenType.Assign, TokenType.PlusEqual, TokenType.MinusEqual,
@@ -148,6 +155,20 @@ namespace Contract.Compiler.Expressions
                 string op = ctx.Previous.Text;
                 var right = ParseTerm(ctx, host);
                 expr = new BinaryExpression(expr, op, right, expr.Line, expr.Column);
+            }
+
+            // is type check: expr is TypeName
+            if (ctx.Match(TokenType.Is))
+            {
+                ctx.Consume(TokenType.Identifier, "Expected type name after 'is'");
+                string typeName = ctx.Previous.Text;
+                // Handle dotted type names
+                while (ctx.Match(TokenType.Dot))
+                {
+                    ctx.Consume(TokenType.Identifier, "Expected identifier after '.' in type name");
+                    typeName += "." + ctx.Previous.Text;
+                }
+                expr = new IsExpression(expr, typeName, expr.Line, expr.Column);
             }
 
             return expr;
@@ -273,6 +294,12 @@ namespace Contract.Compiler.Expressions
                     ctx.Consume(TokenType.Identifier, "Expected property name after '.'");
                     string property = ctx.Previous.Text;
                     expr = new MemberExpression(expr, property, expr.Line, expr.Column);
+                }
+                else if (ctx.Match(TokenType.QuestionDot))
+                {
+                    ctx.Consume(TokenType.Identifier, "Expected property name after '?.'");
+                    string property = ctx.Previous.Text;
+                    expr = new SafeAccessExpression(expr, property, expr.Line, expr.Column);
                 }
                 else if (ctx.Match(TokenType.DoubleColon))
                 {

@@ -1,0 +1,38 @@
+import __builtin.std;
+
+Contract Animal {
+    fn speak() -> string { return "..."; }
+}
+
+Contract Dog : Animal {
+    fn speak() -> string { return "Woof!"; }
+}
+
+Contract Program {
+    static fn Main() {
+        // Test is type check
+        var a = new Dog();
+        if (a is Dog) {
+            IO.Println("a is Dog: true");
+        }
+        if (a is Animal) {
+            IO.Println("a is Animal: true");
+        }
+
+        // Test ?. safe navigation
+        var s: string = "hello";
+        var len = s?.Length;
+        IO.Println("safe nav: " + len);
+
+        // Test ?? null coalescing
+        var x: string = null;
+        var result = x ?? "default";
+        IO.Println("null coalesce: " + result);
+
+        var y: string = "hello";
+        var result2 = y ?? "default";
+        IO.Println("non-null coalesce: " + result2);
+
+        IO.Println("is and null safety tests passed");
+    }
+}

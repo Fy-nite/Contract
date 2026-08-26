@@ -55,7 +55,8 @@ namespace Contract.Compiler.Parsing
             ["requires"] = TokenType.Requires,
             ["ensures"] = TokenType.Ensures,
             ["invariant"] = TokenType.Invariant,
-            ["extend"] = TokenType.Extend
+            ["extend"] = TokenType.Extend,
+            ["is"] = TokenType.Is
         };
 
         public Lexer(string source, DiagnosticBag diagnostics, string? sourceFile = null)
@@ -446,7 +447,20 @@ namespace Contract.Compiler.Parsing
                     }
                     break;
                 case '?':
-                    type = TokenType.Question;
+                    if (_position + 1 < _source.Length && _source[_position + 1] == '.')
+                    {
+                        type = TokenType.QuestionDot;
+                        length = 2;
+                    }
+                    else if (_position + 1 < _source.Length && _source[_position + 1] == '?')
+                    {
+                        type = TokenType.NullCoalesce;
+                        length = 2;
+                    }
+                    else
+                    {
+                        type = TokenType.Question;
+                    }
                     break;
                 default:
                     _diagnostics.AddError($"Unexpected character: {c}", _line, _column, _sourceFile);

@@ -8,6 +8,7 @@ namespace Contract.Compiler.Parsing
         Break, Continue, True, False, Enum, Namespace,
         Try, Catch, Finally, Throw, Match, In,
         Requires, Ensures, Invariant, Extend,
+        Is,
 
         // Literals
         Identifier, IntLiteral, FloatLiteral, StringLiteral, InterpolatedString,
@@ -18,6 +19,7 @@ namespace Contract.Compiler.Parsing
         Less, LessEqual, Greater, GreaterEqual, EqualEqual, Bang, BangEqual, Assign, Arrow, Pipe,
         PlusEqual, MinusEqual, StarEqual, SlashEqual, PercentEqual, AndAnd, OrOr,
         DotDot, GreaterGreater, Question, FatArrow,
+        QuestionDot, NullCoalesce,
 
         // Special
         EOF

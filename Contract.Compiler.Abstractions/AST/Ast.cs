@@ -836,6 +836,54 @@ namespace Contract.Compiler.AST
         }
     }
 
+    /// <summary>
+    /// A type check expression: <c>expr is TypeName</c>.
+    /// Evaluates to <c>true</c> when the value is of the specified type.
+    /// </summary>
+    public class IsExpression : Expression
+    {
+        public Expression Value { get; }
+        public string TypeName { get; }
+
+        public IsExpression(Expression value, string typeName, int line, int column) : base(line, column)
+        {
+            Value = value;
+            TypeName = typeName;
+        }
+    }
+
+    /// <summary>
+    /// A null coalescing expression: <c>expr ?? defaultValue</c>.
+    /// Returns the left operand if non-null, otherwise the right operand.
+    /// </summary>
+    public class NullCoalesceExpression : Expression
+    {
+        public Expression Left { get; }
+        public Expression Right { get; }
+
+        public NullCoalesceExpression(Expression left, Expression right, int line, int column) : base(line, column)
+        {
+            Left = left;
+            Right = right;
+        }
+    }
+
+    /// <summary>
+    /// A member expression with null-conditional access: <c>expr?.member</c>.
+    /// Returns null when the receiver is null, otherwise accesses the member.
+    /// </summary>
+    public class SafeAccessExpression : Expression
+    {
+        public Expression Object { get; }
+        public string Property { get; }
+
+        public SafeAccessExpression(Expression obj, string property, int line, int column) : base(line, column)
+        {
+            Object = obj;
+            Property = property;
+        }
+    }
+
     public class PipeExpression : Expression
     {
         public Expression Left { get; }

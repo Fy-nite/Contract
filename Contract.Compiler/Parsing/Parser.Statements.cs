@@ -492,11 +492,13 @@ namespace Contract.Compiler.Parsing
                     Advance();
                     if (Check(TokenType.Identifier))
                     {
-                        var next = PeekAhead(1);
+                        var next = PeekAhead(0);
                         if (next.Type == TokenType.Identifier || next.Type == TokenType.RParen)
                         {
+                            // Two identifiers: catch (Type var) — advance past type first
+                            Advance();  // consume type name
                             excType = Previous.Text;
-                            excVar = Advance().Text;
+                            excVar = Advance().Text;  // consume variable name
                         }
                         else
                         {
