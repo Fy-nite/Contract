@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Contract.Compiler.AST;
 using Contract.Compiler.Diagnostics;
 
 namespace Contract.Compiler;
@@ -54,7 +55,12 @@ public static class SolutionBuilder
             if (sub == null)
                 throw new FormatException($"Sub-project not found: {relPath} (looked at {absPath})");
             if (sub.MainPath == null || !File.Exists(sub.MainPath))
-                throw new FormatException($"Sub-project main file not found: {relPath}/{sub.Main}");
+            {
+                if (sub.IsExecutable)
+                    throw new FormatException($"Sub-project main file not found: {relPath}/{sub.Main}");
+                if (sub.Sources == null || sub.Sources.Count == 0)
+                    throw new FormatException($"Sub-project has no main file and no Sources: {relPath}");
+            }
 
             string name = sub.Name ?? Path.GetFileNameWithoutExtension(relPath);
             subProjects.Add((sub, Path.GetDirectoryName(absPath)!, name));
@@ -65,11 +71,15 @@ public static class SolutionBuilder
 
         // ── 3. Build each in order ────────────────────────────────
         var results = new List<ProjectBuildResult>();
-        var outputDir = outputOverride ?? root.Output ?? "bin";
+
+        // All sub-projects emit into the root project's resolved output directory.
+        string rootOutputDir = outputOverride
+            ?? root.OutputPath
+            ?? Path.Combine(root.RootPath!, root.Output ?? "bin");
 
         foreach (var (project, projectDir, name) in sorted)
         {
-            string outDir = Path.Combine(project.OutputPath ?? Path.Combine(project.RootPath!, outputDir));
+            string outDir = rootOutputDir;
             Directory.CreateDirectory(outDir);
 
             var result = BuildSingleProject(project, projectDir, outDir, staticLink);
@@ -99,8 +109,33 @@ public static class SolutionBuilder
         var symbolTable = new StandardLibrary.SymbolTable();
         StandardLibrary.StdlibCatalog.RegisterInto(symbolTable);
 
+        bool hasMain = project.MainPath != null && File.Exists(project.MainPath);
+
         var driver = new CompilerDriver(diagnostics);
-        var program = driver.Compile(project.MainPath!);
+        Program program;
+        if (hasMain)
+        {
+            program = driver.Compile(project.MainPath!);
+        }
+        else
+        {
+            // Library with Sources globs, no main file
+            var sourceFiles = new List<string>();
+            foreach (var pattern in project.Sources!)
+            {
+                string dir = project.RootPath!;
+                string searchPattern = Path.GetFileName(pattern);
+                string? searchDir = Path.GetDirectoryName(pattern);
+                if (!string.IsNullOrEmpty(searchDir))
+                    dir = Path.Combine(dir, searchDir.Replace('/', Path.DirectorySeparatorChar));
+                if (Directory.Exists(dir))
+                {
+                    var files = Directory.GetFiles(dir, searchPattern, SearchOption.AllDirectories);
+                    sourceFiles.AddRange(files.Where(f => f.EndsWith(".ct", StringComparison.OrdinalIgnoreCase)));
+                }
+            }
+            program = driver.Compile(sourceFiles, project.RootPath!);
+        }
 
         if (diagnostics.HasErrors)
         {
@@ -114,7 +149,8 @@ public static class SolutionBuilder
             };
         }
 
-        var analyzer = new Semantics.SemanticAnalyzer(symbolTable, diagnostics, project.MainPath, project.IsExecutable);
+        string? mainRef = hasMain ? project.MainPath : null;
+        var analyzer = new Semantics.SemanticAnalyzer(symbolTable, diagnostics, mainRef, project.IsExecutable);
         analyzer.Analyze(program);
 
         if (diagnostics.HasErrors)
@@ -147,8 +183,11 @@ public static class SolutionBuilder
         diagnostics.ReportWarningsToConsole();
         string ir = codeGen.GetIRText();
 
-        string outFile = Path.Combine(outDir,
-            Path.GetFileNameWithoutExtension(project.Main) + (project.IsExecutable ? ".orbt" : ".oil"));
+        // Name the output by the project name so that multiple sub-projects
+        // sharing the solution's output directory don't overwrite each other.
+        string outputBase = project.Name
+            ?? (hasMain ? Path.GetFileNameWithoutExtension(project.Main) : "lib");
+        string outFile = Path.Combine(outDir, outputBase + ".orbt");
 
         if (ir == null)
         {
@@ -164,21 +203,15 @@ public static class SolutionBuilder
 
         diagnostics.ReportWarningsToConsole();
 
-        if (project.IsExecutable)
+        // All compiled code is emitted as a binary .orbt module.
+        var module = ObjektRT.Core.Parsing.OilFileReader.ParseString(ir);
+        if (project.IsExecutable && staticLink && module.Imports.Count > 0)
         {
-            var module = ObjektRT.Core.Parsing.OilFileReader.ParseString(ir);
-            if (staticLink && module.Imports.Count > 0)
-            {
-                Console.WriteLine($"  Static linking {module.Imports.Count} import(s) in {project.Name}...");
-                module = Contract.Compiler.StaticLinker.Link(module, projectDir);
-            }
-            var bytes = new ObjektRT.Core.Serialization.ORBTWriter().WriteModule(module);
-            File.WriteAllBytes(outFile, bytes);
+            Console.WriteLine($"  Static linking {module.Imports.Count} import(s) in {project.Name}...");
+            module = Contract.Compiler.StaticLinker.Link(module, projectDir);
         }
-        else
-        {
-            File.WriteAllText(outFile, ir);
-        }
+        var bytes = new ObjektRT.Core.Serialization.ORBTWriter().WriteModule(module);
+        File.WriteAllBytes(outFile, bytes);
 
         return new ProjectBuildResult
         {

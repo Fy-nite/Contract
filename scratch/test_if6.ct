@@ -1,0 +1,16 @@
+﻿import __builtin.std;
+
+Contract Math {
+    static fn Abs(x: int) -> int {
+        if (x < 0) {
+            return 0 - x;
+        }
+        return x;
+    }
+}
+
+Contract Program {
+    static fn Main() {
+        IO.Println(Math.Abs(-7));
+    }
+}

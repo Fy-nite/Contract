@@ -1,0 +1,7 @@
+﻿import __builtin.std;
+Contract Program {
+    static fn Main() {
+        let x: int = if (1 < 0) { 1 } else { 2 };
+        IO.Println(x);
+    }
+}

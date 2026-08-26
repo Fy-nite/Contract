@@ -1,0 +1,19 @@
+﻿import __builtin.std;
+
+Contract Shirt {
+    static fn Name(c: int) -> string {
+        if (c == Color.Red) {
+            return "red";
+        }
+        if (c == Color.Green) {
+            return "green";
+        }
+        return "blue";
+    }
+}
+
+Contract Program {
+    static fn Main() {
+        IO.Println(Shirt.Name(0));
+    }
+}

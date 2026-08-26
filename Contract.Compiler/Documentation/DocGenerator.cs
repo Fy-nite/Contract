@@ -212,6 +212,18 @@ public class DocGenerator
         if (doc.Summary != null)
             sb.AppendLine($"    <p class=\"summary\">{WebUtility.HtmlEncode(doc.Summary)}</p>");
 
+        // Variants (sum types)
+        if (doc.Variants.Count > 0)
+        {
+            sb.AppendLine("    <div class=\"variants\">");
+            sb.AppendLine("      <h4>Variants</h4>");
+            sb.AppendLine("      <div class=\"variant-list\">");
+            foreach (var v in doc.Variants)
+                sb.AppendLine($"        <span class=\"variant-chip\">{WebUtility.HtmlEncode(v)}</span>");
+            sb.AppendLine("      </div>");
+            sb.AppendLine("    </div>");
+        }
+
         // Parameters table
         var paramRows = OrderedParams(doc);
         if (paramRows.Count > 0)
@@ -466,6 +478,7 @@ public class DocGenerator
   --kind-constructor: #d4a0e8;
   --kind-field: #888d9a;
   --kind-extension: #e8c85a;
+  --kind-type: #5cc98e;
   --sig-kw: #e06070;
   --sig-name: #7cb5f5;
   --sig-pname: #e8a860;
@@ -611,6 +624,7 @@ body {
 .sidebar li a[data-kind=""constructor""] .kind-dot { background: var(--kind-constructor); }
 .sidebar li a[data-kind=""field""] .kind-dot { background: var(--kind-field); }
 .sidebar li a[data-kind=""extension""] .kind-dot { background: var(--kind-extension); }
+.sidebar li a[data-kind=""type""] .kind-dot { background: var(--kind-type); }
 
 /* Fallback for links without .kind-dot (legacy markup) */
 .sidebar li a[data-kind=""contract""]::before { content: ''; }
@@ -620,6 +634,7 @@ body {
 .sidebar li a[data-kind=""constructor""]::before { content: ''; }
 .sidebar li a[data-kind=""field""]::before { content: ''; }
 .sidebar li a[data-kind=""extension""]::before { content: ''; }
+.sidebar li a[data-kind=""type""]::before { content: ''; }
 
 .nav-section {
   font-size: 11px;
@@ -697,6 +712,7 @@ body {
 .kind-badge.constructor { background: rgba(212,160,232,0.15); color: var(--kind-constructor); }
 .kind-badge.field { background: rgba(136,141,154,0.15); color: var(--kind-field); }
 .kind-badge.extension { background: rgba(232,200,90,0.15); color: var(--kind-extension); }
+.kind-badge.type { background: rgba(92,201,142,0.15); color: var(--kind-type); }
 
 .modifiers {
   display: inline-flex;
@@ -759,6 +775,31 @@ body {
 .summary {
   margin: 8px 0 12px;
   line-height: 1.65;
+  color: var(--text);
+}
+
+/* ── Variants (sum types) ─────────────────────────────────── */
+.variants { margin: 12px 0; }
+.variants h4 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 16px 0 8px;
+}
+.variant-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.variant-chip {
+  font-size: 13px;
+  font-family: var(--font-mono);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 10px;
   color: var(--text);
 }
 

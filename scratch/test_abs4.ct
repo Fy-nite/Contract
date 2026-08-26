@@ -1,0 +1,9 @@
+﻿namespace Test;
+import __builtin.std;
+Contract Program {
+    static fn abs(x: int) -> int {
+        if (x < 0) { return 0; }
+        return x;
+    }
+    static fn Main() { IO.Println("ok"); }
+}

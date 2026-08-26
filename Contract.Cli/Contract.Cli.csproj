@@ -20,6 +20,7 @@
     <ProjectReference Include="..\Contract.Runtime\Contract.Runtime.csproj" />
     <ProjectReference Include="..\Contract.LanguageServer\Contract.LanguageServer.csproj" />
     <ProjectReference Include="..\libs\Objekt-RT\src\ObjectRT.Runtime\ObjectRT.Runtime.csproj" />
+    <ProjectReference Include="..\libs\Objekt-RT\src\ObjectRT.Dap\ObjectRT.Dap.csproj" />
   </ItemGroup>
 
 </Project>

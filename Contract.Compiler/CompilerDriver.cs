@@ -57,6 +57,25 @@ namespace Contract.Compiler
         }
 
         /// <summary>
+        /// Compiles only the given source files with no main entry point (library glob mode).
+        /// <paramref name="projectRoot"/> is used as the base directory for import resolution.
+        /// </summary>
+        public Program Compile(IEnumerable<string> sourceFiles, string projectRoot)
+        {
+            _mainFileDir = projectRoot;
+            var fullProgram = new Program(1, 1);
+
+            foreach (var file in sourceFiles)
+            {
+                string abs = ImportResolver.NormalizeAbsolutePath(file);
+                if (!_loadedFiles.Contains(abs) && File.Exists(abs))
+                    LoadFile(abs, fullProgram);
+            }
+
+            return fullProgram;
+        }
+
+        /// <summary>
         /// Search roots for Python-style namespace imports, after the importing
         /// file's own directory: the main file's directory, then the CWD,
         /// then any Purr package directories.

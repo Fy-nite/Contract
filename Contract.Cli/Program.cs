@@ -407,8 +407,8 @@ Project commands:
   contract new myapp [--type exe|lib] [--namespace com.example]
                          Create myapp/ with contract.ctproj + src/main.ct
   contract build [--run] [--static] [--output path]
-                         Read ./contract.ctproj, compile the main file
-                         (exe → .orbt binary; lib → .oil text module)
+                          Read ./contract.ctproj, compile the main file
+                          (always emits a .orbt binary module)
                          --static resolves imports at build time
   contract doc [--format html|md]  Generate API docs from /// comments
   contract install <pkg[@ver]>    Install a package from the Purr registry
@@ -586,7 +586,8 @@ Examples:
         /// <summary>Glob-compile mode: `ccl build` with a Sources array.</summary>
         static int BuildGlobCompile(Contract.Compiler.ContractProject project, bool staticLink, string? output)
         {
-            if (project.MainPath == null || !File.Exists(project.MainPath))
+            bool hasMain = project.MainPath != null && File.Exists(project.MainPath);
+            if (!hasMain && project.IsExecutable)
             {
                 Error($"Project main file not found: {project.Main}");
                 return 1;
@@ -623,7 +624,9 @@ Examples:
             Contract.Compiler.StandardLibrary.StdlibCatalog.RegisterInto(symbolTable);
 
             var driver = new Contract.Compiler.CompilerDriver(diagnostics);
-            var program = driver.Compile(project.MainPath, sourceFiles);
+            var program = hasMain
+                ? driver.Compile(project.MainPath!, sourceFiles)
+                : driver.Compile(sourceFiles, project.RootPath!);
 
             if (diagnostics.HasErrors)
             {
@@ -632,7 +635,8 @@ Examples:
             }
             diagnostics.ReportWarningsToConsole();
 
-            var analyzer = new Contract.Compiler.Semantics.SemanticAnalyzer(symbolTable, diagnostics, project.MainPath, project.IsExecutable);
+            string? mainRef = hasMain ? project.MainPath : null;
+            var analyzer = new Contract.Compiler.Semantics.SemanticAnalyzer(symbolTable, diagnostics, mainRef, project.IsExecutable);
             analyzer.Analyze(program);
             if (diagnostics.HasErrors)
             {
@@ -653,24 +657,20 @@ Examples:
                 ? (Path.IsPathRooted(output) ? output : Path.Combine(project.RootPath!, output))
                 : (project.OutputPath ?? Path.Combine(project.RootPath!, "bin"));
             Directory.CreateDirectory(outDir);
-            string outFile = Path.Combine(outDir,
-                Path.GetFileNameWithoutExtension(project.Main) + (project.IsExecutable ? ".orbt" : ".oil"));
+            string outputBase = hasMain
+                ? Path.GetFileNameWithoutExtension(project.Main)
+                : project.Name ?? "lib";
+            string outFile = Path.Combine(outDir, outputBase + ".orbt");
 
-            if (project.IsExecutable)
+            // All compiled code is emitted as a binary .orbt module.
+            var module = ObjektRT.Core.Parsing.OilFileReader.ParseString(ir);
+            if (project.IsExecutable && staticLink && module.Imports.Count > 0)
             {
-                var module = ObjektRT.Core.Parsing.OilFileReader.ParseString(ir);
-                if (staticLink && module.Imports.Count > 0)
-                {
-                    Console.WriteLine($"Static linking {module.Imports.Count} import(s)...");
-                    module = Contract.Compiler.StaticLinker.Link(module, project.RootPath!);
-                }
-                var bytes = new ObjektRT.Core.Serialization.ORBTWriter().WriteModule(module);
-                File.WriteAllBytes(outFile, bytes);
+                Console.WriteLine($"Static linking {module.Imports.Count} import(s)...");
+                module = Contract.Compiler.StaticLinker.Link(module, project.RootPath!);
             }
-            else
-            {
-                File.WriteAllText(outFile, ir);
-            }
+            var bytes = new ObjektRT.Core.Serialization.ORBTWriter().WriteModule(module);
+            File.WriteAllBytes(outFile, bytes);
 
             Console.WriteLine($"[{project.Type}] {project.Name} → {outFile}");
             return 0;
@@ -700,24 +700,19 @@ Examples:
                 : (project.OutputPath ?? Path.Combine(project.RootPath!, "bin"));
             Directory.CreateDirectory(outDir);
             string outFile = Path.Combine(outDir,
-                Path.GetFileNameWithoutExtension(project.Main) + (project.IsExecutable ? ".orbt" : ".oil"));
-            if (project.IsExecutable)
+                Path.GetFileNameWithoutExtension(project.Main) + ".orbt");
+
+            // All compiled code is emitted as a binary .orbt module.
+            var module = ObjektRT.Core.Parsing.OilFileReader.ParseString(ir);
+            if (project.IsExecutable && staticLink && module.Imports.Count > 0)
             {
-                var module = ObjektRT.Core.Parsing.OilFileReader.ParseString(ir);
-                if (staticLink && module.Imports.Count > 0)
-                {
-                    string? moduleDir = project.RootPath;
-                    Console.WriteLine($"Static linking {module.Imports.Count} import(s)...");
-                    module = Contract.Compiler.StaticLinker.Link(module, moduleDir!);
-                    Console.WriteLine($"  → {module.Types.Count} type(s), {module.Exports.Count} export(s), 0 import(s)");
-                }
-                var bytes = new ObjektRT.Core.Serialization.ORBTWriter().WriteModule(module);
-                File.WriteAllBytes(outFile, bytes);
+                string? moduleDir = project.RootPath;
+                Console.WriteLine($"Static linking {module.Imports.Count} import(s)...");
+                module = Contract.Compiler.StaticLinker.Link(module, moduleDir!);
+                Console.WriteLine($"  → {module.Types.Count} type(s), {module.Exports.Count} export(s), 0 import(s)");
             }
-            else
-            {
-                File.WriteAllText(outFile, ir);
-            }
+            var bytes = new ObjektRT.Core.Serialization.ORBTWriter().WriteModule(module);
+            File.WriteAllBytes(outFile, bytes);
 
             Console.WriteLine($"[{project.Type}] {project.Name} → {outFile}");
             if (run && project.IsExecutable)

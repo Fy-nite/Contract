@@ -131,6 +131,7 @@ namespace Contract.Compiler.Expressions.Internal
 
             // null means "no match, cursor restored"; empty list is the sentinel for "no match after advancing"
             if (result != null && result.Count == 0) return null;
+            if (result == null) ctx.Cursor = save;
             return result;
         }
     }

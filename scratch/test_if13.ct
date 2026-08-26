@@ -1,0 +1,16 @@
+﻿import __builtin.std;
+
+Contract Shirt {
+    static fn Name(c: int) -> int {
+        if (c > 0) {
+            return c;
+        }
+        return c;
+    }
+}
+
+Contract Program {
+    static fn Main() {
+        IO.Println(7);
+    }
+}

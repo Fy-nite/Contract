@@ -101,6 +101,9 @@ public static class DocCommentExtractor
 
         /// <summary>Parent declaration name (for nested members).</summary>
         public string? Parent { get; set; }
+
+        /// <summary>Variant names for sum types (e.g. ["Some", None"]).</summary>
+        public List<string> Variants { get; set; } = new();
     }
 
     // ── AST-based extraction (primary path) ───────────────────────
@@ -116,7 +119,11 @@ public static class DocCommentExtractor
         var results = new List<DocBlock>();
 
         foreach (var contract in program.Contracts)
+        {
+            // Skip synthesized variant contracts (e.g. option.Some, option.None)
+            if (contract.SumTypeOf != null) continue;
             results.Add(FromContract(contract, lines, sourceFile));
+        }
 
         foreach (var structDecl in program.Structs)
             results.Add(FromStruct(structDecl, lines, sourceFile));
@@ -132,29 +139,36 @@ public static class DocCommentExtractor
 
     private static DocBlock FromContract(ContractDeclaration node, string[] lines, string? sourceFile)
     {
+        bool isSumType = node.IsSumTypeBase;
+
         var doc = new DocBlock
         {
             Name = node.Name,
-            Kind = "contract",
+            Kind = isSumType ? "type" : "contract",
             Line = node.Line,
             SourceFile = sourceFile,
             Namespace = node.Namespace,
-            BaseType = node.BaseTypeName,
-            InterfaceTypes = new List<string>(node.InterfaceNames),
+            BaseType = isSumType ? null : node.BaseTypeName,
+            InterfaceTypes = isSumType ? new List<string>() : new List<string>(node.InterfaceNames),
             TypeParameters = new List<string>(node.TypeParameters),
             HasParenList = false,
-            Signature = ReconstructContractSignature(node),
+            Signature = isSumType ? ReconstructSumTypeSignature(node) : ReconstructContractSignature(node),
+            Variants = isSumType ? new List<string>(node.SumVariants) : new List<string>(),
         };
-        doc.Keyword = "Contract";
-        doc.Modifiers.Add("public"); // contracts are always public
-        if (node.IsExported) doc.Modifiers.Insert(0, "export");
+        doc.Keyword = isSumType ? "type" : "Contract";
+        if (!isSumType)
+        {
+            doc.Modifiers.Add("public");
+            if (node.IsExported) doc.Modifiers.Insert(0, "export");
+        }
 
         ExtractDocComment(lines, node.Line, doc);
         ExtractAttributes(node.Attributes, doc);
 
-        // Constructors
+        // Constructors (skip synthetic ones for sum type bases)
         foreach (var ctor in node.Constructors)
         {
+            if (isSumType) continue; // sum type constructors are user-written variants, not CTors
             var child = new DocBlock
             {
                 Name = "constructor",
@@ -173,9 +187,10 @@ public static class DocCommentExtractor
             doc.Children.Add(child);
         }
 
-        // Fields
+        // Fields (skip synthetic __tag for sum types)
         foreach (var field in node.Fields)
         {
+            if (isSumType && field.Name == "__tag") continue;
             var child = new DocBlock
             {
                 Name = field.Name,
@@ -196,14 +211,18 @@ public static class DocCommentExtractor
         }
 
         // Members (functions, nested contracts, nested structs, nested enums)
+        // For sum type bases, skip synthetic variant factory functions
         foreach (var member in node.Members)
         {
             switch (member)
             {
                 case FunctionDeclaration fn:
+                    // Skip compiler-generated variant factory functions
+                    if (isSumType && fn.IsStatic && node.SumVariants.Contains(fn.Name)) continue;
                     doc.Children.Add(FromFunction(fn, node.Name, lines, sourceFile));
                     break;
                 case ContractDeclaration nested:
+                    if (nested.SumTypeOf != null) continue; // skip variant sub-contracts
                     doc.Children.Add(FromContract(nested, lines, sourceFile));
                     break;
                 case StructDeclaration nestedStruct:
@@ -431,6 +450,19 @@ public static class DocCommentExtractor
             parents.AddRange(node.InterfaceNames);
             sb.Append(string.Join(", ", parents));
         }
+        return sb.ToString();
+    }
+
+    private static string ReconstructSumTypeSignature(ContractDeclaration node)
+    {
+        var sb = new StringBuilder();
+        sb.Append("type ");
+        sb.Append(node.Name);
+        if (node.TypeParameters.Count > 0)
+            sb.Append($"<{string.Join(", ", node.TypeParameters)}>");
+        sb.Append(" { ");
+        sb.Append(string.Join(", ", node.SumVariants));
+        sb.Append(" }");
         return sb.ToString();
     }
 

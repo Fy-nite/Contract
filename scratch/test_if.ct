@@ -1,0 +1,9 @@
+﻿namespace Test;
+import __builtin.std;
+Contract Program {
+    static fn Main() {
+        var x = 10;
+        if (x < 0) { IO.Println("neg"); }
+        IO.Println("done");
+    }
+}

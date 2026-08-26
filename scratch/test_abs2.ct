@@ -1,0 +1,6 @@
+﻿namespace Test;
+Contract Math {
+    let abs = fn(x: int) -> {
+        return x;
+    };
+}

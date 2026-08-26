@@ -15,6 +15,7 @@
     <ProjectReference Include="..\Contract.Compiler\Contract.Compiler.csproj" />
     <ProjectReference Include="..\Contract.Runtime\Contract.Runtime.csproj" />
     <ProjectReference Include="..\libs\ObjektRT.Core\ObjektRT.Core.csproj" />
+    <ProjectReference Include="..\libs\Objekt-RT\src\ObjectRT.Dap\ObjectRT.Dap.csproj" />
   </ItemGroup>
 
 </Project>

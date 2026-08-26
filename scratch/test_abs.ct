@@ -1,0 +1,7 @@
+﻿namespace Test;
+Contract Math {
+    let abs = fn(x: int) -> {
+        if (x < 0) { return 0; }
+        return x;
+    };
+}

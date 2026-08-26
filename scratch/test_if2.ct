@@ -1,0 +1,8 @@
+﻿namespace Test;
+import __builtin.std;
+fn test() {
+    var x = 10;
+    if (x < 0) { IO.Println("neg"); }
+    IO.Println("done");
+}
+fn Main() { test(); }
