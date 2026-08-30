@@ -42,6 +42,17 @@ public class ContractRuntime : IHostedRuntime
         RegisterDefaultBindings();
     }
 
+    /// <summary>
+    /// Directory of the .ct source file. Used to resolve project-local
+    /// assemblies referenced by <c>&lt;ClrImport(..., Path: "Foo.dll")&gt;</c>.
+    /// Propagated to the inner ObjectRT runtime.
+    /// </summary>
+    public string? SourceDir
+    {
+        get => _runtime.SourceDir;
+        set => _runtime.SourceDir = value;
+    }
+
     // â”€â”€ Standard library bindings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// <summary>
@@ -172,11 +183,15 @@ public class ContractRuntime : IHostedRuntime
     }
 
     /// <summary>
-    /// Scans module metadata for <c>@ClrImport("TypeName")</c> class
-    /// annotations and registers each resolvable CLR type with the
+    /// Scans module metadata for <c>@ClrImport</c> class annotations and
+    /// registers each resolvable CLR type with the
     /// <see cref="ObjectRT.Runtime.ClrNativeResolver"/>. Call sites emitted
     /// for <c>&lt;ClrImport&gt;</c> facades target <c>TypeName.Method</c>,
     /// which the reflection resolver then dispatches.
+    ///
+    /// Supports both positional (<c>&lt;ClrImport("System.Math")&gt;</c>) and
+    /// named (<c>&lt;ClrImport(Type: "System.Math")&gt;</c>) argument forms.
+    /// Named args are encoded as <c>@Key=Value</c> in the string pool.
     /// </summary>
     private void RegisterClrImports(ORBTModule module)
     {
@@ -186,19 +201,81 @@ public class ContractRuntime : IHostedRuntime
             {
                 var attrName = module.Resolve(attr.NameIndex);
                 if (!attrName.Equals("ClrImport", System.StringComparison.OrdinalIgnoreCase)) continue;
-                if (attr.ArgIndices.Count != 1) continue;
+                if (attr.ArgIndices.Count == 0) continue;
 
-                var typeName = module.Resolve(attr.ArgIndices[0]);
+                // Extract the type name: either a plain positional arg
+                // or a @Type= named arg. Named args may be stored as a
+                // single encoded string ("@Type=System.IO.File") from ORBT
+                // binary, or as separate tokens ("@Type", "=", "System.IO.File")
+                // from OIL text parsing.
+                string typeName = "";
+                string? assemblyPath = null;
+                var argList = attr.ArgIndices.Select(idx => module.Resolve(idx)).ToList();
+                for (int ai = 0; ai < argList.Count; ai++)
+                {
+                    var arg = argList[ai];
+
+                    // Single-encoded form: "@Type=System.IO.File"
+                    if (arg.StartsWith("@Type=", System.StringComparison.Ordinal))
+                    {
+                        typeName = arg["@Type=".Length..];
+                    }
+                    else if (arg.StartsWith("@Path=", System.StringComparison.Ordinal))
+                    {
+                        assemblyPath = arg["@Path=".Length..];
+                    }
+                    // Separate-token form: "@Type", "=", "System.IO.File"
+                    else if (arg.StartsWith("@", System.StringComparison.Ordinal)
+                             && ai + 2 < argList.Count
+                             && argList[ai + 1] == "=")
+                    {
+                        var key = arg[1..]; // strip @
+                        var val = argList[ai + 2];
+                        if (key.Equals("Type", System.StringComparison.OrdinalIgnoreCase))
+                            typeName = val;
+                        else if (key.Equals("Path", System.StringComparison.OrdinalIgnoreCase))
+                            assemblyPath = val;
+                        ai += 2; // skip '=' and value
+                    }
+                    // Positional argument (plain type name)
+                    else if (string.IsNullOrEmpty(typeName))
+                    {
+                        typeName = arg;
+                    }
+                }
+
                 if (typeName.Length >= 2 && typeName[0] == '"' && typeName[^1] == '"')
                     typeName = typeName[1..^1];
+                if (string.IsNullOrEmpty(typeName)) continue;
 
                 System.Type? clrType = null;
-                try { clrType = System.Type.GetType(typeName); }
-                catch (System.Exception) { /* malformed name â€” reported below */ }
+
+                if (assemblyPath != null)
+                {
+                    // Project-local assembly: resolve relative to source directory
+                    var sourceDir = _runtime.SourceDir ?? System.Environment.CurrentDirectory;
+                    var fullPath = System.IO.Path.Combine(sourceDir, assemblyPath);
+                    if (assemblyPath.Length >= 2 && assemblyPath[0] == '"' && assemblyPath[^1] == '"')
+                        fullPath = System.IO.Path.Combine(sourceDir, assemblyPath[1..^1]);
+                    if (System.IO.File.Exists(fullPath))
+                    {
+                        try
+                        {
+                            var asm = System.Reflection.Assembly.LoadFrom(fullPath);
+                            clrType = asm.GetType(typeName);
+                        }
+                        catch (System.Exception) { /* reported below */ }
+                    }
+                }
+                else
+                {
+                    try { clrType = System.Type.GetType(typeName); }
+                    catch (System.Exception) { /* malformed name — reported below */ }
+                }
 
                 if (clrType == null)
                 {
-                    Console.Error.WriteLine($"[ClrImport] type '{typeName}' could not be resolved at runtime â€” no CLR type with that name is loaded (try an assembly-qualified name)");
+                    Console.Error.WriteLine($"[ClrImport] type '{typeName}' could not be resolved at runtime \u2014 no CLR type with that name is loaded (try an assembly-qualified name)");
                     continue;
                 }
 

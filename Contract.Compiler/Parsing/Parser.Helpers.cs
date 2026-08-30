@@ -354,6 +354,12 @@ namespace Contract.Compiler.Parsing
                         if (ri == 0) return false;
                         value = li % ri;
                         return true;
+                    case "<<":
+                        value = li << ri;
+                        return true;
+                    case "|":
+                        value = li | ri;
+                        return true;
                 }
                 return false;
             }

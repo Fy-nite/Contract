@@ -17,14 +17,17 @@ namespace Contract.Compiler.AST
     }
 
     /// <summary>
-    /// An attribute application: <code>&lt;Name(arg1, arg2)&gt;</code>.
+    /// An attribute application: <code>&lt;Name(arg1, Key: value)&gt;</code>.
     /// Arguments are kept as raw source text (strings retain their quotes),
     /// matching how the IR stores attribute arguments in its string pool.
+    /// Named arguments are stored separately in <see cref="NamedArguments"/>
+    /// and encoded as <c>@Key=Value</c> in the string pool.
     /// </summary>
     public class AttributeUsage : Node
     {
         public string Name { get; }
         public List<string> Arguments { get; } = new();
+        public Dictionary<string, string> NamedArguments { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public AttributeUsage(string name, int line, int column) : base(line, column)
         {
@@ -139,6 +142,13 @@ namespace Contract.Compiler.AST
         /// can generate the marshalling bridge.
         /// </summary>
         public string? DllImportLibrary { get; set; }
+
+        /// <summary>
+        /// When the contract is marked <c>&lt;ClrImport(..., Path: "Foo.dll")&gt;</c>,
+        /// the path to a project-local .NET assembly containing the target type.
+        /// Resolved relative to the source file's directory.
+        /// </summary>
+        public string? AssemblyImportPath { get; set; }
 
         public ContractDeclaration(string name, int line, int column) : base(line, column)
         {

@@ -25,7 +25,33 @@ namespace Contract.Compiler.Parsing
                     {
                         do
                         {
-                            if (Match(TokenType.StringLiteral))
+                            // Named argument: Identifier ':' Value
+                            if (Check(TokenType.Identifier) && CheckNext(TokenType.Colon))
+                            {
+                                string key = Current.Text;
+                                Advance(); // consume key
+                                Advance(); // consume ':'
+                                if (Match(TokenType.StringLiteral))
+                                    usage.NamedArguments[key] = Previous.Text;
+                                else if (Match(TokenType.IntLiteral) || Match(TokenType.FloatLiteral) ||
+                                         Match(TokenType.True) || Match(TokenType.False) ||
+                                         Match(TokenType.Identifier))
+                                    usage.NamedArguments[key] = Previous.Text;
+                                else if (Match(TokenType.Minus))
+                                {
+                                    if (Match(TokenType.IntLiteral) || Match(TokenType.FloatLiteral))
+                                        usage.NamedArguments[key] = "-" + Previous.Text;
+                                    else
+                                        AddError("Expected number after '-' in attribute argument", Current.Line, Current.Column);
+                                }
+                                else
+                                {
+                                    AddError($"Unexpected token in named attribute argument value: {Current.Type}", Current.Line, Current.Column);
+                                    break;
+                                }
+                            }
+                            // Positional argument
+                            else if (Match(TokenType.StringLiteral))
                             {
                                 usage.Arguments.Add(Previous.Text);
                             }
@@ -111,7 +137,7 @@ namespace Contract.Compiler.Parsing
 
                 variants.Add((vname, vparams));
                 Match(TokenType.Comma);
-                Match(TokenType.Pipe);
+                Match(TokenType.BitwiseOr);
 
                 if (_current == startPos && !IsAtEnd())
                 {

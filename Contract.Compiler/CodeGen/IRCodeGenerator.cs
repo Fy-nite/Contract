@@ -185,7 +185,7 @@ public class IRCodeGenerator
             var structBuilder = _builder.Struct(structDecl.FullName);
             foreach (var attr in structDecl.Attributes)
             {
-                structBuilder.Attribute(attr.Name, attr.Arguments.ToArray());
+                structBuilder.Attribute(attr.Name, EncodeAttributeArgs(attr));
             }
             foreach (var field in structDecl.Fields)
             {
@@ -203,7 +203,7 @@ public class IRCodeGenerator
             var enumBuilder = _builder.Class(enumDecl.FullName);
             foreach (var attr in enumDecl.Attributes)
             {
-                enumBuilder.Attribute(attr.Name, attr.Arguments.ToArray());
+                enumBuilder.Attribute(attr.Name, EncodeAttributeArgs(attr));
             }
             for (int i = 0; i < enumDecl.Members.Count; i++)
             {
@@ -240,7 +240,7 @@ public class IRCodeGenerator
             // recognise them without resolving the external base.
             foreach (var attr in cls.Attributes)
             {
-                classBuilder.Attribute(attr.Name, attr.Arguments.ToArray());
+                classBuilder.Attribute(attr.Name, EncodeAttributeArgs(attr));
             }
             if (cls.IsAttributeType)
             {
@@ -300,7 +300,7 @@ public class IRCodeGenerator
                     var structBuilder = _builder.Struct(structDecl.FullName);
                     foreach (var attr in structDecl.Attributes)
                     {
-                        structBuilder.Attribute(attr.Name, attr.Arguments.ToArray());
+                        structBuilder.Attribute(attr.Name, EncodeAttributeArgs(attr));
                     }
                     foreach (var field in structDecl.Fields)
                     {
@@ -313,7 +313,7 @@ public class IRCodeGenerator
                     var enumBuilder = _builder.Class(nestedEnum.FullName);
                     foreach (var attr in nestedEnum.Attributes)
                     {
-                        enumBuilder.Attribute(attr.Name, attr.Arguments.ToArray());
+                        enumBuilder.Attribute(attr.Name, EncodeAttributeArgs(attr));
                     }
                     for (int i = 0; i < nestedEnum.Members.Count; i++)
                     {
@@ -423,7 +423,7 @@ public class IRCodeGenerator
 
         foreach (var attr in func.Attributes)
         {
-            mb.Attribute(attr.Name, attr.Arguments.ToArray());
+            mb.Attribute(attr.Name, EncodeAttributeArgs(attr));
         }
 
         if (func.IsStatic) mb.Static();
@@ -589,6 +589,29 @@ public class IRCodeGenerator
     {
         var contract = FindContract(contractName);
         return contract != null && HasFieldIncludingBase(contract, fieldName, staticOnly: true);
+    }
+
+    /// <summary>True when 'name' is an INSTANCE (non-static) field of the current
+    /// contract or a base, regardless of receiver. Used to catch bare instance
+    /// fields referenced from a static context where no <c>this</c> exists.</summary>
+    private bool IsInstanceFieldOfCurrentContract(string name)
+    {
+        if (_currentContractName == null) return false;
+        if (_variableTypes.ContainsKey(name)) return false;
+        var contract = FindContract(_currentContractName);
+        return contract != null && HasFieldIncludingBase(contract, name, staticOnly: false);
+    }
+
+    /// <summary>Reports a compile error when an instance member is used bare in a
+    /// static context that has no <c>this</c> receiver. Never silently degrades
+    /// into a (nonexistent) local variable access.</summary>
+    private void ReportInstanceMemberInStaticContext(string name, int line, int column)
+    {
+        _diagnostics.AddError(
+            $"'{name}' is an instance member but is used here without an instance: " +
+            "this static context has no `this` receiver. Access it via an instance " +
+            "(e.g. obj.Member) or declare it a `static` member if it should be shared.",
+            line, column);
     }
 
     /// <summary>
@@ -945,7 +968,7 @@ public class IRCodeGenerator
 
         foreach (var attr in ctor.Attributes)
         {
-            mb.Attribute(attr.Name, attr.Arguments.ToArray());
+            mb.Attribute(attr.Name, EncodeAttributeArgs(attr));
         }
 
         mb.Parameter("this", new TypeRef("object"));
@@ -1846,6 +1869,14 @@ public class IRCodeGenerator
                     ib.Ldfld(InstanceFieldReference(id.Name));
                     break;
                 }
+                if (IsInstanceFieldOfCurrentContract(id.Name))
+                {
+                    // Instance field referenced without a `this` receiver
+                    // (static context). Report instead of silently degrading
+                    // to a (nonexistent) local variable access.
+                    ReportInstanceMemberInStaticContext(id.Name, id.Line, id.Column);
+                    break;
+                }
                 if (IsStaticField(id.Name))
                 {
                     // Comptime constant read: emit the folded literal (§15).
@@ -1949,6 +1980,11 @@ public class IRCodeGenerator
                     GenerateExpression(ib, bin.Right, paramMap);
                     if (bin.Left is IdentifierExpression target)
                     {
+                        if (IsInstanceFieldOfCurrentContract(target.Name))
+                        {
+                            ReportInstanceMemberInStaticContext(target.Name, target.Line, target.Column);
+                            return;
+                        }
                         ib.Dup();   // leave the assigned value on the stack
                         if (paramMap.TryGetValue(target.Name, out int idx)) ib.Starg(idx);
                         else ib.Stloc(target.Name);
@@ -1998,6 +2034,11 @@ public class IRCodeGenerator
                     }
                     if (bin.Left is IdentifierExpression compoundTarget)
                     {
+                        if (IsInstanceFieldOfCurrentContract(compoundTarget.Name))
+                        {
+                            ReportInstanceMemberInStaticContext(compoundTarget.Name, compoundTarget.Line, compoundTarget.Column);
+                            return;
+                        }
                         if (paramMap.TryGetValue(compoundTarget.Name, out int compoundArgIdx)) ib.Ldarg(compoundArgIdx);
                         else ib.Ldloc(compoundTarget.Name);
                         GenerateExpression(ib, bin.Right, paramMap);
@@ -2099,6 +2140,8 @@ public class IRCodeGenerator
                     case "*": ib.Mul(); break;
                     case "/": ib.Div(); break;
                     case "%": ib.Rem(); break;
+                    case "<<": ib.Shl(); break;
+                    case "|": ib.Or(); break;
                     case "==": ib.Ceq(); break;
                     case "!=": ib.Cne(); break;
                     case ">": ib.Cgt(); break;
@@ -2130,7 +2173,16 @@ public class IRCodeGenerator
                     if (call.Callee is MemberExpression recvMem)
                         GenerateExpression(ib, recvMem.Object, paramMap);
                     else if (call.Callee is IdentifierExpression recvSelf)
-                        ib.Ldarg(_thisArgIndex!.Value);
+                    {
+                        if (_thisArgIndex == null)
+                        {
+                            // Instance method invoked without a receiver in a
+                            // static context — no `this` to dispatch on.
+                            ReportInstanceMemberInStaticContext(recvSelf.Name, recvSelf.Line, recvSelf.Column);
+                            break;
+                        }
+                        ib.Ldarg(_thisArgIndex.Value);
+                    }
                 }
                 else if (isExtensionCall && call.Callee is MemberExpression extRecv)
                 {
@@ -2531,6 +2583,19 @@ public class IRCodeGenerator
                 }
                 break;
         }
+    }
+
+    /// <summary>
+    /// Encodes an attribute's positional and named arguments into a single
+    /// string array for the IR builder. Named arguments are encoded as
+    /// <c>@Key=Value</c> in the string pool.
+    /// </summary>
+    private static string[] EncodeAttributeArgs(AttributeUsage attr)
+    {
+        var args = new List<string>(attr.Arguments);
+        foreach (var kv in attr.NamedArguments)
+            args.Add($"@{kv.Key}={kv.Value}");
+        return args.ToArray();
     }
 
     private TypeRef MapType(string type) => MapType(TypeDescriptor.Parse(type));
@@ -3208,6 +3273,7 @@ public class IRCodeGenerator
             case "*": ib.Mul(); break;
             case "/": ib.Div(); break;
             case "%": ib.Rem(); break;
+            case "<<": ib.Shl(); break;
         }
     }
 

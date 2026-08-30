@@ -49,6 +49,17 @@ public static class CompiledReferenceLoader
     /// </summary>
     private static void SynthesizeExternalDeclarations(ObjektRT.Core.AST.ModuleNode module, Program program)
     {
+        // The compiled wire format does not retain explicit generic-parameter
+        // metadata; the parameter names survive only as the bare, unqualified
+        // type strings referenced by a class's own members (e.g. `items: T[]`,
+        // `value: V`). Pre-collect the short names of every type declared in
+        // this module so we can tell a real type apart from a generic parameter
+        // when reconstructing generic contracts below.
+        var declaredTypeNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var c in module.Classes) declaredTypeNames.Add(ShortName(c.Name));
+        foreach (var s in module.Structs) declaredTypeNames.Add(ShortName(s.Name));
+        foreach (var i in module.Interfaces) declaredTypeNames.Add(ShortName(i.Name));
+
         foreach (var cls in module.Classes)
         {
             var (ns, shortName) = SplitQualifiedName(cls.Name);
@@ -70,6 +81,15 @@ public static class CompiledReferenceLoader
 
             var contract = new ContractDeclaration(shortName, 1, 1) { Namespace = ns, IsExternal = true };
             contract.BaseTypeName = cls.BaseTypes.Count > 0 ? cls.BaseTypes[0] : null;
+
+            // Reconstruct generic type parameters. A non-generic class yields an
+            // empty list; a generic one (List<T>, Result<V,E>, …) gets the
+            // parameter names back so the analyzer can (a) treat its members'
+            // bare parameter references as in-scope and (b) register the type as
+            // generic with the right arity.
+            foreach (var tp in ComputeGenericParameters(module, cls, declaredTypeNames))
+                contract.TypeParameters.Add(tp);
+
             foreach (var f in cls.Fields)
             {
                 contract.Fields.Add(new StructField(f.Name, TypeDescriptor.Parse(WireToLanguageType(f.FieldType.Name)), 1, 1)
@@ -118,6 +138,107 @@ public static class CompiledReferenceLoader
             ? (fullName[..dot], fullName[(dot + 1)..])
             : (null, fullName);
     }
+
+    /// <summary>The unqualified (short) name portion of a (possibly dotted) type name.</summary>
+    private static string ShortName(string fullName)
+    {
+        int dot = fullName.LastIndexOf('.');
+        return dot > 0 ? fullName[(dot + 1)..] : fullName;
+    }
+
+    /// <summary>
+    /// Reconstructs the generic type parameters of a compiled class. The wire
+    /// format stores parameters only as bare type strings inside members, so we
+    /// collect every simple, unqualified type name referenced by the class's
+    /// own members and its nested classes, then drop built-ins and types that
+    /// are actually declared in this module — whatever remains are parameters
+    /// (T, V, E, …).
+    /// </summary>
+    private static IEnumerable<string> ComputeGenericParameters(
+        ObjektRT.Core.AST.ModuleNode module,
+        ObjektRT.Core.AST.ClassNode cls,
+        HashSet<string> declaredTypeNames)
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        CollectOwnParameters(cls, names, declaredTypeNames);
+
+        // Nested classes (e.g. Result.Ok / Result.Err) carry the outer generic's
+        // parameters; fold them into the enclosing contract so `Result<V,E>`
+        // resolves with the correct arity.
+        string prefix = cls.Name + ".";
+        foreach (var nested in module.Classes)
+        {
+            if (nested.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                CollectOwnParameters(nested, names, declaredTypeNames);
+        }
+
+        return names;
+    }
+
+    private static void CollectOwnParameters(
+        ObjektRT.Core.AST.ClassNode cls,
+        HashSet<string> names,
+        HashSet<string> declaredTypeNames)
+    {
+        void Consider(string? wireType)
+        {
+            if (string.IsNullOrEmpty(wireType)) return;
+            CollectLeafTypeNames(TypeDescriptor.Parse(WireToLanguageType(wireType)), names, declaredTypeNames);
+        }
+
+        foreach (var f in cls.Fields) Consider(f.FieldType.Name);
+        foreach (var ctor in cls.Constructors)
+            foreach (var p in ctor.Parameters) Consider(p.ParameterType.Name);
+        foreach (var m in cls.Methods)
+        {
+            Consider(m.ReturnType.Name);
+            foreach (var p in m.Parameters) Consider(p.ParameterType.Name);
+        }
+    }
+
+    /// <summary>Walks a type descriptor and records its simple, unqualified leaf type names.</summary>
+    private static void CollectLeafTypeNames(
+        TypeDescriptor type,
+        HashSet<string> names,
+        HashSet<string> declaredTypeNames)
+    {
+        switch (type)
+        {
+            case TypeDescriptor.Named n:
+                string name = n.Name;
+                if (!string.IsNullOrEmpty(name)
+                    && name.IndexOf('.') < 0
+                    && !BuiltinTypeNames.Contains(name)
+                    && !declaredTypeNames.Contains(name))
+                {
+                    names.Add(name);
+                }
+                break;
+            case TypeDescriptor.ArrayOf a:
+                CollectLeafTypeNames(a.Element, names, declaredTypeNames);
+                break;
+            case TypeDescriptor.GenericInstance g:
+                foreach (var arg in g.Arguments) CollectLeafTypeNames(arg, names, declaredTypeNames);
+                break;
+            case TypeDescriptor.Function f:
+                foreach (var p in f.Parameters) CollectLeafTypeNames(p, names, declaredTypeNames);
+                CollectLeafTypeNames(f.Return, names, declaredTypeNames);
+                break;
+            case TypeDescriptor.Tuple t:
+                foreach (var e in t.Elements) CollectLeafTypeNames(e, names, declaredTypeNames);
+                break;
+        }
+    }
+
+    /// <summary>Built-in primitive and generic-unbound type names that must never be treated as parameters.</summary>
+    private static readonly HashSet<string> BuiltinTypeNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "int", "string", "bool", "double", "float", "object", "int64", "long", "null", "void",
+        "byte", "sbyte", "short", "ushort", "uint", "int32", "float32", "float64",
+        "uint8", "int8", "int16", "uint16", "uint32", "intptr",
+        // Generic unbound names are real types, not parameters.
+        "List", "Dict", "Delegate", "Attribute",
+    };
 
     /// <summary>Maps a wire type name ("int32", "float64[]") to the language type name ("int", "double[]").</summary>
     public static string WireToLanguageType(string wire)

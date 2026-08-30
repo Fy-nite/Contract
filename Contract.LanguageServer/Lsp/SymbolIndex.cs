@@ -831,6 +831,15 @@ public class SymbolIndex
                 AddTypes(result, items);
                 return new CompletionList { Items = items };
             }
+
+            // Attribute context: after '<' or '<' followed by identifier + '('
+            // Scan backward from the 'before' token to find an unmatched '<'
+            // that starts an attribute (not a generic type argument).
+            if (IsInAttributeContext(tokens, bi))
+            {
+                AddAttributeTypes(result, items);
+                return new CompletionList { Items = items };
+            }
         }
 
         // The word being typed may itself be a known type or module — the user
@@ -967,6 +976,75 @@ public class SymbolIndex
                     SortText = sortPrefix + e.Name + "." + child.Name,
                 });
             }
+        }
+    }
+
+    /// <summary>
+    /// Checks whether the cursor is inside an attribute context: between an
+    /// unmatched '&lt;' and the next '&gt;' or '(' that is part of an attribute
+    /// application, not a generic type argument or comparison.
+    /// </summary>
+    private bool IsInAttributeContext(List<Token> tokens, int beforeIndex)
+    {
+        // Walk backward from beforeIndex looking for '<' that starts an attribute.
+        // An attribute '<' is one that is NOT preceded by a value-like token
+        // (Identifier, ')', ']', etc.) — distinguishing it from generic args
+        // like List<int> or comparisons like a < b.
+        for (int i = beforeIndex; i >= 0; i--)
+        {
+            var t = tokens[i];
+            if (t.Type == TokenType.Less)
+            {
+                // Check if this '<' follows a value-like token (comparison/generic)
+                if (i > 0)
+                {
+                    var prev = tokens[i - 1].Type;
+                    if (prev == TokenType.Identifier || prev == TokenType.RParen ||
+                        prev == TokenType.RBracket || prev == TokenType.True ||
+                        prev == TokenType.False || prev == TokenType.IntLiteral ||
+                        prev == TokenType.FloatLiteral || prev == TokenType.StringLiteral)
+                        return false; // comparison or generic, not attribute
+                }
+                return true;
+            }
+            // If we hit '>' or a statement boundary first, we're not in an attribute
+            if (t.Type == TokenType.Greater || t.Type == TokenType.Semicolon ||
+                t.Type == TokenType.LBrace || t.Type == TokenType.RBrace)
+                return false;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Adds completions for all attribute types: contracts that inherit from
+    /// <c>Attribute</c>, plus the built-in CLRImport/NativeBinding/DllImport.
+    /// </summary>
+    private void AddAttributeTypes(CompilationResult result, List<CompletionItem> items)
+    {
+        // Built-in attributes
+        var builtins = new[] { "ClrImport", "NativeBinding", "DllImport" };
+        foreach (var name in builtins)
+        {
+            items.Add(new CompletionItem
+            {
+                Label = name,
+                Kind = CompletionItemKind.Class,
+                Detail = "built-in attribute",
+                SortText = "0" + name,
+            });
+        }
+
+        // User-defined attribute types (contracts inheriting from Attribute)
+        foreach (var c in _contracts)
+        {
+            if (c.BaseTypeName != "Attribute") continue;
+            items.Add(new CompletionItem
+            {
+                Label = c.Name,
+                Kind = CompletionItemKind.Class,
+                Detail = c.Detail,
+                SortText = "1" + c.Name,
+            });
         }
     }
 

@@ -16,9 +16,9 @@ namespace Contract.Compiler.Parsing
         // Symbols
         LParen, RParen, LBrace, RBrace, LBracket, RBracket,
         Semicolon, Colon, DoubleColon, Comma, Dot, Plus, Minus, Star, Slash, Percent,
-        Less, LessEqual, Greater, GreaterEqual, EqualEqual, Bang, BangEqual, Assign, Arrow, Pipe,
+        Less, LessEqual, Greater, GreaterEqual, EqualEqual, Bang, BangEqual, Assign, Arrow, Pipe, BitwiseOr,
         PlusEqual, MinusEqual, StarEqual, SlashEqual, PercentEqual, AndAnd, OrOr,
-        DotDot, GreaterGreater, Question, FatArrow,
+        DotDot, GreaterGreater, LessLess, Question, FatArrow,
         QuestionDot, NullCoalesce,
 
         // Special

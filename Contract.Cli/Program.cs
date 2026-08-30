@@ -91,6 +91,7 @@ namespace Contract.Cli
             string? emitDir = null;
             string? cacheDir = null;
             var emitCallgraph = false;
+            var listImports = false;
             var rids = new System.Collections.Generic.List<string>();
             var files = new System.Collections.Generic.List<string>();
 
@@ -137,6 +138,7 @@ namespace Contract.Cli
                         if (++i >= args.Length) { Error("--cache requires a directory path"); return 1; }
                         cacheDir = args[i]; break;
                     case "--emit-callgraph": emitCallgraph = true; break;
+                    case "--list-imports": listImports = true; break;
                     case "run":
                         break; // subcommand marker; the remaining positional is the file
                     case "bundle":
@@ -155,6 +157,10 @@ namespace Contract.Cli
             {
                 var rt = new ContractRuntime();
 
+                // Propagate source directory for assembly imports
+                var sourceDir = Path.GetDirectoryName(Path.GetFullPath(filePath));
+                rt.SourceDir = sourceDir;
+
                 // JIT / emit / cache options
                 if (jit) rt.Inner.Mode = JitMode.Reflection;
                 if (emitDir != null) { ObjectRT.Runtime.Runtime.EmitDir = emitDir; Directory.CreateDirectory(emitDir); }
@@ -168,6 +174,54 @@ namespace Contract.Cli
                     bindingAsm = System.Reflection.Assembly.LoadFrom(bindAssembly);
                     rt.RegisterBindingAssembly(bindingAsm);
                     if (verbose) Console.Error.WriteLine($"; Loaded bindings from {bindAssembly}");
+                }
+
+                // ── --list-imports: enumerate available CLR types ─────
+                if (listImports)
+                {
+                    Console.WriteLine($"CLR types available for <ClrImport> (source: {sourceDir}):");
+                    Console.WriteLine();
+                    // 1. BCL types already loaded in the process
+                    var bclTypes = AppDomain.CurrentDomain.GetAssemblies()
+                        .Where(a => !a.IsDynamic)
+                        .SelectMany(a => { try { return a.GetTypes(); } catch { return Array.Empty<Type>(); } })
+                        .Where(t => t.IsPublic && t.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static).Length > 0)
+                        .OrderBy(t => t.FullName)
+                        .ToList();
+                    foreach (var t in bclTypes)
+                    {
+                        var methods = t.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+                            .Select(m => m.Name).Distinct().OrderBy(n => n);
+                        Console.WriteLine($"  {t.FullName,-50} [{string.Join(", ", methods)}]");
+                    }
+                    // 2. Project-local DLLs in source directory
+                    if (!string.IsNullOrEmpty(sourceDir) && Directory.Exists(sourceDir))
+                    {
+                        foreach (var dll in Directory.GetFiles(sourceDir, "*.dll"))
+                        {
+                            try
+                            {
+                                var asm = System.Reflection.Assembly.LoadFrom(dll);
+                                var types = asm.GetTypes()
+                                    .Where(t => t.IsPublic && t.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static).Length > 0)
+                                    .OrderBy(t => t.FullName)
+                                    .ToList();
+                                if (types.Count > 0)
+                                {
+                                    Console.WriteLine();
+                                    Console.WriteLine($"  --- {Path.GetFileName(dll)} ---");
+                                    foreach (var t in types)
+                                    {
+                                        var methods = t.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+                                            .Select(m => m.Name).Distinct().OrderBy(n => n);
+                                        Console.WriteLine($"  {t.FullName,-50} [{string.Join(", ", methods)}]");
+                                    }
+                                }
+                            }
+                            catch { /* skip unresolvable assemblies */ }
+                        }
+                    }
+                    return 0;
                 }
 
                 var ext = Path.GetExtension(filePath).ToLowerInvariant();

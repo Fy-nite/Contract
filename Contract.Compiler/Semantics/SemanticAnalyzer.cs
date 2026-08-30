@@ -711,10 +711,11 @@ namespace Contract.Compiler.Semantics
                 _usedTypes.Add(attr.Name);
 
                 // Built-in attributes — no user declaration needed. Only valid
-                // on contracts, each taking exactly one string argument:
-                //   <NativeBinding("ModuleName")>  host [ClassBinding] module
-                //   <ClrImport("System.Math")>     CLR type (no class binding needed)
-                //   <DllImport("user32.dll")>      native P/Invoke library
+                // on contracts. Supported signatures:
+                //   <NativeBinding("ModuleName")>                    host [ClassBinding] module
+                //   <ClrImport("System.Math")>                       CLR type (BCL)
+                //   <ClrImport(Type: "System.IO.File", Path: "Foo.dll")>  CLR type from project-local assembly
+                //   <DllImport("user32.dll")>                        native P/Invoke library
                 if (attr.Name.Equals("NativeBinding", StringComparison.OrdinalIgnoreCase)
                     || attr.Name.Equals("ClrImport", StringComparison.OrdinalIgnoreCase)
                     || attr.Name.Equals("DllImport", StringComparison.OrdinalIgnoreCase))
@@ -723,9 +724,26 @@ namespace Contract.Compiler.Semantics
                     {
                         _diagnostics.AddError($"{attr.Name} attribute is only valid on contracts", attr.Line, attr.Column);
                     }
-                    else if (attr.Arguments.Count != 1)
+                    else if (attr.Name.Equals("ClrImport", StringComparison.OrdinalIgnoreCase))
                     {
-                        _diagnostics.AddError($"{attr.Name} expects exactly 1 argument (the binding target name), got {attr.Arguments.Count}", attr.Line, attr.Column);
+                        // CLRImport accepts either a single positional arg (the type name)
+                        // OR named args with Type: and optional Path:
+                        bool hasPositional = attr.Arguments.Count == 1;
+                        bool hasNamedType = attr.NamedArguments.ContainsKey("Type");
+                        if (!hasPositional && !hasNamedType)
+                        {
+                            _diagnostics.AddError(
+                                "ClrImport expects either 1 positional argument (the type name) or a named 'Type' argument",
+                                attr.Line, attr.Column);
+                        }
+                    }
+                    else
+                    {
+                        // NativeBinding and DllImport still require exactly 1 positional arg
+                        if (attr.Arguments.Count != 1)
+                        {
+                            _diagnostics.AddError($"{attr.Name} expects exactly 1 argument (the binding target name), got {attr.Arguments.Count}", attr.Line, attr.Column);
+                        }
                     }
                     continue;
                 }
@@ -805,7 +823,19 @@ namespace Contract.Compiler.Semantics
                 }
                 else if (attr.Name.Equals("ClrImport", StringComparison.OrdinalIgnoreCase))
                 {
-                    ValidateClrImportContract(contract, target, attr);
+                    // Type name: positional arg OR named 'Type' arg
+                    string clrTypeName;
+                    if (attr.Arguments.Count == 1)
+                        clrTypeName = target; // already unquoted above
+                    else if (attr.NamedArguments.TryGetValue("Type", out var namedType))
+                    {
+                        clrTypeName = namedType;
+                        if (clrTypeName.Length >= 2 && clrTypeName[0] == '"' && clrTypeName[^1] == '"')
+                            clrTypeName = clrTypeName[1..^1];
+                    }
+                    else
+                        continue; // validation error already reported
+                    ValidateClrImportContract(contract, clrTypeName, attr);
                 }
                 else
                 {
@@ -847,6 +877,17 @@ namespace Contract.Compiler.Semantics
         {
             contract.ClrImportType = clrTypeName;
 
+            // Check for optional Path named argument (project-local assembly)
+            string? assemblyPath = null;
+            if (attr.NamedArguments.TryGetValue("Path", out var pathValue))
+            {
+                // Strip quotes if present
+                if (pathValue.Length >= 2 && pathValue[0] == '"' && pathValue[^1] == '"')
+                    pathValue = pathValue[1..^1];
+                assemblyPath = pathValue;
+                contract.AssemblyImportPath = assemblyPath;
+            }
+
             // The parser marks non-static members as instance methods only
             // for contracts with fields; these facades have none, so treat
             // every member as a static declaration (call sites resolve through
@@ -857,18 +898,47 @@ namespace Contract.Compiler.Semantics
                     f.IsStatic = true;
             }
 
-            // Best-effort compile-time check: the CLR type is only resolvable
-            // when it lives in the compiler process (BCL types like
-            // System.Math, System.Convert, ... or --bind assemblies). Types
-            // loaded by the host process are checked at runtime instead.
+            // Best-effort compile-time check: try to resolve the CLR type.
             Type? clrType = null;
-            try { clrType = Type.GetType(clrTypeName); }
-            catch (Exception) { /* malformed assembly-qualified name — runtime will report */ }
+
+            if (assemblyPath != null)
+            {
+                // Project-local assembly: resolve relative to source file directory
+                var sourceDir = !string.IsNullOrEmpty(_mainSourceFile)
+                    ? Path.GetDirectoryName(_mainSourceFile)
+                    : Environment.CurrentDirectory;
+                var fullPath = Path.Combine(sourceDir ?? ".", assemblyPath);
+                if (!File.Exists(fullPath))
+                {
+                    _diagnostics.AddError(
+                        $"ClrImport assembly '{assemblyPath}' not found in source directory '{sourceDir}'",
+                        attr.Line, attr.Column);
+                    return;
+                }
+                try
+                {
+                    var assembly = System.Reflection.Assembly.LoadFrom(fullPath);
+                    clrType = assembly.GetType(clrTypeName);
+                }
+                catch (Exception ex)
+                {
+                    _diagnostics.AddWarning(
+                        $"ClrImport could not load assembly '{assemblyPath}': {ex.Message}",
+                        attr.Line, attr.Column);
+                    return;
+                }
+            }
+            else
+            {
+                // BCL type: resolve via Type.GetType
+                try { clrType = Type.GetType(clrTypeName); }
+                catch (Exception) { /* malformed assembly-qualified name — runtime will report */ }
+            }
 
             if (clrType == null)
             {
                 _diagnostics.AddWarning(
-                    $"ClrImport type '{clrTypeName}' is not resolvable at compile time — the runtime host must have it loaded (use a BCL type, an assembly-qualified name, or a --bind assembly)",
+                    $"ClrImport type '{clrTypeName}' is not resolvable at compile time — the runtime host must have it loaded (use a BCL type, an assembly-qualified name, a --bind assembly, or Path: \"assembly.dll\")",
                     attr.Line, attr.Column);
                 return;
             }
@@ -1654,6 +1724,18 @@ namespace Contract.Compiler.Semantics
                                     $"Cannot assign to constant '{assignTarget.Name}' — comptime constants are immutable",
                                     assignTarget.Line, assignTarget.Column);
                             }
+                            else if (!IsVariableDefined(assignTarget.Name)
+                                     && !_currentIsInstance
+                                     && IsInstanceFieldOfCurrentContract(assignTarget.Name))
+                            {
+                                // Assigning to a bare instance field needs a
+                                // `this` receiver — impossible in a static method.
+                                _diagnostics.AddError(
+                                    $"Cannot assign to instance field '{assignTarget.Name}' without an instance: " +
+                                    "this static context has no `this` receiver. Use an explicit instance " +
+                                    "(e.g. obj.Field = v) or declare the field `static` if it should be shared.",
+                                    assignTarget.Line, assignTarget.Column);
+                            }
                             else
                             {
                                 _writtenFields.Add((_currentContractName ?? "", assignTarget.Name));
@@ -1877,6 +1959,20 @@ namespace Contract.Compiler.Semantics
                         // field read via a derived `this` belongs to the base).
                         string owner = DeclaringContractName(_currentContractName ?? "", id.Name, staticOnly: false);
                         _readFields.Add((owner, id.Name));
+                    }
+
+                    // Reading an instance field from a static context has no
+                    // `this` receiver — reject it so it never silently degrades
+                    // into a (nonexistent) local variable access.
+                    if (!_currentIsInstance
+                        && !IsVariableDefined(id.Name)
+                        && IsInstanceFieldOfCurrentContract(id.Name))
+                    {
+                        _diagnostics.AddError(
+                            $"'{id.Name}' is an instance field but is read here without an instance: " +
+                            "this static context has no `this` receiver. Access it via an instance " +
+                            "(e.g. obj.Field) or declare it a `static` field if it should be shared.",
+                            id.Line, id.Column);
                     }
 
                     if (!IsVariableDefined(id.Name)
@@ -2258,6 +2354,19 @@ namespace Contract.Compiler.Semantics
             if (contract == null) return false;
             return FindFieldDeclaringContract(contract, name, staticOnly: false) != null
                 || FindFieldDeclaringContract(contract, name, staticOnly: true) != null;
+        }
+
+        /// <summary>
+        /// True when 'name' is an INSTANCE field (not static) of the current
+        /// contract or one of its bases. Used to diagnose bare instance-field
+        /// access from a static context, which has no <c>this</c> receiver.
+        /// </summary>
+        private bool IsInstanceFieldOfCurrentContract(string name)
+        {
+            if (_currentContractName == null) return false;
+            var contract = FindContract(_currentContractName);
+            if (contract == null) return false;
+            return FindFieldDeclaringContract(contract, name, staticOnly: false) != null;
         }
 
         /// <summary>

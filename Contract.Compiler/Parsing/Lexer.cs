@@ -371,8 +371,8 @@ namespace Contract.Compiler.Parsing
                     }
                     else
                     {
-                        // Lone '|' — the match or-pattern separator.
-                        type = TokenType.Pipe;
+                        // Lone '|' — bitwise OR (was the match/pipe separator).
+                        type = TokenType.BitwiseOr;
                         length = 1;
                     }
                     break;
@@ -419,7 +419,13 @@ namespace Contract.Compiler.Parsing
                     }
                     break;
                 case '<':
-                    if (_position + 1 < _source.Length && _source[_position + 1] == '=')
+                    if (_position + 1 < _source.Length && _source[_position + 1] == '<')
+                    {
+                        // Left shift: a << b
+                        type = TokenType.LessLess;
+                        length = 2;
+                    }
+                    else if (_position + 1 < _source.Length && _source[_position + 1] == '=')
                     {
                         type = TokenType.LessEqual;
                         length = 2;

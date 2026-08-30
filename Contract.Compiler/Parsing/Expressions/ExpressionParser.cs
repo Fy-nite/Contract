@@ -118,9 +118,25 @@ namespace Contract.Compiler.Expressions
 
         private Expression ParseAnd(ParserContext ctx, IParserHost host)
         {
-            var expr = ParseEquality(ctx, host);
+            var expr = ParseBitwiseOr(ctx, host);
 
             while (ctx.Match(TokenType.AndAnd))
+            {
+                string op = ctx.Previous.Text;
+                var right = ParseBitwiseOr(ctx, host);
+                expr = new BinaryExpression(expr, op, right, expr.Line, expr.Column);
+            }
+
+            return expr;
+        }
+
+        // ── Bitwise OR (binds tighter than &&, looser than ==) ──────────
+
+        private Expression ParseBitwiseOr(ParserContext ctx, IParserHost host)
+        {
+            var expr = ParseEquality(ctx, host);
+
+            while (ctx.Match(TokenType.BitwiseOr))
             {
                 string op = ctx.Previous.Text;
                 var right = ParseEquality(ctx, host);
@@ -148,12 +164,12 @@ namespace Contract.Compiler.Expressions
 
         private Expression ParseComparison(ParserContext ctx, IParserHost host)
         {
-            var expr = ParseTerm(ctx, host);
+            var expr = ParseShift(ctx, host);
 
             while (ctx.Match(TokenType.Less, TokenType.LessEqual, TokenType.Greater, TokenType.GreaterEqual))
             {
                 string op = ctx.Previous.Text;
-                var right = ParseTerm(ctx, host);
+                var right = ParseShift(ctx, host);
                 expr = new BinaryExpression(expr, op, right, expr.Line, expr.Column);
             }
 
@@ -198,6 +214,22 @@ namespace Contract.Compiler.Expressions
             {
                 string op = ctx.Previous.Text;
                 var right = ParseUnary(ctx, host);
+                expr = new BinaryExpression(expr, op, right, expr.Line, expr.Column);
+            }
+
+            return expr;
+        }
+
+        // ── Shift operators ─────────────────────────────────────────────
+
+        private Expression ParseShift(ParserContext ctx, IParserHost host)
+        {
+            var expr = ParseTerm(ctx, host);
+
+            while (ctx.Match(TokenType.LessLess))
+            {
+                string op = ctx.Previous.Text;
+                var right = ParseTerm(ctx, host);
                 expr = new BinaryExpression(expr, op, right, expr.Line, expr.Column);
             }
 
@@ -647,7 +679,7 @@ namespace Contract.Compiler.Expressions
                 while (patternLooping)
                 {
                     arm.Patterns.Add(ParseMatchPattern(ctx));
-                    if (!ctx.Match(TokenType.Pipe)) patternLooping = false;
+                    if (!ctx.Match(TokenType.BitwiseOr)) patternLooping = false;
                 }
 
                 if (ctx.Match(TokenType.If))

@@ -131,6 +131,20 @@ namespace Contract.Compiler.Expressions.Internal
                         default: return (false, null);
                     }
 
+                case "<<":
+                    switch (left, right)
+                    {
+                        case (int a, int b): return (true, (object?)(a << b));
+                        default: return (false, null);
+                    }
+
+                case "|":
+                    switch (left, right)
+                    {
+                        case (int a, int b): return (true, (object?)(a | b));
+                        default: return (false, null);
+                    }
+
                 default:
                     return (false, null);
             }

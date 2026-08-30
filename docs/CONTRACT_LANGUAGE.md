@@ -1020,7 +1020,19 @@ var product: int = a * b;
 var quotient: int = a / b;
 var remainder: int = a % b;
 var negated: int = -a;       // unary minus
+var shifted: int = a << n;   // left shift (integer)
+var or: int = a | b;         // bitwise or (integer)
 ```
+
+> `<<` is a left shift on integers: `1 << 4` is `16`. It binds tighter than the
+> comparison operators but looser than `+`/`-`, so `a << b + c` is `a << (b + c)`.
+> The right operand masks to the lower 5 bits of `n` (32-bit shift), as in C#.
+>
+> A lone `|` is bitwise OR on integers (useful for packing bytes:
+> `v = lo | (hi << 8)`). It is distinct from the `|>` pipe operator and the
+> `||` logical OR. `|` binds tighter than `&&`/`||` but looser than `==`, matching
+> C#: `a | b == c` is `a | (b == c)`. In `match` or-patterns and `type` variant
+> lists, `|` still separates alternatives.
 
 ### Logical Operators
 
@@ -1317,6 +1329,9 @@ let result: int = 10 |> inc;        // 11
 let doubled: int = 5 |> double;     // 10
 let summed: int = 3 |> add(7);      // 10
 ```
+
+Note the pipe is spelled `|>`; a bare `|` is the bitwise-OR operator (see
+Arithmetic Operators).
 
 ### Practical Examples
 
