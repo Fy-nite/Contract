@@ -152,6 +152,14 @@ namespace Contract.Compiler.AST
         /// </summary>
         public string? AssemblyImportPath { get; set; }
 
+        /// <summary>
+        /// When the contract is marked <c>&lt;ShadowBinding("Target")&gt;</c>, IL wins union over C# host Target.
+        /// </summary>
+        public bool IsShadowed { get; set; }
+
+        /// <summary>The host wire name this contract shadows (e.g. "IO").</summary>
+        public string? ShadowTarget { get; set; }
+
         public ContractDeclaration(string name, int line, int column) : base(line, column)
         {
             Name = name;
@@ -811,6 +819,24 @@ namespace Contract.Compiler.AST
         }
     }
 
+    /// <summary>
+    /// An explicit host call from inside a shadowed contract:
+    /// <c>host.Method(args)</c>. Resolves to the shadow target's C# binding
+    /// method (host wins, the opposite of the IL-wins union). The analyzer
+    /// sets <c>call.Symbol</c> to the resolved <c>ExternalMethod</c>.
+    /// </summary>
+    public class HostCallExpression : Expression
+    {
+        public string MethodName { get; }
+        public List<Expression> Arguments { get; } = new();
+        public List<TypeDescriptor> TypeArguments { get; } = new();
+
+        public HostCallExpression(string methodName, int line, int column) : base(line, column)
+        {
+            MethodName = methodName;
+        }
+    }
+
     public class LambdaExpression : Expression
     {
         public List<string> Parameters { get; } = new();
@@ -894,16 +920,21 @@ namespace Contract.Compiler.AST
     /// <summary>
     /// A type check expression: <c>expr is TypeName</c>.
     /// Evaluates to <c>true</c> when the value is of the specified type.
+    /// When <see cref="PatternVariable"/> is set, this is a pattern declaration
+    /// <c>expr is TypeName varName</c> which binds <c>varName</c> to the typed
+    /// value when the check succeeds (like C# <c>is string x</c>).
     /// </summary>
     public class IsExpression : Expression
     {
         public Expression Value { get; }
         public string TypeName { get; }
+        public string? PatternVariable { get; }
 
-        public IsExpression(Expression value, string typeName, int line, int column) : base(line, column)
+        public IsExpression(Expression value, string typeName, int line, int column, string? patternVariable = null) : base(line, column)
         {
             Value = value;
             TypeName = typeName;
+            PatternVariable = patternVariable;
         }
     }
 

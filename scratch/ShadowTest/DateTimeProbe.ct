@@ -1,0 +1,9 @@
+﻿import __builtin.std;
+Contract Program {
+  static fn Main() {
+    var h = DateTime.Create(2024, 1, 15);
+    IO.Println(DateTime.GetYear(h));
+    IO.Println(DateTime.ToShortDate(h));
+    IO.Println(DateTime.ToIso(h));
+  }
+}

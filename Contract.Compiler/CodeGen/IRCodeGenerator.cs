@@ -67,6 +67,8 @@ public class IRCodeGenerator
     // Contract name → CLR type name for <ClrImport("System.Math")> contracts.
     // Call sites emit Type.Method targets; the runtime resolves via reflection.
     private readonly Dictionary<string, string> _clrImports = new(StringComparer.OrdinalIgnoreCase);
+    // Contract name → host wire name for <ShadowBinding("Target")> IL-wins-union.
+    private readonly Dictionary<string, string> _shadowBindings = new(StringComparer.OrdinalIgnoreCase);
     // In-scope generic type parameters for the contract/function being generated.
     // Contract params map to their literal name (the VM substitutes during
     // materialization); function params erase to object.
@@ -220,6 +222,15 @@ public class IRCodeGenerator
                 _nativeBindings[cls.Name] = cls.NativeBindingName;
             if (cls.ClrImportType != null)
                 _clrImports[cls.Name] = cls.ClrImportType;
+            if (cls.IsShadowed && cls.ShadowTarget != null)
+            {
+                _shadowBindings[cls.Name] = cls.ShadowTarget;
+                if (cls.FullName != cls.Name) _shadowBindings[cls.FullName] = cls.ShadowTarget;
+                // Also register wire short name for lookup
+                string wireShort = cls.ShadowTarget.Contains('.') ? cls.ShadowTarget[(cls.ShadowTarget.LastIndexOf('.')+1)..] : cls.ShadowTarget;
+                if (!_shadowBindings.ContainsKey(wireShort))
+                    _shadowBindings[wireShort] = wireShort;
+            }
 
             // Record the contract's type parameters for call-site erasure.
             if (cls.IsGeneric)
@@ -240,6 +251,7 @@ public class IRCodeGenerator
             // recognise them without resolving the external base.
             foreach (var attr in cls.Attributes)
             {
+                if (attr.Name.Equals("ShadowBinding", StringComparison.OrdinalIgnoreCase)) continue; // compile-time only
                 classBuilder.Attribute(attr.Name, EncodeAttributeArgs(attr));
             }
             if (cls.IsAttributeType)
@@ -560,30 +572,50 @@ public class IRCodeGenerator
         // Inject requires checks at function entry
         EmitRequiresChecks(ib, func.Requires, paramMap);
 
-        if (func.Body != null)
+        // Auto-forwarding: an empty-body method on a shadowed contract maps
+        // directly to the host binding it shadows. Emit it as a native stub
+        // (a ≤2-byte body — just `ret`), which the VM's call dispatch treats
+        // specially: `call IO.Method` resolves to this stub, sees the tiny
+        // body, and falls through to the native resolver chain, which invokes
+        // host IO.Method with the same name and the already-pushed args. This
+        // avoids the self-recursion a `call IO.Method` inside IO.Method would
+        // otherwise hit.
+        bool forwardedToHost = false;
+        if (func.Body is { Statements.Count: 0 }
+            && func.ContractName != null
+            && _shadowBindings.ContainsKey(func.ContractName))
         {
-            GenerateStatement(ib, func.Body, paramMap);
+            ib.Ret();
+            forwardedToHost = true;
         }
 
-        // Inject ensures checks before implicit return
-        if (!_lastIsReturn && func.Ensures.Count > 0)
+        if (!forwardedToHost)
         {
-            EmitEnsuresChecks(ib, func.Ensures, returnType, paramMap);
-        }
+            if (func.Body != null)
+            {
+                GenerateStatement(ib, func.Body, paramMap);
+            }
 
-        // Implicit return safety
-        if (!_lastIsReturn)
-        {
-            // The VM treats a ≤2-byte method body as a native stub
-            // (@DllImport placeholder) and routes calls to native dispatch.
-            // An empty body is a real no-op, so pad it so it isn't misrouted.
-            if (func.Body is { Statements.Count: 0 } && (returnType == TypeRef.Void || returnType == TypeRef.String))
-                ib.Ldnull().Pop();
-            if (returnType == TypeRef.Void) ib.Ret();
-            else if (returnType == TypeRef.String) ib.Ldnull().Ret();
-            else if (returnType == TypeRef.Float32) ib.LdcR4(0).Ret();
-            else if (returnType == TypeRef.Float64) ib.LdcR8(0).Ret();
-            else ib.LdcI4(0).Ret();
+            // Inject ensures checks before implicit return
+            if (!_lastIsReturn && func.Ensures.Count > 0)
+            {
+                EmitEnsuresChecks(ib, func.Ensures, returnType, paramMap);
+            }
+
+            // Implicit return safety
+            if (!_lastIsReturn)
+            {
+                // The VM treats a ≤2-byte method body as a native stub
+                // (@DllImport placeholder) and routes calls to native dispatch.
+                // An empty body is a real no-op, so pad it so it isn't misrouted.
+                if (func.Body is { Statements.Count: 0 } && (returnType == TypeRef.Void || returnType == TypeRef.String))
+                    ib.Ldnull().Pop();
+                if (returnType == TypeRef.Void) ib.Ret();
+                else if (returnType == TypeRef.String) ib.Ldnull().Ret();
+                else if (returnType == TypeRef.Float32) ib.LdcR4(0).Ret();
+                else if (returnType == TypeRef.Float64) ib.LdcR8(0).Ret();
+                else ib.LdcI4(0).Ret();
+            }
         }
 
         ib.EndBody().EndMethod();
@@ -1986,11 +2018,33 @@ public class IRCodeGenerator
 
             case IsExpression isExpr:
                 // expr is TypeName — check runtime type via Isinst opcode
+                // When PatternVariable is set (`is Type x`) we also bind `x` to the cast result.
                 GenerateExpression(ib, isExpr.Value, paramMap);
-                // Resolve the type name to its wire name
                 string isTypeName = ResolveTypeName(isExpr.TypeName);
-                ib.Isinst(isTypeName);
-                // Isinst returns null if not the type, or the object if it is.
+                bool isPrimitive = IsPrimitiveType(isTypeName);
+                if (isPrimitive)
+                {
+                    // Primitives have no type record for isinst — use TypeHelper.CastOrNull helper
+                    ib.Ldstr(isTypeName);
+                    ib.Call(new MethodReference(new TypeRef("TypeHelper"), "CastOrNull", TypeRef.Object, new List<TypeRef> { TypeRef.Object, TypeRef.String }));
+                }
+                else
+                {
+                    ib.Isinst(isTypeName);
+                }
+                if (isExpr.PatternVariable != null)
+                {
+                    string pv = isExpr.PatternVariable;
+                    // The wire type for the pattern var is the checked type itself
+                    TypeRef pvType;
+                    try { pvType = MapNamedType(isTypeName); } catch { pvType = TypeRef.Object; }
+                    // If the wire type is not a reference (e.g. void) fall back to object
+                    if (pvType.Name == "void") pvType = TypeRef.Object;
+                    EnsureLocal(ib, pv, pvType);
+                    ib.Dup();
+                    ib.Stloc(pv);
+                }
+                // Isinst / CastOrNull returns null if not the type, or the object if it is.
                 // We need a boolean, so check != null.
                 ib.Ldnull();
                 ib.Cne();
@@ -2151,6 +2205,14 @@ public class IRCodeGenerator
                             ib.Call(new MethodReference(
                                 new TypeRef(clrWriteTarget), memTarget.Property, TypeRef.Object,
                                 new List<TypeRef> { TypeRef.Object, TypeRef.Object }));
+                            return;
+                        }
+                        else if (_shadowBindings.TryGetValue(targetName, out var shadowWriteWire) && IsShadowFallbackField(targetName, memTarget.Property))
+                        {
+                            string wire = shadowWriteWire.Contains('.') ? shadowWriteWire[(shadowWriteWire.LastIndexOf('.')+1)..] : shadowWriteWire;
+                            GenerateExpression(ib, memTarget.Object, paramMap);
+                            GenerateExpression(ib, bin.Right, paramMap);
+                            ib.Call(new MethodReference(new TypeRef(wire), memTarget.Property, TypeRef.Object, new List<TypeRef> { TypeRef.Object, TypeRef.Object }));
                             return;
                         }
                         else
@@ -2388,8 +2450,14 @@ public class IRCodeGenerator
                 // pops call args in reverse into the callee's locals — so the
                 // receiver must be pushed FIRST (before the arguments) to land
                 // in locals[0]. (Delegates keep the receiver-last convention.)
-                bool isInstanceCall = call.Symbol is FunctionDeclaration instCallFunc && instCallFunc.IsInstance;
+                bool isInstanceCall = (call.Symbol is FunctionDeclaration instCallFunc && instCallFunc.IsInstance)
+                    || (call.Symbol is ExternalMethod emInst && !emInst.Info.IsStatic);
                 bool isExtensionCall = call.Symbol is FunctionDeclaration extCheck && extCheck.IsExtension;
+                // `host.Method(args)` — an explicit call to the shadow target's
+                // C# binding. Emitted as `callnative` so it bypasses the module
+                // function table (where the IL contract's own method would win)
+                // and reaches the runtime's native resolver chain directly.
+                bool isHostCall = call.Callee is HostCallExpression;
 
                 // A bare call to a sibling instance method (method() inside an
                 // instance method of the same contract) implicitly passes
@@ -2450,13 +2518,19 @@ public class IRCodeGenerator
 
                 if (call.Symbol is ExternalMethod em)
                 {
+                    var paramTypes = em.Info.GetParameters().Select(p => MapTypeFromSystemType(p.ParameterType)).ToList();
+                    if (!em.Info.IsStatic)
+                        paramTypes.Insert(0, TypeRef.Object);
                     var target = new MethodReference(
                         new TypeRef(em.ClassName),
                         em.MethodName,
                         MapTypeFromSystemType(em.Info.ReturnType),
-                        em.Info.GetParameters().Select(p => MapTypeFromSystemType(p.ParameterType)).ToList()
+                        paramTypes
                     );
-                    ib.Call(target);
+                    if (isHostCall)
+                        ib.Callnative(target);
+                    else
+                        ib.Call(target);
                 }
                 else if (call.Symbol is FunctionDeclaration extFunc && extFunc.IsExtension)
                 {
@@ -2748,6 +2822,12 @@ public class IRCodeGenerator
                         ib.Call(new MethodReference(
                             new TypeRef(clrFieldTarget), mem.Property, TypeRef.Object,
                             new List<TypeRef> { TypeRef.Object }));
+                        break;
+                    }
+                    if (_shadowBindings.TryGetValue(memObjName, out var shadowWire) && IsShadowFallbackField(memObjName, mem.Property))
+                    {
+                        string wire = shadowWire.Contains('.') ? shadowWire[(shadowWire.LastIndexOf('.')+1)..] : shadowWire;
+                        ib.Call(new MethodReference(new TypeRef(wire), mem.Property, TypeRef.Object, new List<TypeRef> { TypeRef.Object }));
                         break;
                     }
                     if (mem.Property is "Length" or "Count")
@@ -3393,6 +3473,12 @@ public class IRCodeGenerator
         return new FieldReference(new TypeRef(_closureClass!), name, fieldType);
     }
 
+    private static bool IsPrimitiveType(string type) => type.ToLower() switch
+    {
+        "string" or "bool" or "int" or "int32" or "int64" or "long" or "double" or "float" or "float32" or "float64" or "object" or "byte" or "sbyte" or "short" or "ushort" or "uint" or "uint8" or "int8" or "int16" or "uint16" or "uint32" or "void" or "null" => true,
+        _ => false
+    };
+
     private TypeRef MapNamedType(string type)
     {
         if (string.IsNullOrEmpty(type)) return TypeRef.Int32;
@@ -3411,6 +3497,7 @@ public class IRCodeGenerator
             "object" => TypeRef.Object,
             "double" => TypeRef.Float64,
             "float" => TypeRef.Float32,
+            "type" => new TypeRef("ObjektRT.Core.Type"),
             // Extended integer widths: the VM stores every integer as I4, but the
             // wire name keeps the native C width so DllImport signatures and
             // interop struct fields marshal as their true C types.
@@ -3519,6 +3606,26 @@ public class IRCodeGenerator
             }
         }
         return null;
+    }
+
+    private string? ShadowBindingFor(string typeName)
+    {
+        if (_shadowBindings.TryGetValue(typeName, out var w)) return w.Contains('.') ? w[(w.LastIndexOf('.')+1)..] : w;
+        return null;
+    }
+
+    private bool IsShadowFallbackField(string declaringType, string fieldName)
+    {
+        // IL field not found -> fallback to host if shadowed
+        if (_shadowBindings.ContainsKey(declaringType))
+        {
+            var contract = FindContract(declaringType);
+            if (contract == null) return true;
+            // Check if contract (or base) has the field; if not, fallback true
+            if (!HasFieldIncludingBase(contract, fieldName, staticOnly: false) && !HasFieldIncludingBase(contract, fieldName, staticOnly: true))
+                return true;
+        }
+        return false;
     }
 
     private TypeRef MapTypeFromSystemType(System.Type t)

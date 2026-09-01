@@ -250,6 +250,25 @@ public class ContractRuntime : IHostedRuntime
 
                 System.Type? clrType = null;
 
+                string effectiveClr = typeName;
+                // Handle generic ClassBinding style without tick: try adding tick variants
+                if (!effectiveClr.Contains('`') && !effectiveClr.Contains('<'))
+                {
+                    // Try raw first, fallback will try tick; keep as is for now
+                }
+                else if (effectiveClr.Contains('<'))
+                {
+                    int lt = effectiveClr.IndexOf('<');
+                    int gt = effectiveClr.LastIndexOf('>');
+                    if (lt > 0 && gt > lt)
+                    {
+                        string b = effectiveClr[..lt].Trim();
+                        string inner = effectiveClr[(lt+1)..gt].Trim();
+                        int arity = inner.Length == 0 ? 0 : inner.Split(',').Length;
+                        effectiveClr = b + "`" + arity;
+                    }
+                }
+
                 if (assemblyPath != null)
                 {
                     // Project-local assembly: resolve relative to source directory
@@ -262,15 +281,21 @@ public class ContractRuntime : IHostedRuntime
                         try
                         {
                             var asm = System.Reflection.Assembly.LoadFrom(fullPath);
-                            clrType = asm.GetType(typeName);
+                            clrType = asm.GetType(effectiveClr) ?? asm.GetType(typeName);
+                            if (clrType == null && !effectiveClr.Contains('`'))
+                                for (int t = 1; t <= 4 && clrType == null; t++) clrType = asm.GetType(effectiveClr + "`" + t);
                         }
                         catch (System.Exception) { /* reported below */ }
                     }
                 }
                 else
                 {
-                    try { clrType = System.Type.GetType(typeName); }
-                    catch (System.Exception) { /* malformed name — reported below */ }
+                    clrType = ResolveClrWithFallback(effectiveClr) ?? ResolveClrWithFallback(typeName);
+                    if (clrType == null && !effectiveClr.Contains('`'))
+                    {
+                        for (int t = 1; t <= 4 && clrType == null; t++)
+                            clrType = ResolveClrWithFallback(effectiveClr + "`" + t);
+                    }
                 }
 
                 if (clrType == null)
@@ -303,6 +328,20 @@ public class ContractRuntime : IHostedRuntime
     /// </summary>
     public object? InvokeDelegate(object? handle, params object?[] args)
         => _runtime.InvokeDelegate(handle, args);
+
+    private static System.Type? ResolveClrWithFallback(string name)
+    {
+        try { var t = System.Type.GetType(name); if (t != null) return t; } catch { }
+        foreach (var sfx in new[] { ", System.Runtime", ", System.Private.CoreLib", ", mscorlib", ", System.Collections", ", netstandard" })
+        {
+            try { var t = System.Type.GetType(name + sfx); if (t != null) return t; } catch { }
+        }
+        foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
+        {
+            try { var t = asm.GetType(name); if (t != null) return t; } catch { }
+        }
+        return null;
+    }
 
     /// <summary>Finds the qualified name of the static Main entry (e.g. "Program.Main").</summary>
     public static string? FindEntry(ORBTModule module)

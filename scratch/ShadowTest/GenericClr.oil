@@ -1,0 +1,55 @@
+module MyList version 1.0.0
+
+@ClrImport("System.Collections.Generic.List")
+@Generic(T)
+class MyList {
+    public field items: int32
+}
+
+class Program {
+    static method Main() -> void {
+        local l: MyList<int32>
+
+        // #line 11:13 "var l = new MyList<int>();"
+        call System.Collections.Generic.List..ctor() -> object
+        // #line 11:13 "var l = new MyList<int>();"
+        stloc l
+        // #line 12:5 "l.Add(42);"
+        ldloc l
+        // #line 12:11 "l.Add(42);"
+        ldc.i4 42
+        // #line 12:11 "l.Add(42);"
+        call MyList<int32>.Add(object, int32) -> int32
+        // #line 12:11 "l.Add(42);"
+        pop
+        // #line 13:5 "l.Add(99);"
+        ldloc l
+        // #line 13:11 "l.Add(99);"
+        ldc.i4 99
+        // #line 13:11 "l.Add(99);"
+        call MyList<int32>.Add(object, int32) -> int32
+        // #line 13:11 "l.Add(99);"
+        pop
+        // #line 14:16 "IO.Println(l.get_Count());"
+        ldloc l
+        // #line 14:16 "IO.Println(l.get_Count());"
+        call MyList<int32>.get_Count(object) -> int32
+        // #line 14:16 "IO.Println(l.get_Count());"
+        call IO.Println(object) -> void
+        // #line 14:16 "IO.Println(l.get_Count());"
+        pop
+        // #line 15:16 "IO.Println(l.get_Item(0));"
+        ldloc l
+        // #line 15:27 "IO.Println(l.get_Item(0));"
+        ldc.i4 0
+        // #line 15:27 "IO.Println(l.get_Item(0));"
+        call MyList<int32>.get_Item(object, int32) -> int32
+        // #line 15:27 "IO.Println(l.get_Item(0));"
+        call IO.Println(object) -> void
+        // #line 15:27 "IO.Println(l.get_Item(0));"
+        pop
+        // #line 15:27 "IO.Println(l.get_Item(0));"
+        ret
+    }
+}
+

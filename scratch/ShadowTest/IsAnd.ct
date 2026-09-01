@@ -1,0 +1,7 @@
+﻿import __builtin.std;
+Contract Program {
+  static fn Main() {
+    var o: object = 42;
+    if (o is int i) { IO.Println("int"); }
+  }
+}

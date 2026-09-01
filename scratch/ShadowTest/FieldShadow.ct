@@ -1,0 +1,19 @@
+import __builtin.std;
+<ShadowBinding("HostBox")>
+Contract HostBox {
+  static fn Extra(msg: string) {
+    HostBox.Print("shadow extra:" + msg);
+  }
+}
+Contract Program {
+  static fn Main() {
+    HostBox.Extra("hi");
+    HostBox.Print("direct host");
+    var b = new HostBox();
+    b.SetValue(42);
+    IO.Println(b.GetValue());
+    IO.Println(b.value);
+    IO.Println(b.label);
+    IO.Println(b.Name);
+  }
+}

@@ -632,6 +632,11 @@ public class SymbolIndex
                     if (fn != null) return new ResolvedTarget { Symbol = fn };
                 }
             }
+            // Host field on stdlib/shadow module
+            if (result.SymbolTable.TryGetField(baseName, memberName, out var extField) && extField != null)
+            {
+                return new ResolvedTarget { HoverText = $"**field** `{extField.ClassName}.{extField.FieldName}: {MapSystemType(extField.FieldType)}`\n\n*(host binding)*" };
+            }
 
             // Mid-chain module name: A.B.Numbers (hover the module itself).
             string fullPath = baseName + "." + memberName;
@@ -646,6 +651,18 @@ public class SymbolIndex
                 var typeSym = FindType(named.Name);
                 var hit = typeSym != null ? FindMemberIncludingBase(typeSym, memberName) : null;
                 if (hit != null) return new ResolvedTarget { Symbol = hit };
+                // Shadow host fallback for variable type
+                if (result.SymbolTable.IsShadowedModule(named.Name))
+                {
+                    var wire = result.SymbolTable.GetShadowWireName(named.Name);
+                    if (wire != null)
+                    {
+                        if (result.SymbolTable.TryGetMethod(wire, memberName, out var hostBound) && hostBound is ExternalMethod hext)
+                            return new ResolvedTarget { HoverText = ExternalMethodMarkdown(hext) };
+                        if (result.SymbolTable.TryGetField(wire, memberName, out var hfield) && hfield != null)
+                            return new ResolvedTarget { HoverText = $"**field** `{hfield.ClassName}.{hfield.FieldName}: {MapSystemType(hfield.FieldType)}`\n\n*(host binding via shadow)*" };
+                    }
+                }
             }
         }
 
@@ -1054,12 +1071,37 @@ public class SymbolIndex
         {
             foreach (var m in result.SymbolTable.GetExternalMethods(module))
                 items.Add(ExternalCompletion(m));
+            foreach (var f in result.SymbolTable.GetExternalFields(module))
+                items.Add(new CompletionItem { Label = f.FieldName, Kind = CompletionItemKind.Field, Detail = $"{f.FieldName}: {SymbolIndex.MapSystemType(f.FieldType)}", SortText = "4" + f.FieldName });
+            // Shadow IL members union for Module::
+            if (result.SymbolTable.IsShadowedModule(module))
+            {
+                var typeSym = FindType(module);
+                if (typeSym != null)
+                {
+                    var seen = new HashSet<string>(items.Select(i => i.Label));
+                    foreach (var child in TypeMembersIncludingBase(typeSym))
+                        if (seen.Add(child.Name)) items.Add(SymbolCompletion(child));
+                }
+            }
             return;
         }
-        var typeSym = FindType(module);
-        if (typeSym == null) return;
-        foreach (var child in TypeMembersIncludingBase(typeSym))
+        var typeSym2 = FindType(module);
+        if (typeSym2 == null) return;
+        foreach (var child in TypeMembersIncludingBase(typeSym2))
             items.Add(SymbolCompletion(child));
+        if (result.SymbolTable.IsShadowedModule(module))
+        {
+            var wire = result.SymbolTable.GetShadowWireName(module);
+            if (wire != null)
+            {
+                var seen = new HashSet<string>(items.Select(i => i.Label));
+                foreach (var m in result.SymbolTable.GetExternalMethods(wire))
+                    if (seen.Add(m.MethodName)) items.Add(ExternalCompletion(m));
+                foreach (var f in result.SymbolTable.GetExternalFields(wire))
+                    if (seen.Add(f.FieldName)) items.Add(new CompletionItem { Label = f.FieldName, Kind = CompletionItemKind.Field, Detail = $"{f.FieldName}: {SymbolIndex.MapSystemType(f.FieldType)}", SortText = "4" + f.FieldName });
+            }
+        }
     }
 
     private void AddMembers(CompilationResult result, string baseName, Position basePos, List<CompletionItem> items)
@@ -1071,14 +1113,46 @@ public class SymbolIndex
             while (owner != null && owner.Category is not (SymbolCategory.Contract or SymbolCategory.Struct))
                 owner = owner.Parent;
             if (owner != null)
+            {
                 foreach (var child in TypeMembersIncludingBase(owner)) items.Add(SymbolCompletion(child));
+                // Shadow host members for 'this' if owner is shadowed
+                if (owner.Name != null && result.SymbolTable.IsShadowedModule(owner.Name))
+                {
+                    var wire = result.SymbolTable.GetShadowWireName(owner.Name);
+                    if (wire != null)
+                    {
+                        var seen = new HashSet<string>(items.Select(i => i.Label));
+                        foreach (var m in result.SymbolTable.GetExternalMethods(wire))
+                            if (seen.Add(m.MethodName)) items.Add(ExternalCompletion(m));
+                        foreach (var f in result.SymbolTable.GetExternalFields(wire))
+                            if (seen.Add(f.FieldName)) items.Add(new CompletionItem { Label = f.FieldName, Kind = CompletionItemKind.Field, Detail = $"{f.FieldName}: {SymbolIndex.MapSystemType(f.FieldType)}", SortText = "4" + f.FieldName });
+                    }
+                }
+            }
             return;
         }
 
-        if (result.SymbolTable.IsBoundModule(baseName))
+        bool isShadow = result.SymbolTable.IsShadowedModule(baseName);
+        string? shadowWire = isShadow ? result.SymbolTable.GetShadowWireName(baseName) : null;
+
+        if (result.SymbolTable.IsBoundModule(baseName) || (isShadow && shadowWire != null && result.SymbolTable.IsBoundModule(shadowWire)))
         {
-            foreach (var m in result.SymbolTable.GetExternalMethods(baseName))
+            var hostName = isShadow && shadowWire != null ? shadowWire : baseName;
+            foreach (var m in result.SymbolTable.GetExternalMethods(hostName))
                 items.Add(ExternalCompletion(m));
+            foreach (var f in result.SymbolTable.GetExternalFields(hostName))
+                items.Add(new CompletionItem { Label = f.FieldName, Kind = CompletionItemKind.Field, Detail = $"{f.FieldName}: {SymbolIndex.MapSystemType(f.FieldType)}", SortText = "4" + f.FieldName });
+            // If shadowed, also add IL members not already present
+            if (isShadow)
+            {
+                var typeSym = FindType(baseName);
+                if (typeSym != null)
+                {
+                    var seen = new HashSet<string>(items.Select(i => i.Label));
+                    foreach (var child in TypeMembersIncludingBase(typeSym))
+                        if (seen.Add(child.Name)) items.Add(SymbolCompletion(child));
+                }
+            }
             return;
         }
 
@@ -1089,6 +1163,15 @@ public class SymbolIndex
         if (typeMemberSym != null)
         {
             foreach (var child in TypeMembersIncludingBase(typeMemberSym)) items.Add(SymbolCompletion(child));
+            // Shadow union: add host members dedup
+            if (isShadow && shadowWire != null)
+            {
+                var seen = new HashSet<string>(items.Select(i => i.Label));
+                foreach (var m in result.SymbolTable.GetExternalMethods(shadowWire))
+                    if (seen.Add(m.MethodName)) items.Add(ExternalCompletion(m));
+                foreach (var f in result.SymbolTable.GetExternalFields(shadowWire))
+                    if (seen.Add(f.FieldName)) items.Add(new CompletionItem { Label = f.FieldName, Kind = CompletionItemKind.Field, Detail = $"{f.FieldName}: {SymbolIndex.MapSystemType(f.FieldType)}", SortText = "4" + f.FieldName });
+            }
             return;
         }
 

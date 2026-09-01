@@ -1,0 +1,13 @@
+import __builtin.std;
+<ShadowBinding("IO")>
+Contract IO {
+  static fn Extra(msg: string) {
+    IO.Println("extra:" + msg);
+  }
+}
+Contract Program {
+  static fn Main() {
+    IO.Extra("hello shadow");
+    IO.Println("host call still works");
+  }
+}

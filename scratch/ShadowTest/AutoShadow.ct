@@ -1,0 +1,12 @@
+import __builtin.std;
+Contract IO {
+  static fn Extra2(msg: string) {
+    IO.Println("extra2:" + msg);
+  }
+}
+Contract Program {
+  static fn Main() {
+    IO.Extra2("auto");
+    IO.Println("host");
+  }
+}

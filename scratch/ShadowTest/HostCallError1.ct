@@ -1,0 +1,6 @@
+import __builtin.std;
+Contract Program {
+  static fn Main() {
+    host.Println("nope");
+  }
+}

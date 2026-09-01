@@ -716,9 +716,11 @@ namespace Contract.Compiler.Semantics
                 //   <ClrImport("System.Math")>                       CLR type (BCL)
                 //   <ClrImport(Type: "System.IO.File", Path: "Foo.dll")>  CLR type from project-local assembly
                 //   <DllImport("user32.dll")>                        native P/Invoke library
+                //   <ShadowBinding("IO")>                           IL shadows host IO (IL wins union)
                 if (attr.Name.Equals("NativeBinding", StringComparison.OrdinalIgnoreCase)
                     || attr.Name.Equals("ClrImport", StringComparison.OrdinalIgnoreCase)
-                    || attr.Name.Equals("DllImport", StringComparison.OrdinalIgnoreCase))
+                    || attr.Name.Equals("DllImport", StringComparison.OrdinalIgnoreCase)
+                    || attr.Name.Equals("ShadowBinding", StringComparison.OrdinalIgnoreCase))
                 {
                     if (targetKind != "contract")
                     {
@@ -739,7 +741,7 @@ namespace Contract.Compiler.Semantics
                     }
                     else
                     {
-                        // NativeBinding and DllImport still require exactly 1 positional arg
+                        // NativeBinding, DllImport, ShadowBinding require exactly 1 positional arg
                         if (attr.Arguments.Count != 1)
                         {
                             _diagnostics.AddError($"{attr.Name} expects exactly 1 argument (the binding target name), got {attr.Arguments.Count}", attr.Line, attr.Column);
@@ -748,8 +750,28 @@ namespace Contract.Compiler.Semantics
                     continue;
                 }
 
-                if (!contractsByName.TryGetValue(attr.Name, out var attrContract))
+                // Strip generic args for attribute name lookup: MyAttr<int> -> MyAttr
+                string attrLookupName = attr.Name;
+                int genericIdx = attr.Name.IndexOf('<');
+                if (genericIdx > 0) attrLookupName = attr.Name[..genericIdx];
+
+                if (!contractsByName.TryGetValue(attrLookupName, out var attrContract))
                 {
+                    // Fallback: C# external attributes (any arity, generic or not)
+                    var extCtors = _symbolTable.GetExternalAttributeCtors(attrLookupName);
+                    if (extCtors.Count > 0)
+                    {
+                        int supplied = attr.Arguments.Count + attr.NamedArguments.Count;
+                        // For generic attributes, first type args don't count as ctor args
+                        bool matchesExt = extCtors.Any(c => c.GetParameters().Length == supplied);
+                        if (extCtors.Count > 0 && !matchesExt && supplied != 0)
+                        {
+                            // Allow any arity when ctor list is empty? No, report but don't block
+                            var expected = string.Join(" or ", extCtors.Select(c => c.GetParameters().Length.ToString()).Distinct());
+                            _diagnostics.AddError($"Attribute '{attr.Name}' (C#) expects {expected} argument(s), got {supplied}", attr.Line, attr.Column);
+                        }
+                        continue;
+                    }
                     _diagnostics.AddError($"Unknown attribute '{attr.Name}'", attr.Line, attr.Column);
                     continue;
                 }
@@ -760,14 +782,34 @@ namespace Contract.Compiler.Semantics
                     continue;
                 }
 
-                // Argument count must match one of the attribute type's constructors.
+                // Generic attribute arity check (type args)
+                if (attrContract.IsGeneric)
+                {
+                    int suppliedTypeArgs = 0;
+                    if (attr.Name.Contains('<'))
+                    {
+                        // Count type args inside <>
+                        string inner = attr.Name[(attr.Name.IndexOf('<')+1)..attr.Name.LastIndexOf('>')];
+                        if (!string.IsNullOrWhiteSpace(inner))
+                            suppliedTypeArgs = inner.Split(',').Length;
+                    }
+                    if (suppliedTypeArgs != 0 && suppliedTypeArgs != attrContract.TypeParameters.Count)
+                    {
+                        _diagnostics.AddError($"Attribute '{attr.Name}' expects {attrContract.TypeParameters.Count} type argument(s), got {suppliedTypeArgs}", attr.Line, attr.Column);
+                    }
+                }
+
+                // Argument count must match one of the attribute type's constructors (positional + named).
                 if (attrContract.Constructors.Count > 0)
                 {
-                    bool matches = attrContract.Constructors.Any(c => c.Parameters.Count == attr.Arguments.Count);
+                    int supplied = attr.Arguments.Count + attr.NamedArguments.Count;
+                    bool matches = attrContract.Constructors.Any(c => c.Parameters.Count == supplied);
+                    // Also allow positional-only shorthand check for backwards compat
+                    if (!matches) matches = attrContract.Constructors.Any(c => c.Parameters.Count == attr.Arguments.Count);
                     if (!matches)
                     {
-                        var expected = string.Join(" or ", attrContract.Constructors.Select(c => c.Parameters.Count.ToString()));
-                        _diagnostics.AddError($"Attribute '{attr.Name}' expects {expected} argument(s), got {attr.Arguments.Count}", attr.Line, attr.Column);
+                        var expected = string.Join(" or ", attrContract.Constructors.Select(c => c.Parameters.Count.ToString()).Distinct());
+                        _diagnostics.AddError($"Attribute '{attr.Name}' expects {expected} argument(s), got {supplied}", attr.Line, attr.Column);
                     }
                 }
             }
@@ -793,12 +835,42 @@ namespace Contract.Compiler.Semantics
                 var attr = contract.Attributes.FirstOrDefault(a =>
                     a.Name.Equals("NativeBinding", StringComparison.OrdinalIgnoreCase)
                     || a.Name.Equals("ClrImport", StringComparison.OrdinalIgnoreCase)
-                    || a.Name.Equals("DllImport", StringComparison.OrdinalIgnoreCase));
+                    || a.Name.Equals("DllImport", StringComparison.OrdinalIgnoreCase)
+                    || a.Name.Equals("ShadowBinding", StringComparison.OrdinalIgnoreCase));
                 if (attr == null) continue;
 
-                if (attr.Arguments.Count != 1) continue; // arity already reported
+                // ShadowBinding is not a facade - allow fields/ctors/bodies, just mark shadow link
+                if (attr.Name.Equals("ShadowBinding", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (attr.Arguments.Count != 1) continue;
+                    string sTarget = attr.Arguments[0].Trim();
+                    if (sTarget.Length >= 2 && sTarget[0] == '"' && sTarget[^1] == '"')
+                        sTarget = sTarget[1..^1];
+                    contract.IsShadowed = true;
+                    contract.ShadowTarget = sTarget;
+                    // Validate target exists as host binding or as another contract? Also allow generic host
+                    if (!_symbolTable.IsBoundModule(sTarget) && !_symbolTable.IsUserContract(sTarget))
+                    {
+                        // Don't error hard for generic host without tick - resolve via reflection fallback
+                        // Check if any host wire matches without tick (List -> List`1)
+                        bool found = false;
+                        foreach (var bk in _symbolTable.GetBoundClasses())
+                        {
+                            string shortWire = bk.Contains('.') ? bk[(bk.LastIndexOf('.')+1)..] : bk;
+                            if (string.Equals(shortWire, sTarget, StringComparison.OrdinalIgnoreCase))
+                            { found = true; break; }
+                            // Try tick form
+                            if (string.Equals(bk, sTarget + "`1", StringComparison.OrdinalIgnoreCase)) { found = true; break; }
+                        }
+                        if (!found)
+                            _diagnostics.AddWarning($"ShadowBinding target '{sTarget}' is not a known host binding - runtime must provide it", attr.Line, attr.Column);
+                    }
+                    continue;
+                }
 
-                string target = attr.Arguments[0].Trim();
+                if (attr.Arguments.Count != 1 && !attr.Name.Equals("ClrImport", StringComparison.OrdinalIgnoreCase)) continue; // arity already reported
+
+                string target = attr.Arguments.Count == 1 ? attr.Arguments[0].Trim() : "";
                 if (target.Length >= 2 && target[0] == '"' && target[^1] == '"')
                     target = target[1..^1];
 
@@ -847,6 +919,9 @@ namespace Contract.Compiler.Semantics
                     contract.DllImportLibrary = target;
                 }
             }
+
+            // Auto-shadow: contracts without explicit ShadowBinding but name matches host wire name
+            _symbolTable.BuildShadowMap();
         }
 
         private void ValidateNativeBindingContract(ContractDeclaration contract, string bindingName, AttributeUsage attr)
@@ -912,6 +987,27 @@ namespace Contract.Compiler.Semantics
             // Best-effort compile-time check: try to resolve the CLR type.
             Type? clrType = null;
 
+            // Normalize generic import: contract Foo<T> : ClrImport("System.Collections.Generic.List") -> List`1
+            string effectiveClrName = clrTypeName;
+            if (contract.IsGeneric && !effectiveClrName.Contains('`') && !effectiveClrName.Contains('<'))
+            {
+                effectiveClrName = effectiveClrName + "`" + contract.TypeParameters.Count;
+            }
+            else if (effectiveClrName.Contains('<'))
+            {
+                int lt = effectiveClrName.IndexOf('<');
+                int gt = effectiveClrName.LastIndexOf('>');
+                if (lt > 0 && gt > lt)
+                {
+                    string baseName = effectiveClrName[..lt].Trim();
+                    string inner = effectiveClrName[(lt+1)..gt].Trim();
+                    int arity = inner.Length == 0 ? 0 : inner.Split(',').Length;
+                    string tickName = baseName + "`" + arity;
+                    // Keep tick name for lookup; generic args are on contract side
+                    effectiveClrName = tickName;
+                }
+            }
+
             if (assemblyPath != null)
             {
                 // Project-local assembly: resolve relative to source file directory
@@ -929,7 +1025,7 @@ namespace Contract.Compiler.Semantics
                 try
                 {
                     var assembly = System.Reflection.Assembly.LoadFrom(fullPath);
-                    clrType = assembly.GetType(clrTypeName);
+                    clrType = ResolveWithTickFallback(assembly, effectiveClrName) ?? assembly.GetType(clrTypeName);
                 }
                 catch (Exception ex)
                 {
@@ -941,9 +1037,11 @@ namespace Contract.Compiler.Semantics
             }
             else
             {
-                // BCL type: resolve via Type.GetType
-                try { clrType = Type.GetType(clrTypeName); }
-                catch (Exception) { /* malformed assembly-qualified name — runtime will report */ }
+                clrType = ResolveClrTypeWithFallback(effectiveClrName) ?? TryResolveTickFallback(effectiveClrName);
+                if (clrType == null && effectiveClrName != clrTypeName)
+                {
+                    try { clrType = Type.GetType(clrTypeName); } catch { }
+                }
             }
 
             if (clrType == null)
@@ -1003,6 +1101,61 @@ namespace Contract.Compiler.Semantics
                         ctor.Line, ctor.Column);
                 }
             }
+        }
+
+        private static Type? ResolveClrTypeWithFallback(string name)
+        {
+            try { var t = Type.GetType(name); if (t != null) return t; } catch { }
+            foreach (var suffix in new[] { ", System.Runtime", ", System.Private.CoreLib", ", mscorlib", ", System.Collections", ", netstandard" })
+            {
+                try { var t = Type.GetType(name + suffix); if (t != null) return t; } catch { }
+            }
+            // Scan loaded assemblies for name (with or without tick)
+            string baseName = name.Contains('`') ? name[..name.IndexOf('`')] : name;
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                try
+                {
+                    var t = asm.GetType(name);
+                    if (t != null) return t;
+                    // try scanning all types matching short name + tick
+                    foreach (var tt in asm.GetTypes())
+                    {
+                        if (tt.FullName == name || tt.Name == name || tt.FullName?.StartsWith(name + ",", StringComparison.Ordinal) == true)
+                            return tt;
+                    }
+                }
+                catch { }
+            }
+            return null;
+        }
+
+        private static Type? TryResolveTickFallback(string name)
+        {
+            if (name.Contains('`')) return null;
+            // Try adding `1..`4 tick variants
+            for (int i = 1; i <= 4; i++)
+            {
+                var tick = name + "`" + i;
+                var t = ResolveClrTypeWithFallback(tick);
+                if (t != null) return t;
+            }
+            return null;
+        }
+
+        private static Type? ResolveWithTickFallback(System.Reflection.Assembly asm, string name)
+        {
+            var t = asm.GetType(name);
+            if (t != null) return t;
+            if (!name.Contains('`'))
+            {
+                for (int i = 1; i <= 4; i++)
+                {
+                    t = asm.GetType(name + "`" + i);
+                    if (t != null) return t;
+                }
+            }
+            return null;
         }
 
         private void AnalyzeConstructor(ConstructorDeclaration ctor)
@@ -1214,7 +1367,16 @@ namespace Contract.Compiler.Semantics
                 && (declaringContract.NativeBindingName != null
                     || declaringContract.ClrImportType != null
                     || declaringContract.DllImportLibrary != null);
+            // Shadowed bodyless methods are emitted as native stubs that
+            // forward to the host binding — the declared return type comes
+            // from the host, so a missing return is expected here too.
+            bool isShadowForwarder = func.ContractName != null
+                && _contractsByName.TryGetValue(func.ContractName, out var shadowContract)
+                && shadowContract.IsShadowed
+                && shadowContract.ShadowTarget != null
+                && func.Body is { Statements.Count: 0 };
             if (!isNativeFacade
+                && !isShadowForwarder
                 && func.Body != null
                 && func.ReturnType is TypeDescriptor.Named retNamed
                 && !string.Equals(retNamed.Name, "void", StringComparison.OrdinalIgnoreCase)
@@ -2081,6 +2243,12 @@ namespace Contract.Compiler.Semantics
                     if (!_typeRegistry.IsValidTypeName(isExpr.TypeName) && !IsTypeParamInScope(isExpr.TypeName))
                     {
                         _diagnostics.AddWarning($"Unknown type '{isExpr.TypeName}' in type check", isExpr.Line, isExpr.Column);
+                    }
+                    // Pattern variable: `x is Type varName` binds varName as Type in this scope
+                    if (isExpr.PatternVariable != null)
+                    {
+                        var resolved = ResolveTypeName(isExpr.TypeName);
+                        DeclareVariable(isExpr.PatternVariable, new TypeDescriptor.Named(resolved), isExpr.Line, isExpr.Column, isMutable: true, warnOnShadow: false);
                     }
                     break;
                 case NullCoalesceExpression ncExpr:
@@ -3448,6 +3616,32 @@ namespace Contract.Compiler.Semantics
                         }
                     }
 
+                    // Shadow host fallback for instance variable: c.shadowMethod() where shadowMethod only on host
+                    if (IsVariableDefined(className))
+                    {
+                        var vt = FindVariableType(className);
+                        string? typeName = vt is TypeDescriptor.Named nn ? nn.Name : vt is TypeDescriptor.GenericInstance gg ? gg.Name : null;
+                        if (typeName != null && _symbolTable.IsShadowedModule(typeName))
+                        {
+                            var wire = _symbolTable.GetShadowWireName(typeName);
+                            if (wire != null && _symbolTable.TryResolveMethod(wire, methodName, call.Arguments.Count, out var hostM))
+                            {
+                                call.Symbol = hostM;
+                                _usedFunctions.Add(methodName);
+                                _usedTypes.Add(typeName);
+                                return;
+                            }
+                            // also try direct name if wire lookup failed
+                            if (_symbolTable.TryResolveMethod(typeName, methodName, call.Arguments.Count, out var hostM2))
+                            {
+                                call.Symbol = hostM2;
+                                _usedFunctions.Add(methodName);
+                                _usedTypes.Add(typeName);
+                                return;
+                            }
+                        }
+                    }
+
                     _diagnostics.AddError($"External method '{className}.{methodName}' not found.", call.Line, call.Column);
                 }
             }
@@ -3493,6 +3687,38 @@ namespace Contract.Compiler.Semantics
                 }
                 // (The undefined-module/member case is already reported by
                 // AnalyzeExpression's ScopedAccessExpression branch.)
+            }
+            else if (call.Callee is HostCallExpression hostCall)
+            {
+                // host.Method(args) — explicit call to the shadow target's C#
+                // binding. Valid only inside a shadowed contract; host wins.
+                if (_currentContractName == null || !_symbolTable.IsShadowedModule(_currentContractName))
+                {
+                    _diagnostics.AddError(
+                        "'host' can only be used inside a contract marked <ShadowBinding(...)>",
+                        call.Line, call.Column);
+                    return;
+                }
+                var shadowWire = _symbolTable.GetShadowWireName(_currentContractName);
+                if (shadowWire == null)
+                {
+                    _diagnostics.AddError(
+                        $"'{_currentContractName}' has no shadow target", call.Line, call.Column);
+                    return;
+                }
+                string shortWire = shadowWire.Contains('.')
+                    ? shadowWire[(shadowWire.LastIndexOf('.') + 1)..]
+                    : shadowWire;
+                if (_symbolTable.TryResolveHostMethod(shortWire, hostCall.MethodName, call.Arguments.Count, out var hostMethod))
+                {
+                    call.Symbol = hostMethod;
+                    _usedFunctions.Add(hostMethod!.MethodName);
+                    _usedTypes.Add(_currentContractName);
+                    return;
+                }
+                _diagnostics.AddError(
+                    $"Host method '{hostCall.MethodName}' not found on shadow target '{shortWire}'",
+                    call.Line, call.Column);
             }
             else if (call.Callee is IdentifierExpression ident)
             {

@@ -1,0 +1,16 @@
+import __builtin.std;
+<MyAttr>
+Contract Foo { }
+
+<MyAttr("hello")>
+Contract Bar { }
+
+<MyAttr("hi", 42)>
+Contract Baz { }
+
+<GenericAttr<int>(123)>
+Contract Qux { }
+
+Contract Program {
+  static fn Main() { IO.Println("attr ok"); }
+}

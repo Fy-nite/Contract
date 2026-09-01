@@ -1,0 +1,13 @@
+import __builtin.std;
+<ShadowBinding("HostBox")>
+Contract HostBox {
+  static fn Try() -> int {
+    host.NoSuchMethod(1);
+    return 0;
+  }
+}
+Contract Program {
+  static fn Main() {
+    HostBox.Try();
+  }
+}

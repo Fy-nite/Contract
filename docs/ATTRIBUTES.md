@@ -40,9 +40,9 @@ reflection. No host-side wrapper is needed — the runtime resolves methods
 through .NET reflection at load time.
 
 **Scope:** Contracts only.
-**Arguments:** Exactly 1 string — the fully-qualified CLR type name.
+**Arguments:** Exactly 1 string — the fully-qualified CLR type name, or `Type: "X", Path: "Foo.dll"` for a project-local assembly. Generic facades may omit the tick: `System.Collections.Generic.List` on `Contract MyList<T>` synthesizes `` `1`` automatically.
 **Constraints:** Same as NativeBinding (no fields, no constructors, empty
-method bodies).
+method bodies) except an *instance* facade (a `ClrImport` contract that declares an instance field) may have instance members and a constructor.
 
 ```ct
 <ClrImport("System.Math")>
@@ -50,6 +50,14 @@ Contract ClrMath {
     static fn Abs(x: double) -> double { }
     static fn Sqrt(x: double) -> double { }
     static fn Max(a: double, b: double) -> double { }
+}
+
+// generic — tick synthesized from Contract type params
+<ClrImport("System.Collections.Generic.List")>
+Contract MyList<T> {
+    items: int;
+    fn Add(item: T) { }
+    fn get_Count() -> int { }
 }
 ```
 
@@ -72,6 +80,43 @@ Contract Kernel32 {
     static fn GetCurrentProcessId() -> int { }
 }
 ```
+
+### `<ShadowBinding("Target")>`
+
+Makes a normal Contract shadow a host binding. The contract is a real IL type — its members are emitted — and any member not found in IL falls back to the host. IL wins.
+
+**Scope:** Contracts only.
+**Arguments:** Exactly 1 string — the host wire name (`"IO"`, `"Greeter"`, or a qualified `ObjektRT.Stdlib.System.IO`).
+**Constraints:** No facade restrictions. Fields, constructors, and bodies are allowed. The attribute is compile-time only and is erased before IR emission. A contract whose name matches a host wire name is auto-shadowed even without the attribute; explicit `<ShadowBinding>` is needed when the IL name differs.
+
+Within a shadow contract, an empty body routes the method to the host: the method is emitted as a native stub (single `ret`) and every call to it forwards to the host binding with the same name (`static fn Print(msg: string) { }` → host `Print`). The `host` keyword forces host resolution explicitly, bypassing the IL-wins union:
+
+```ct
+<ShadowBinding("IO")>
+Contract IO {
+    static fn Println(msg: string) { }        // bodyless → forwards to host IO.Println
+    static fn PrintTwice(msg: string) -> int {
+        host.Println("once:" + msg);           // host IO.Println directly
+        IO.Println("twice:" + msg);            // via the forwarding stub → host
+        return 0;
+    }
+}
+```
+
+```ct
+import __builtin.std;
+
+<ShadowBinding("IO")>
+Contract IO {
+    // IL-only
+    static fn Extra(msg: string) { IO.Println("extra:" + msg); }
+}
+Contract Program {
+    static fn Main() { IO.Extra("hi"); IO.Println("still host"); }
+}
+```
+
+See `docs/SHADOWING.md` for the full union model, LSP behavior, and limits.
 
 ### `Attribute` (built-in base type)
 
@@ -106,10 +151,10 @@ fn compute() -> int { ... }
 ```
 
 **Validation rules:**
-- The attribute name must resolve to a known contract.
+- The attribute name must resolve to a known contract **or** a C# attribute type loaded via `--bind` (any arity, generic or not).
 - That contract (or an ancestor) must inherit from `Attribute`.
-- The argument count must match one of the attribute type's constructors.
-  A parameterless attribute accepts any arity.
+- The argument count (positional + named `@Key=Value`) must match one of the attribute type's constructors. C# attributes accept any of their host constructors. A parameterless attribute accepts any arity.
+- Generic C# attribute names may include type args in the source name; the base name is used for lookup.
 
 **Custom attributes are reflected at runtime:**
 
@@ -201,6 +246,23 @@ public static class Greeter
 }
 ```
 
+### `[FieldBinding("wireName")]`
+
+**Defined in:** `libs/ObjektRT.Core/Attributes/ClassBindingAttribute.cs`
+**Scope:** C# fields and properties (inside a `[ClassBinding]` class)
+**Purpose:** Controls the wire name of an exposed field/property. When omitted every public field and property is exposed under its C# name. The attribute is optional — all public instance/static fields and properties are registered automatically.
+
+```csharp
+[ClassBinding("HostBox")]
+public class HostBox {
+    public int value;
+    public string Name { get; set; }
+
+    [FieldBinding("renamed")]
+    public int internalValue;
+}
+```
+
 ---
 
 ## Module Metadata Attributes (C# Infrastructure)
@@ -241,18 +303,19 @@ The semantic analyzer validates attributes in `ValidateInheritanceAndAttributes`
 1. **Inheritance walk:** For each contract, walks the base chain. If it reaches
    `Attribute`, marks `IsAttributeType = true` on the contract and all ancestors.
 
-2. **Built-in check:** `NativeBinding`, `ClrImport`, `DllImport` are recognized
+2. **Built-in check:** `NativeBinding`, `ClrImport`, `DllImport`, `ShadowBinding` are recognized
    as built-in. They are valid only on contracts, require exactly 1 argument,
-   and skip further validation.
+   and skip further validation (`ShadowBinding` is erased, not emitted).
 
 3. **Unknown attribute:** If the attribute name doesn't match any known contract,
-   error: `"Unknown attribute 'X'"`.
+   the analyzer also probes C# host attribute types registered via `--bind`
+   (short name, `Attribute`-suffixed, and full CLR name). If found, any-arity host constructors are checked.
 
 4. **Not an attribute type:** If the referenced contract exists but doesn't
    inherit from `Attribute`, error: `"'X' is not an attribute type"`.
 
-5. **Arity check:** Argument count must match one of the attribute type's
-   constructors.
+5. **Arity check:** Argument count (positional + named) must match one of the attribute type's
+   constructors. Generic attribute type args (`Attr<T>`) are checked separately.
 
 ---
 

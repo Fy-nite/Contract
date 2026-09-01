@@ -467,6 +467,18 @@ namespace Contract.Compiler.Expressions
             if (ctx.Match(TokenType.New))
                 return ParseNewExpression(ctx, host);
 
+            // host.Method(args) — explicit host call from inside a shadowed contract.
+            // Parses the `host.Method` head here; the postfix loop attaches the
+            // `(args)` CallExpression, so the analyzer/codegen reuse the standard
+            // CallExpression pipeline and resolve host via call.Symbol.
+            if (ctx.Match(TokenType.Host))
+            {
+                ctx.Consume(TokenType.Dot, "Expected '.' after 'host' in 'host.Method(...)'");
+                ctx.Consume(TokenType.Identifier, "Expected method name after 'host.'");
+                var hostCall = new HostCallExpression(ctx.Previous.Text, ctx.Previous.Line, ctx.Previous.Column);
+                return hostCall;
+            }
+
             if (ctx.Match(TokenType.Identifier))
                 return new IdentifierExpression(ctx.Previous.Text, ctx.Previous.Line, ctx.Previous.Column);
 

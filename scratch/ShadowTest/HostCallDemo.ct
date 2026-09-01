@@ -1,0 +1,21 @@
+import __builtin.std;
+<ShadowBinding("IO")>
+Contract IO {
+
+  // Auto-forward: empty body maps directly to the host IO.Println.
+  static fn Println(msg: string) -> void {
+  }
+
+  // Override + explicit host call: 'host.' reaches the C# binding even
+  // though IL declares its own implementation of this contract.
+  static fn PrintTwice(msg: string) {
+    host.Println("twice1:" + msg);
+    IO.Println("twice2:" + msg);
+  }
+}
+Contract Program {
+  static fn Main() {
+    IO.Println("auto-forwarded to host");
+    IO.PrintTwice("hello");
+  }
+}

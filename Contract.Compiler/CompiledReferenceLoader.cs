@@ -82,6 +82,20 @@ public static class CompiledReferenceLoader
             var contract = new ContractDeclaration(shortName, 1, 1) { Namespace = ns, IsExternal = true };
             contract.BaseTypeName = cls.BaseTypes.Count > 0 ? cls.BaseTypes[0] : null;
 
+            // Detect IL-level ShadowBinding (compile-time)
+            foreach (var attr in cls.Attributes)
+            {
+                if (attr.Name.Equals("ShadowBinding", StringComparison.OrdinalIgnoreCase) && attr.Arguments.Count > 0)
+                {
+                    string sv = attr.Arguments[0].Trim();
+                    if (sv.Length >= 2 && sv[0] == '"' && sv[^1] == '"') sv = sv[1..^1];
+                    contract.IsShadowed = true;
+                    contract.ShadowTarget = sv;
+                    break;
+                }
+                // Also support fully qualified compile-time form via encoded named args not used here
+            }
+
             // Reconstruct generic type parameters. A non-generic class yields an
             // empty list; a generic one (List<T>, Result<V,E>, …) gets the
             // parameter names back so the analyzer can (a) treat its members'
@@ -114,8 +128,19 @@ public static class CompiledReferenceLoader
                     ReturnType = TypeDescriptor.Parse(WireToLanguageType(m.ReturnType.Name)),
                     Access = Contract.Compiler.AST.AccessModifier.Public,
                 };
+                bool isInstance = !m.IsStatic;
                 foreach (var p in m.Parameters)
+                {
+                    // Instance methods carry an implicit `this` as the first
+                    // parameter in the wire format (e.g. `this: object`).
+                    // The Contract `FunctionDeclaration` models `this` via
+                    // `IsInstance`, not as an explicit parameter, so skip it
+                    // to keep call-site arity correct (`t.Name()` is 0 args,
+                    // not 1).
+                    if (isInstance && p.Name == "this")
+                        continue;
                     fd.Parameters.Add(new Parameter(p.Name, TypeDescriptor.Parse(WireToLanguageType(p.ParameterType.Name)), 1, 1));
+                }
                 contract.Members.Add(fd);
             }
             program.Contracts.Add(contract);

@@ -1,0 +1,17 @@
+import __builtin.std;
+<ClrImport("System.Collections.Generic.List")>
+Contract MyList<T> {
+  items: int;
+  fn Add(item: T) { }
+  fn get_Count() -> int { }
+  fn get_Item(index: int) -> T { }
+}
+Contract Program {
+  static fn Main() {
+    var l = new MyList<int>();
+    l.Add(42);
+    l.Add(99);
+    IO.Println(l.get_Count());
+    IO.Println(l.get_Item(0));
+  }
+}

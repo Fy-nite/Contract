@@ -1,0 +1,40 @@
+module IO version 1.0.0
+
+class IO {
+    static method Extra(msg: string) -> int32 {
+        // #line 5:16 "IO.Println("extra:" + msg);"
+        ldstr "extra:"
+        // #line 5:27 "IO.Println("extra:" + msg);"
+        ldarg 0
+        // #line 5:27 "IO.Println("extra:" + msg);"
+        call String.Concat(string, string) -> string
+        // #line 5:27 "IO.Println("extra:" + msg);"
+        call IO.Println(object) -> void
+        // #line 5:27 "IO.Println("extra:" + msg);"
+        pop
+        // #line 5:27 "IO.Println("extra:" + msg);"
+        ldc.i4 0
+        // #line 5:27 "IO.Println("extra:" + msg);"
+        ret
+    }
+}
+
+class Program {
+    static method Main() -> void {
+        // #line 10:14 "IO.Extra("hello shadow");"
+        ldstr "hello shadow"
+        // #line 10:14 "IO.Extra("hello shadow");"
+        call IO.Extra(string) -> int32
+        // #line 10:14 "IO.Extra("hello shadow");"
+        pop
+        // #line 11:16 "IO.Println("host call still works");"
+        ldstr "host call still works"
+        // #line 11:16 "IO.Println("host call still works");"
+        call IO.Println(object) -> void
+        // #line 11:16 "IO.Println("host call still works");"
+        pop
+        // #line 11:16 "IO.Println("host call still works");"
+        ret
+    }
+}
+

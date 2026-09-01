@@ -56,7 +56,8 @@ namespace Contract.Compiler.Parsing
             ["ensures"] = TokenType.Ensures,
             ["invariant"] = TokenType.Invariant,
             ["extend"] = TokenType.Extend,
-            ["is"] = TokenType.Is
+            ["is"] = TokenType.Is,
+            ["host"] = TokenType.Host
         };
 
         public Lexer(string source, DiagnosticBag diagnostics, string? sourceFile = null)

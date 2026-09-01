@@ -1,0 +1,456 @@
+module DateTime version 1.0.0
+
+class ObjektRT.Core.DateTime {
+    public field handle: object
+
+    constructor(this: object) {
+        // #line 8:9 "this.handle = host.Now();"
+        ldarg 0
+        // #line 8:9 "this.handle = host.Now();"
+        dup
+        // #line 8:28 "this.handle = host.Now();"
+        callnative DateTime.Now() -> object
+        // #line 8:28 "this.handle = host.Now();"
+        stfld ObjektRT.Core.DateTime::handle
+        // #line 8:28 "this.handle = host.Now();"
+        pop
+        // #line 8:28 "this.handle = host.Now();"
+        ret
+    }
+
+    constructor(this: object, year: int32, month: int32, day: int32) {
+        // #line 12:9 "this.handle = host.Create(year, month, day);"
+        ldarg 0
+        // #line 12:9 "this.handle = host.Create(year, month, day);"
+        dup
+        // #line 12:35 "this.handle = host.Create(year, month, day);"
+        ldarg 1
+        // #line 12:41 "this.handle = host.Create(year, month, day);"
+        ldarg 2
+        // #line 12:48 "this.handle = host.Create(year, month, day);"
+        ldarg 3
+        // #line 12:48 "this.handle = host.Create(year, month, day);"
+        callnative DateTime.Create(int32, int32, int32) -> object
+        // #line 12:48 "this.handle = host.Create(year, month, day);"
+        stfld ObjektRT.Core.DateTime::handle
+        // #line 12:48 "this.handle = host.Create(year, month, day);"
+        pop
+        // #line 12:48 "this.handle = host.Create(year, month, day);"
+        ret
+    }
+
+    constructor(this: object, year: int32, month: int32, day: int32, hour: int32, minute: int32, second: int32) {
+        // #line 16:9 "this.handle = host.CreateFull(year, month, day, hour, minute, second);"
+        ldarg 0
+        // #line 16:9 "this.handle = host.CreateFull(year, month, day, hour, minute, second);"
+        dup
+        // #line 16:39 "this.handle = host.CreateFull(year, month, day, hour, minute, second);"
+        ldarg 1
+        // #line 16:45 "this.handle = host.CreateFull(year, month, day, hour, minute, second);"
+        ldarg 2
+        // #line 16:52 "this.handle = host.CreateFull(year, month, day, hour, minute, second);"
+        ldarg 3
+        // #line 16:57 "this.handle = host.CreateFull(year, month, day, hour, minute, second);"
+        ldarg 4
+        // #line 16:63 "this.handle = host.CreateFull(year, month, day, hour, minute, second);"
+        ldarg 5
+        // #line 16:71 "this.handle = host.CreateFull(year, month, day, hour, minute, second);"
+        ldarg 6
+        // #line 16:71 "this.handle = host.CreateFull(year, month, day, hour, minute, second);"
+        callnative DateTime.CreateFull(int32, int32, int32, int32, int32, int32) -> object
+        // #line 16:71 "this.handle = host.CreateFull(year, month, day, hour, minute, second);"
+        stfld ObjektRT.Core.DateTime::handle
+        // #line 16:71 "this.handle = host.CreateFull(year, month, day, hour, minute, second);"
+        pop
+        // #line 16:71 "this.handle = host.CreateFull(year, month, day, hour, minute, second);"
+        ret
+    }
+
+    method Year(this: object) -> int32 {
+        // #line 19:44 "fn Year() -> int { return host.GetYear(this.handle); }"
+        ldarg 0
+        // #line 19:44 "fn Year() -> int { return host.GetYear(this.handle); }"
+        ldfld ObjektRT.Core.DateTime::handle
+        // #line 19:44 "fn Year() -> int { return host.GetYear(this.handle); }"
+        callnative DateTime.GetYear(object) -> int32
+        // #line 19:44 "fn Year() -> int { return host.GetYear(this.handle); }"
+        ret
+    }
+
+    method Month(this: object) -> int32 {
+        // #line 20:46 "fn Month() -> int { return host.GetMonth(this.handle); }"
+        ldarg 0
+        // #line 20:46 "fn Month() -> int { return host.GetMonth(this.handle); }"
+        ldfld ObjektRT.Core.DateTime::handle
+        // #line 20:46 "fn Month() -> int { return host.GetMonth(this.handle); }"
+        callnative DateTime.GetMonth(object) -> int32
+        // #line 20:46 "fn Month() -> int { return host.GetMonth(this.handle); }"
+        ret
+    }
+
+    method Day(this: object) -> int32 {
+        // #line 21:42 "fn Day() -> int { return host.GetDay(this.handle); }"
+        ldarg 0
+        // #line 21:42 "fn Day() -> int { return host.GetDay(this.handle); }"
+        ldfld ObjektRT.Core.DateTime::handle
+        // #line 21:42 "fn Day() -> int { return host.GetDay(this.handle); }"
+        callnative DateTime.GetDay(object) -> int32
+        // #line 21:42 "fn Day() -> int { return host.GetDay(this.handle); }"
+        ret
+    }
+
+    method Hour(this: object) -> int32 {
+        // #line 22:44 "fn Hour() -> int { return host.GetHour(this.handle); }"
+        ldarg 0
+        // #line 22:44 "fn Hour() -> int { return host.GetHour(this.handle); }"
+        ldfld ObjektRT.Core.DateTime::handle
+        // #line 22:44 "fn Hour() -> int { return host.GetHour(this.handle); }"
+        callnative DateTime.GetHour(object) -> int32
+        // #line 22:44 "fn Hour() -> int { return host.GetHour(this.handle); }"
+        ret
+    }
+
+    method Minute(this: object) -> int32 {
+        // #line 23:48 "fn Minute() -> int { return host.GetMinute(this.handle); }"
+        ldarg 0
+        // #line 23:48 "fn Minute() -> int { return host.GetMinute(this.handle); }"
+        ldfld ObjektRT.Core.DateTime::handle
+        // #line 23:48 "fn Minute() -> int { return host.GetMinute(this.handle); }"
+        callnative DateTime.GetMinute(object) -> int32
+        // #line 23:48 "fn Minute() -> int { return host.GetMinute(this.handle); }"
+        ret
+    }
+
+    method Second(this: object) -> int32 {
+        // #line 24:48 "fn Second() -> int { return host.GetSecond(this.handle); }"
+        ldarg 0
+        // #line 24:48 "fn Second() -> int { return host.GetSecond(this.handle); }"
+        ldfld ObjektRT.Core.DateTime::handle
+        // #line 24:48 "fn Second() -> int { return host.GetSecond(this.handle); }"
+        callnative DateTime.GetSecond(object) -> int32
+        // #line 24:48 "fn Second() -> int { return host.GetSecond(this.handle); }"
+        ret
+    }
+
+    method DayOfWeek(this: object) -> int32 {
+        // #line 25:54 "fn DayOfWeek() -> int { return host.GetDayOfWeek(this.handle); }"
+        ldarg 0
+        // #line 25:54 "fn DayOfWeek() -> int { return host.GetDayOfWeek(this.handle); }"
+        ldfld ObjektRT.Core.DateTime::handle
+        // #line 25:54 "fn DayOfWeek() -> int { return host.GetDayOfWeek(this.handle); }"
+        callnative DateTime.GetDayOfWeek(object) -> int32
+        // #line 25:54 "fn DayOfWeek() -> int { return host.GetDayOfWeek(this.handle); }"
+        ret
+    }
+
+    method Ticks(this: object) -> int32 {
+        // #line 26:46 "fn Ticks() -> int { return host.GetTicks(this.handle); }"
+        ldarg 0
+        // #line 26:46 "fn Ticks() -> int { return host.GetTicks(this.handle); }"
+        ldfld ObjektRT.Core.DateTime::handle
+        // #line 26:46 "fn Ticks() -> int { return host.GetTicks(this.handle); }"
+        callnative DateTime.GetTicks(object) -> int64
+        // #line 26:46 "fn Ticks() -> int { return host.GetTicks(this.handle); }"
+        ret
+    }
+
+    method ToShortDate(this: object) -> string {
+        // #line 28:58 "fn ToShortDate() -> string { return host.ToShortDate(this.handle); }"
+        ldarg 0
+        // #line 28:58 "fn ToShortDate() -> string { return host.ToShortDate(this.handle); }"
+        ldfld ObjektRT.Core.DateTime::handle
+        // #line 28:58 "fn ToShortDate() -> string { return host.ToShortDate(this.handle); }"
+        callnative DateTime.ToShortDate(object) -> string
+        // #line 28:58 "fn ToShortDate() -> string { return host.ToShortDate(this.handle); }"
+        ret
+    }
+
+    method ToIso(this: object) -> string {
+        // #line 29:46 "fn ToIso() -> string { return host.ToIso(this.handle); }"
+        ldarg 0
+        // #line 29:46 "fn ToIso() -> string { return host.ToIso(this.handle); }"
+        ldfld ObjektRT.Core.DateTime::handle
+        // #line 29:46 "fn ToIso() -> string { return host.ToIso(this.handle); }"
+        callnative DateTime.ToIso(object) -> string
+        // #line 29:46 "fn ToIso() -> string { return host.ToIso(this.handle); }"
+        ret
+    }
+
+    method ToStringCustom(this: object, format: string) -> string {
+        // #line 30:78 "fn ToStringCustom(format: string) -> string { return host.ToStringCustom(this.handle, format); }"
+        ldarg 0
+        // #line 30:78 "fn ToStringCustom(format: string) -> string { return host.ToStringCustom(this.handle, format); }"
+        ldfld ObjektRT.Core.DateTime::handle
+        // #line 30:91 "fn ToStringCustom(format: string) -> string { return host.ToStringCustom(this.handle, format); }"
+        ldarg 1
+        // #line 30:91 "fn ToStringCustom(format: string) -> string { return host.ToStringCustom(this.handle, format); }"
+        callnative DateTime.ToStringCustom(object, string) -> string
+        // #line 30:91 "fn ToStringCustom(format: string) -> string { return host.ToStringCustom(this.handle, format); }"
+        ret
+    }
+
+    method AddDays(this: object, days: float64) -> ObjektRT.Core.DateTime {
+        local h: object
+        local dt: ObjektRT.Core.DateTime
+
+        // #line 33:30 "let h = host.AddDays(this.handle, days);"
+        ldarg 0
+        // #line 33:30 "let h = host.AddDays(this.handle, days);"
+        ldfld ObjektRT.Core.DateTime::handle
+        // #line 33:43 "let h = host.AddDays(this.handle, days);"
+        ldarg 1
+        // #line 33:43 "let h = host.AddDays(this.handle, days);"
+        callnative DateTime.AddDays(object, float64) -> object
+        // #line 33:43 "let h = host.AddDays(this.handle, days);"
+        stloc h
+        // #line 34:18 "let dt = new DateTime();"
+        newobj ObjektRT.Core.DateTime.constructor()
+        // #line 34:18 "let dt = new DateTime();"
+        dup
+        // #line 34:18 "let dt = new DateTime();"
+        call ObjektRT.Core.DateTime..ctor(object) -> void
+        // #line 34:18 "let dt = new DateTime();"
+        pop
+        // #line 34:18 "let dt = new DateTime();"
+        stloc dt
+        // #line 35:9 "dt.handle = h;"
+        ldloc dt
+        // #line 35:9 "dt.handle = h;"
+        dup
+        // #line 35:21 "dt.handle = h;"
+        ldloc h
+        // #line 35:21 "dt.handle = h;"
+        stfld ObjektRT.Core.DateTime::handle
+        // #line 35:21 "dt.handle = h;"
+        pop
+        // #line 36:16 "return dt;"
+        ldloc dt
+        // #line 36:16 "return dt;"
+        ret
+    }
+
+    method AddMonths(this: object, months: int32) -> ObjektRT.Core.DateTime {
+        local h: object
+        local dt: ObjektRT.Core.DateTime
+
+        // #line 40:32 "let h = host.AddMonths(this.handle, months);"
+        ldarg 0
+        // #line 40:32 "let h = host.AddMonths(this.handle, months);"
+        ldfld ObjektRT.Core.DateTime::handle
+        // #line 40:45 "let h = host.AddMonths(this.handle, months);"
+        ldarg 1
+        // #line 40:45 "let h = host.AddMonths(this.handle, months);"
+        callnative DateTime.AddMonths(object, int32) -> object
+        // #line 40:45 "let h = host.AddMonths(this.handle, months);"
+        stloc h
+        // #line 41:18 "let dt = new DateTime();"
+        newobj ObjektRT.Core.DateTime.constructor()
+        // #line 41:18 "let dt = new DateTime();"
+        dup
+        // #line 41:18 "let dt = new DateTime();"
+        call ObjektRT.Core.DateTime..ctor(object) -> void
+        // #line 41:18 "let dt = new DateTime();"
+        pop
+        // #line 41:18 "let dt = new DateTime();"
+        stloc dt
+        // #line 42:9 "dt.handle = h;"
+        ldloc dt
+        // #line 42:9 "dt.handle = h;"
+        dup
+        // #line 42:21 "dt.handle = h;"
+        ldloc h
+        // #line 42:21 "dt.handle = h;"
+        stfld ObjektRT.Core.DateTime::handle
+        // #line 42:21 "dt.handle = h;"
+        pop
+        // #line 43:16 "return dt;"
+        ldloc dt
+        // #line 43:16 "return dt;"
+        ret
+    }
+
+    method DebugString(this: object) -> string {
+        // #line 46:58 "fn DebugString() -> string { return host.DebugString(this.handle); }"
+        ldarg 0
+        // #line 46:58 "fn DebugString() -> string { return host.DebugString(this.handle); }"
+        ldfld ObjektRT.Core.DateTime::handle
+        // #line 46:58 "fn DebugString() -> string { return host.DebugString(this.handle); }"
+        callnative DateTime.DebugString(object) -> string
+        // #line 46:58 "fn DebugString() -> string { return host.DebugString(this.handle); }"
+        ret
+    }
+
+    method Handle(this: object) -> object {
+        // #line 48:36 "fn Handle() -> object { return this.handle; }"
+        ldarg 0
+        // #line 48:36 "fn Handle() -> object { return this.handle; }"
+        ldfld ObjektRT.Core.DateTime::handle
+        // #line 48:36 "fn Handle() -> object { return this.handle; }"
+        ret
+    }
+
+    static method FromHandle(h: object) -> ObjektRT.Core.DateTime {
+        local dt: ObjektRT.Core.DateTime
+
+        // #line 50:18 "let dt = new DateTime();"
+        newobj ObjektRT.Core.DateTime.constructor()
+        // #line 50:18 "let dt = new DateTime();"
+        dup
+        // #line 50:18 "let dt = new DateTime();"
+        call ObjektRT.Core.DateTime..ctor(object) -> void
+        // #line 50:18 "let dt = new DateTime();"
+        pop
+        // #line 50:18 "let dt = new DateTime();"
+        stloc dt
+        // #line 51:9 "dt.handle = h;"
+        ldloc dt
+        // #line 51:9 "dt.handle = h;"
+        dup
+        // #line 51:21 "dt.handle = h;"
+        ldarg 0
+        // #line 51:21 "dt.handle = h;"
+        stfld ObjektRT.Core.DateTime::handle
+        // #line 51:21 "dt.handle = h;"
+        pop
+        // #line 52:16 "return dt;"
+        ldloc dt
+        // #line 52:16 "return dt;"
+        ret
+    }
+
+    static method Now() -> ObjektRT.Core.DateTime {
+        local dt: ObjektRT.Core.DateTime
+
+        // #line 55:18 "let dt = new DateTime();"
+        newobj ObjektRT.Core.DateTime.constructor()
+        // #line 55:18 "let dt = new DateTime();"
+        dup
+        // #line 55:18 "let dt = new DateTime();"
+        call ObjektRT.Core.DateTime..ctor(object) -> void
+        // #line 55:18 "let dt = new DateTime();"
+        pop
+        // #line 55:18 "let dt = new DateTime();"
+        stloc dt
+        // #line 56:9 "dt.handle = host.Now();"
+        ldloc dt
+        // #line 56:9 "dt.handle = host.Now();"
+        dup
+        // #line 56:26 "dt.handle = host.Now();"
+        callnative DateTime.Now() -> object
+        // #line 56:26 "dt.handle = host.Now();"
+        stfld ObjektRT.Core.DateTime::handle
+        // #line 56:26 "dt.handle = host.Now();"
+        pop
+        // #line 57:16 "return dt;"
+        ldloc dt
+        // #line 57:16 "return dt;"
+        ret
+    }
+}
+
+class ObjektRT.Core.Program {
+    static method Main() -> void {
+        local dt: ObjektRT.Core.DateTime
+        local d: float64
+        local later: ObjektRT.Core.DateTime
+        local now: ObjektRT.Core.DateTime
+
+        // #line 63:20 "IO.Println("-- shadowed DateTime end-to-end --");"
+        ldstr "-- shadowed DateTime end-to-end --"
+        // #line 63:20 "IO.Println("-- shadowed DateTime end-to-end --");"
+        call IO.Println(object) -> void
+        // #line 63:20 "IO.Println("-- shadowed DateTime end-to-end --");"
+        pop
+        // #line 64:18 "var dt = new DateTime(2024, 1, 15);"
+        newobj ObjektRT.Core.DateTime.constructor()
+        // #line 64:18 "var dt = new DateTime(2024, 1, 15);"
+        dup
+        // #line 64:31 "var dt = new DateTime(2024, 1, 15);"
+        ldc.i4 2024
+        // #line 64:37 "var dt = new DateTime(2024, 1, 15);"
+        ldc.i4 1
+        // #line 64:40 "var dt = new DateTime(2024, 1, 15);"
+        ldc.i4 15
+        // #line 64:40 "var dt = new DateTime(2024, 1, 15);"
+        call ObjektRT.Core.DateTime..ctor(object, int32, int32, int32) -> void
+        // #line 64:40 "var dt = new DateTime(2024, 1, 15);"
+        pop
+        // #line 64:40 "var dt = new DateTime(2024, 1, 15);"
+        stloc dt
+        // #line 65:20 "IO.Println(dt.Year());"
+        ldloc dt
+        // #line 65:20 "IO.Println(dt.Year());"
+        callvirt ObjektRT.Core.DateTime.Year(object) -> int32
+        // #line 65:20 "IO.Println(dt.Year());"
+        call IO.Println(object) -> void
+        // #line 65:20 "IO.Println(dt.Year());"
+        pop
+        // #line 66:20 "IO.Println(dt.Month());"
+        ldloc dt
+        // #line 66:20 "IO.Println(dt.Month());"
+        callvirt ObjektRT.Core.DateTime.Month(object) -> int32
+        // #line 66:20 "IO.Println(dt.Month());"
+        call IO.Println(object) -> void
+        // #line 66:20 "IO.Println(dt.Month());"
+        pop
+        // #line 67:20 "IO.Println(dt.Day());"
+        ldloc dt
+        // #line 67:20 "IO.Println(dt.Day());"
+        callvirt ObjektRT.Core.DateTime.Day(object) -> int32
+        // #line 67:20 "IO.Println(dt.Day());"
+        call IO.Println(object) -> void
+        // #line 67:20 "IO.Println(dt.Day());"
+        pop
+        // #line 68:20 "IO.Println(dt.ToShortDate());"
+        ldloc dt
+        // #line 68:20 "IO.Println(dt.ToShortDate());"
+        callvirt ObjektRT.Core.DateTime.ToShortDate(object) -> string
+        // #line 68:20 "IO.Println(dt.ToShortDate());"
+        call IO.Println(object) -> void
+        // #line 68:20 "IO.Println(dt.ToShortDate());"
+        pop
+        // #line 69:20 "IO.Println(dt.ToIso());"
+        ldloc dt
+        // #line 69:20 "IO.Println(dt.ToIso());"
+        callvirt ObjektRT.Core.DateTime.ToIso(object) -> string
+        // #line 69:20 "IO.Println(dt.ToIso());"
+        call IO.Println(object) -> void
+        // #line 69:20 "IO.Println(dt.ToIso());"
+        pop
+        // #line 70:17 "var d = 10.0;"
+        ldc.r8 10
+        // #line 70:17 "var d = 10.0;"
+        stloc d
+        // #line 71:21 "var later = dt.AddDays(d);"
+        ldloc dt
+        // #line 71:32 "var later = dt.AddDays(d);"
+        ldloc d
+        // #line 71:32 "var later = dt.AddDays(d);"
+        callvirt ObjektRT.Core.DateTime.AddDays(object, float64) -> ObjektRT.Core.DateTime
+        // #line 71:32 "var later = dt.AddDays(d);"
+        stloc later
+        // #line 72:20 "IO.Println(later.Day());"
+        ldloc later
+        // #line 72:20 "IO.Println(later.Day());"
+        callvirt ObjektRT.Core.DateTime.Day(object) -> int32
+        // #line 72:20 "IO.Println(later.Day());"
+        call IO.Println(object) -> void
+        // #line 72:20 "IO.Println(later.Day());"
+        pop
+        // #line 73:19 "var now = DateTime.Now();"
+        call ObjektRT.Core.DateTime.Now() -> ObjektRT.Core.DateTime
+        // #line 73:19 "var now = DateTime.Now();"
+        stloc now
+        // #line 74:20 "IO.Println(now.Year());"
+        ldloc now
+        // #line 74:20 "IO.Println(now.Year());"
+        callvirt ObjektRT.Core.DateTime.Year(object) -> int32
+        // #line 74:20 "IO.Println(now.Year());"
+        call IO.Println(object) -> void
+        // #line 74:20 "IO.Println(now.Year());"
+        pop
+        // #line 74:20 "IO.Println(now.Year());"
+        ret
+    }
+}
+

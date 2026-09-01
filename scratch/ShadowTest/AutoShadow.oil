@@ -1,0 +1,40 @@
+module IO version 1.0.0
+
+class IO {
+    static method Extra2(msg: string) -> int32 {
+        // #line 4:16 "IO.Println("extra2:" + msg);"
+        ldstr "extra2:"
+        // #line 4:28 "IO.Println("extra2:" + msg);"
+        ldarg 0
+        // #line 4:28 "IO.Println("extra2:" + msg);"
+        call String.Concat(string, string) -> string
+        // #line 4:28 "IO.Println("extra2:" + msg);"
+        call IO.Println(object) -> void
+        // #line 4:28 "IO.Println("extra2:" + msg);"
+        pop
+        // #line 4:28 "IO.Println("extra2:" + msg);"
+        ldc.i4 0
+        // #line 4:28 "IO.Println("extra2:" + msg);"
+        ret
+    }
+}
+
+class Program {
+    static method Main() -> void {
+        // #line 9:15 "IO.Extra2("auto");"
+        ldstr "auto"
+        // #line 9:15 "IO.Extra2("auto");"
+        call IO.Extra2(string) -> int32
+        // #line 9:15 "IO.Extra2("auto");"
+        pop
+        // #line 10:16 "IO.Println("host");"
+        ldstr "host"
+        // #line 10:16 "IO.Println("host");"
+        call IO.Println(object) -> void
+        // #line 10:16 "IO.Println("host");"
+        pop
+        // #line 10:16 "IO.Println("host");"
+        ret
+    }
+}
+

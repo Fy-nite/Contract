@@ -1,0 +1,54 @@
+module IO version 1.0.0
+
+class IO {
+    static method Println(msg: string) -> void {
+        ret
+    }
+
+    static method PrintTwice(msg: string) -> int32 {
+        // #line 12:18 "host.Println("twice1:" + msg);"
+        ldstr "twice1:"
+        // #line 12:30 "host.Println("twice1:" + msg);"
+        ldarg 0
+        // #line 12:30 "host.Println("twice1:" + msg);"
+        call String.Concat(string, string) -> string
+        // #line 12:30 "host.Println("twice1:" + msg);"
+        call IO.Println(object) -> void
+        // #line 12:30 "host.Println("twice1:" + msg);"
+        pop
+        // #line 13:16 "IO.Println("twice2:" + msg);"
+        ldstr "twice2:"
+        // #line 13:28 "IO.Println("twice2:" + msg);"
+        ldarg 0
+        // #line 13:28 "IO.Println("twice2:" + msg);"
+        call String.Concat(string, string) -> string
+        // #line 13:28 "IO.Println("twice2:" + msg);"
+        call IO.Println(string) -> void
+        // #line 13:28 "IO.Println("twice2:" + msg);"
+        pop
+        // #line 13:28 "IO.Println("twice2:" + msg);"
+        ldc.i4 0
+        // #line 13:28 "IO.Println("twice2:" + msg);"
+        ret
+    }
+}
+
+class Program {
+    static method Main() -> void {
+        // #line 18:16 "IO.Println("auto-forwarded to host");"
+        ldstr "auto-forwarded to host"
+        // #line 18:16 "IO.Println("auto-forwarded to host");"
+        call IO.Println(string) -> void
+        // #line 18:16 "IO.Println("auto-forwarded to host");"
+        pop
+        // #line 19:19 "IO.PrintTwice("hello");"
+        ldstr "hello"
+        // #line 19:19 "IO.PrintTwice("hello");"
+        call IO.PrintTwice(string) -> int32
+        // #line 19:19 "IO.PrintTwice("hello");"
+        pop
+        // #line 19:19 "IO.PrintTwice("hello");"
+        ret
+    }
+}
+

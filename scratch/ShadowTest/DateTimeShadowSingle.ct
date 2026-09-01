@@ -1,0 +1,76 @@
+namespace ObjektRT.Core;
+import __builtin.std;
+
+Contract DateTime {
+    private handle: object;
+
+    constructor() {
+        this.handle = host.Now();
+    }
+
+    constructor(year: int, month: int, day: int) {
+        this.handle = host.Create(year, month, day);
+    }
+
+    constructor(year: int, month: int, day: int, hour: int, minute: int, second: int) {
+        this.handle = host.CreateFull(year, month, day, hour, minute, second);
+    }
+
+    fn Year() -> int { return host.GetYear(this.handle); }
+    fn Month() -> int { return host.GetMonth(this.handle); }
+    fn Day() -> int { return host.GetDay(this.handle); }
+    fn Hour() -> int { return host.GetHour(this.handle); }
+    fn Minute() -> int { return host.GetMinute(this.handle); }
+    fn Second() -> int { return host.GetSecond(this.handle); }
+    fn DayOfWeek() -> int { return host.GetDayOfWeek(this.handle); }
+    fn Ticks() -> int { return host.GetTicks(this.handle); }
+
+    fn ToShortDate() -> string { return host.ToShortDate(this.handle); }
+    fn ToIso() -> string { return host.ToIso(this.handle); }
+    fn ToStringCustom(format: string) -> string { return host.ToStringCustom(this.handle, format); }
+
+    fn AddDays(days: double) -> DateTime {
+        let h = host.AddDays(this.handle, days);
+        let dt = new DateTime();
+        dt.handle = h;
+        return dt;
+    }
+
+    fn AddMonths(months: int) -> DateTime {
+        let h = host.AddMonths(this.handle, months);
+        let dt = new DateTime();
+        dt.handle = h;
+        return dt;
+    }
+
+    fn DebugString() -> string { return host.DebugString(this.handle); }
+
+    fn Handle() -> object { return this.handle; }
+    static fn FromHandle(h: object) -> DateTime {
+        let dt = new DateTime();
+        dt.handle = h;
+        return dt;
+    }
+    static fn Now() -> DateTime {
+        let dt = new DateTime();
+        dt.handle = host.Now();
+        return dt;
+    }
+}
+
+Contract Program {
+    static fn Main() {
+        IO.Println("-- shadowed DateTime end-to-end --");
+        var dt = new DateTime(2024, 1, 15);
+        IO.Println(dt.Year());
+        IO.Println(dt.Month());
+        IO.Println(dt.Day());
+        IO.Println(dt.ToShortDate());
+        IO.Println(dt.ToIso());
+        var d = 10.0;
+        var later = dt.AddDays(d);
+        IO.Println(later.Day());
+        var now = DateTime.Now();
+        IO.Println(now.Year());
+    }
+}

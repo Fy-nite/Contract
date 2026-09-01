@@ -1,0 +1,86 @@
+module HostBox version 1.0.0
+
+class HostBox {
+    static method Extra(msg: string) -> int32 {
+        // #line 5:19 "HostBox.Print("shadow extra:" + msg);"
+        ldstr "shadow extra:"
+        // #line 5:37 "HostBox.Print("shadow extra:" + msg);"
+        ldarg 0
+        // #line 5:37 "HostBox.Print("shadow extra:" + msg);"
+        call String.Concat(string, string) -> string
+        // #line 5:37 "HostBox.Print("shadow extra:" + msg);"
+        call HostBox.Print(string) -> void
+        // #line 5:37 "HostBox.Print("shadow extra:" + msg);"
+        pop
+        // #line 5:37 "HostBox.Print("shadow extra:" + msg);"
+        ldc.i4 0
+        // #line 5:37 "HostBox.Print("shadow extra:" + msg);"
+        ret
+    }
+}
+
+class Program {
+    static method Main() -> void {
+        local b: HostBox
+
+        // #line 10:19 "HostBox.Extra("hi");"
+        ldstr "hi"
+        // #line 10:19 "HostBox.Extra("hi");"
+        call HostBox.Extra(string) -> int32
+        // #line 10:19 "HostBox.Extra("hi");"
+        pop
+        // #line 11:19 "HostBox.Print("direct host");"
+        ldstr "direct host"
+        // #line 11:19 "HostBox.Print("direct host");"
+        call HostBox.Print(string) -> void
+        // #line 11:19 "HostBox.Print("direct host");"
+        pop
+        // #line 12:13 "var b = new HostBox();"
+        newobj HostBox.constructor()
+        // #line 12:13 "var b = new HostBox();"
+        stloc b
+        // #line 13:5 "b.SetValue(42);"
+        ldloc b
+        // #line 13:16 "b.SetValue(42);"
+        ldc.i4 42
+        // #line 13:16 "b.SetValue(42);"
+        call HostBox.SetValue(object, int32) -> void
+        // #line 13:16 "b.SetValue(42);"
+        pop
+        // #line 14:16 "IO.Println(b.GetValue());"
+        ldloc b
+        // #line 14:16 "IO.Println(b.GetValue());"
+        call HostBox.GetValue(object) -> int32
+        // #line 14:16 "IO.Println(b.GetValue());"
+        call IO.Println(object) -> void
+        // #line 14:16 "IO.Println(b.GetValue());"
+        pop
+        // #line 15:16 "IO.Println(b.value);"
+        ldloc b
+        // #line 15:16 "IO.Println(b.value);"
+        call HostBox.value(object) -> object
+        // #line 15:16 "IO.Println(b.value);"
+        call IO.Println(object) -> void
+        // #line 15:16 "IO.Println(b.value);"
+        pop
+        // #line 16:16 "IO.Println(b.label);"
+        ldloc b
+        // #line 16:16 "IO.Println(b.label);"
+        call HostBox.label(object) -> object
+        // #line 16:16 "IO.Println(b.label);"
+        call IO.Println(object) -> void
+        // #line 16:16 "IO.Println(b.label);"
+        pop
+        // #line 17:16 "IO.Println(b.Name);"
+        ldloc b
+        // #line 17:16 "IO.Println(b.Name);"
+        call HostBox.Name(object) -> object
+        // #line 17:16 "IO.Println(b.Name);"
+        call IO.Println(object) -> void
+        // #line 17:16 "IO.Println(b.Name);"
+        pop
+        // #line 17:16 "IO.Println(b.Name);"
+        ret
+    }
+}
+
