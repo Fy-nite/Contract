@@ -803,9 +803,14 @@ namespace Contract.Compiler.Semantics
                     target = target[1..^1];
 
                 // ── Shared facade shape checks ────────────────────────────
-                if (contract.Fields.Count > 0)
+                // ClrImport instance facades may declare instance fields (they
+                // map to CLR instance fields/properties) and a constructor
+                // (mapped to the CLR constructor); NativeBinding and DllImport
+                // remain pure static facades. Only flag fields/ctors that
+                // clash with a facade that cannot host them.
+                if (contract.Fields.Count > 0 && !attr.Name.Equals("ClrImport", StringComparison.OrdinalIgnoreCase))
                     _diagnostics.AddError($"Native-import contract '{contract.Name}' cannot have fields", contract.Line, contract.Column);
-                if (contract.Constructors.Count > 0)
+                if (contract.Constructors.Count > 0 && !attr.Name.Equals("ClrImport", StringComparison.OrdinalIgnoreCase))
                     _diagnostics.AddError($"Native-import contract '{contract.Name}' cannot declare constructors", contract.Line, contract.Column);
 
                 foreach (var member in contract.Members)
@@ -888,14 +893,20 @@ namespace Contract.Compiler.Semantics
                 contract.AssemblyImportPath = assemblyPath;
             }
 
-            // The parser marks non-static members as instance methods only
-            // for contracts with fields; these facades have none, so treat
-            // every member as a static declaration (call sites resolve through
-            // the type name).
-            foreach (var member in contract.Members)
+            // A ClrImport contract that declares instance fields is an *instance
+            // facade*: its non-static `fn`s bind to CLR instance methods, its
+            // fields bind to CLR instance fields/properties, and a constructor
+            // binds to the CLR constructor. A facade without instance fields
+            // (the common static-method case) treats every member as static
+            // (call sites resolve through the type name).
+            bool hasInstanceFields = contract.Fields.Any(f => !f.IsStatic);
+            if (!hasInstanceFields)
             {
-                if (member is FunctionDeclaration f && !f.IsStatic)
-                    f.IsStatic = true;
+                foreach (var member in contract.Members)
+                {
+                    if (member is FunctionDeclaration f && !f.IsStatic)
+                        f.IsStatic = true;
+                }
             }
 
             // Best-effort compile-time check: try to resolve the CLR type.
@@ -947,13 +958,19 @@ namespace Contract.Compiler.Semantics
             {
                 if (member is not FunctionDeclaration func) continue;
 
-                var overloads = clrType.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+                bool isInstance = !func.IsStatic;
+                var overloads = clrType
+                    .GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static)
                     .Where(m => m.Name.Equals(func.Name, StringComparison.Ordinal))
+                    .Where(m => m.IsStatic == !isInstance)
                     .ToList();
+
+                if (isInstance && !hasInstanceFields)
+                    continue; // treated as static below (force-static path)
 
                 if (overloads.Count == 0)
                 {
-                    _diagnostics.AddError($"ClrImport type '{clrTypeName}' has no public static method named '{func.Name}'", func.Line, func.Column);
+                    _diagnostics.AddError($"ClrImport type '{clrTypeName}' has no public {(isInstance ? "instance" : "static")} method named '{func.Name}'", func.Line, func.Column);
                     continue;
                 }
 
@@ -964,6 +981,26 @@ namespace Contract.Compiler.Semantics
                         $"ClrImport method '{clrTypeName}.{func.Name}' takes {arities} argument(s), got {func.Parameters.Count}",
                         func.Line, func.Column);
                     continue;
+                }
+            }
+
+            // Validate a declared constructor against the CLR constructor arity.
+            foreach (var ctor in contract.Constructors)
+            {
+                var ctors = clrType.GetConstructors(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+                    .Where(c => !c.IsStatic)
+                    .ToList();
+                if (ctors.Count == 0)
+                {
+                    _diagnostics.AddError($"ClrImport type '{clrTypeName}' has no public constructor", ctor.Line, ctor.Column);
+                    continue;
+                }
+                if (!ctors.Any(c => c.GetParameters().Length == ctor.Parameters.Count))
+                {
+                    var arities = string.Join(" or ", ctors.Select(c => c.GetParameters().Length.ToString()).Distinct());
+                    _diagnostics.AddError(
+                        $"ClrImport constructor '{clrTypeName}' takes {arities} argument(s), got {ctor.Parameters.Count}",
+                        ctor.Line, ctor.Column);
                 }
             }
         }
@@ -1824,6 +1861,27 @@ namespace Contract.Compiler.Semantics
                         AnalyzeExpression(arg);
 
                     ResolveCall(call);
+
+                    // ── Arity validation for user-contract methods ─────────
+                    // Module <c>ExternalMethod</c> symbols match by arity
+                    // already (SymbolTable.TryResolveMethod), but user-contract
+                    // instance/static methods were resolved by name only — a
+                    // wrong-arity call was silently accepted and generated
+                    // garbage at runtime. Catch it here: a call to a resolved
+                    // Contract function must supply exactly its declared
+                    // parameters. Extension methods carry the receiver as both
+                    // their first parameter and the first call argument, so the
+                    // counts still line up. The delegate case f()(args) has its
+                    // own arity check in ResolveCall.
+                    if (call.Symbol is FunctionDeclaration resolvedFn && !resolvedFn.IsExtension)
+                    {
+                        if (resolvedFn.Parameters.Count != call.Arguments.Count)
+                        {
+                            _diagnostics.AddError(
+                                $"Function '{resolvedFn.Name}' expects {resolvedFn.Parameters.Count} argument(s), got {call.Arguments.Count}",
+                                call.Line, call.Column);
+                        }
+                    }
                     break;
                 case ScopedAccessExpression scoped:
                     // Module::member — an stdlib module, a static member on a
@@ -1938,7 +1996,12 @@ namespace Contract.Compiler.Semantics
                     break;
                 case IndexExpression indexExpr:
                     AnalyzeExpression(indexExpr.Target);
-                    AnalyzeExpression(indexExpr.Index);
+                    foreach (var idx in indexExpr.Indices)
+                        AnalyzeExpression(idx);
+                    // Fire arity/access checks for contract indexers at
+                    // analysis time (InferType also resolves, but a read that
+                    // is never type-checked still deserves the errors).
+                    ResolveIndexType(indexExpr.Target, indexExpr.Indices, indexExpr.Line, indexExpr.Column);
                     break;
                 case PipeExpression pipe:
                     // Parse-time lowering turns `|>` into plain calls except
@@ -2631,6 +2694,103 @@ namespace Contract.Compiler.Semantics
             return null;
         }
 
+        /// <summary>
+        /// The indexer on <paramref name="contract"/> or any of its bases,
+        /// most-derived first, or null when none is declared. A contract
+        /// declares at most one indexer.
+        /// </summary>
+        private IndexerDeclaration? FindIndexerIncludingBase(ContractDeclaration contract)
+        {
+            for (var c = contract; c != null; c = BaseContract(c))
+            {
+                if (c.Indexers.Count > 0) return c.Indexers[0];
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Resolves the contract owning an indexer applied to
+        /// <paramref name="obj"/> (a variable of contract type, <c>this</c>, or
+        /// a contract-typed member access). Returns null when the receiver
+        /// cannot be an indexable contract.
+        /// </summary>
+        private ContractDeclaration? ResolveIndexerOwner(Expression obj)
+        {
+            var desc = ResolveIndexerReceiverType(obj);
+            return desc switch
+            {
+                TypeDescriptor.Named n => FindContract(n.Name) ?? FindContract(ResolveTypeName(n.Name)),
+                TypeDescriptor.GenericInstance g => FindContract(g.Name),
+                _ => null
+            };
+        }
+
+        /// <summary>The declared type descriptor of an indexer receiver: a
+        /// variable's type, a member field's type, or <c>this</c>'s contract.</summary>
+        private TypeDescriptor? ResolveIndexerReceiverType(Expression obj)
+        {
+            switch (obj)
+            {
+                case IdentifierExpression id:
+                    if (id.Name == "this")
+                        return _currentContractName != null ? new TypeDescriptor.Named(_currentContractName) : null;
+                    return FindVariableType(id.Name);
+                case MemberExpression mem:
+                    if (mem.Object is IdentifierExpression memObj)
+                        return FindFieldType(memObj.Name, mem.Property);
+                    return null;
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>
+        /// Resolves the element type produced by indexing <paramref name="obj"/>
+        /// with <paramref name="indices"/>, respecting generic substitution.
+        /// Returns null when the receiver has no indexer. Reports arity and
+        /// access errors. This mirrors how functions resolve their return type
+        /// (generic type parameters substituted from the receiver's concrete type).
+        /// </summary>
+        private TypeDescriptor? ResolveIndexType(Expression obj, List<Expression> indices, int line, int column)
+        {
+            var owner = ResolveIndexerOwner(obj);
+            if (owner == null || FindIndexerIncludingBase(owner) is not IndexerDeclaration idx)
+                return null;
+
+            if (idx.Parameters.Count != indices.Count)
+            {
+                _diagnostics.AddError(
+                    $"Indexer '{owner.Name}' requires {idx.Parameters.Count} index argument(s), but {indices.Count} {Plural(indices.Count)} given",
+                    line, column);
+            }
+
+            if (idx.Access != AccessModifier.Public && idx.Access != AccessModifier.Default
+                && !IsAccessibleFrom(idx.Access, owner.Name))
+            {
+                _diagnostics.AddError(
+                    $"Indexer '{owner.Name}' is {AccessName(idx.Access)} — not accessible from '{_currentContractName}'",
+                    line, column);
+            }
+
+            var rawType = idx.ReturnType;
+            if (rawType == null) return null;
+
+            if (owner.IsGeneric && ResolveIndexerReceiverType(obj) is TypeDescriptor.GenericInstance gi)
+            {
+                return SubstituteType(rawType, TypeParamMap(owner, gi));
+            }
+
+            if (rawType is TypeDescriptor.Named named
+                && owner.TypeParameters.Any(t => t == named.Name))
+            {
+                return new TypeDescriptor.Named("object");
+            }
+
+            return rawType;
+        }
+
+        private string Plural(int n) => n == 1 ? "argument" : "arguments";
+
         private TypeDescriptor? InferType(Expression expression)
         {
             switch (expression)
@@ -2685,6 +2845,10 @@ namespace Contract.Compiler.Semantics
                     {
                         return arrType.Element;
                     }
+                    // obj[i] — the element type of the contract's indexer when the
+                    // receiver is indexable; otherwise fall through to int.
+                    var indexerType = ResolveIndexType(indexExpr.Target, indexExpr.Indices, indexExpr.Line, indexExpr.Column);
+                    if (indexerType != null) return indexerType;
                     return new TypeDescriptor.Named("int");
                 case NewExpression newExpr:
                     // Resolve through namespaces/imports (defensive — normally
@@ -3000,6 +3164,36 @@ namespace Contract.Compiler.Semantics
         {
             if (call.Callee is MemberExpression mem)
             {
+                // General extension dispatch — handles receivers that are not
+                // identifier-rooted paths (e.g. 5.DoubleIt(), "hi".Ext()).
+                // TryGetModuleAccessPath below requires Identifier root and
+                // would skip literals, so infer the receiver type directly.
+                {
+                    var recvType = InferType(mem.Object);
+                    if (recvType is TypeDescriptor.Named recvNamed)
+                    {
+                        var ext = FindExtensionMethod(recvNamed.Name, mem.Property);
+                        if (ext != null)
+                        {
+                            call.Symbol = ext;
+                            _usedFunctions.Add(ext.Name);
+                            _usedTypes.Add(recvNamed.Name);
+                            return;
+                        }
+                    }
+                    else if (recvType is TypeDescriptor.GenericInstance recvGen)
+                    {
+                        var ext = FindExtensionMethod(recvGen.Name, mem.Property);
+                        if (ext != null)
+                        {
+                            call.Symbol = ext;
+                            _usedFunctions.Add(ext.Name);
+                            _usedTypes.Add(recvGen.Name);
+                            return;
+                        }
+                    }
+                }
+
                 // Collect the dotted base path: IO.Println → "IO",
                 // ObjektRT.Stdlib.System.IO.Println → "ObjektRT.Stdlib.System.IO".
                 if (TryGetModuleAccessPath(mem, out var moduleName))
@@ -3223,30 +3417,32 @@ namespace Contract.Compiler.Semantics
                         }
                     }
 
-                    // Extension method fallback: obj.method(args) where method
-                    // is declared as an extension on the receiver's type.
+                    // Extension fallback for dotted paths that passed
+                    // TryGetModuleAccessPath (e.g. chained struct field
+                    // receivers). The general literal/variable case is already
+                    // handled at the top of ResolveCall via InferType.
                     if (IsVariableDefined(className))
                     {
-                        var varType = FindVariableType(className);
-                        if (varType is TypeDescriptor.Named n)
+                        var recvVarType = FindVariableType(className);
+                        if (recvVarType is TypeDescriptor.Named rvn)
                         {
-                            var extMethod = FindExtensionMethod(n.Name, methodName);
+                            var extMethod = FindExtensionMethod(rvn.Name, methodName);
                             if (extMethod != null)
                             {
                                 call.Symbol = extMethod;
                                 _usedFunctions.Add(extMethod.Name);
-                                _usedTypes.Add(n.Name);
+                                _usedTypes.Add(rvn.Name);
                                 return;
                             }
                         }
-                        if (varType is TypeDescriptor.GenericInstance g)
+                        if (recvVarType is TypeDescriptor.GenericInstance rgv)
                         {
-                            var extMethod = FindExtensionMethod(g.Name, methodName);
+                            var extMethod = FindExtensionMethod(rgv.Name, methodName);
                             if (extMethod != null)
                             {
                                 call.Symbol = extMethod;
                                 _usedFunctions.Add(extMethod.Name);
-                                _usedTypes.Add(g.Name);
+                                _usedTypes.Add(rgv.Name);
                                 return;
                             }
                         }

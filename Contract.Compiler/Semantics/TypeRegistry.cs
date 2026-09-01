@@ -15,7 +15,10 @@ namespace Contract.Compiler.Semantics
             // fields keep their native C widths (byte -> uint8, etc.).
             "byte", "sbyte", "short", "ushort", "uint",
             // Built-in base type for attribute declarations (C#-style custom attributes).
-            "Attribute"
+            "Attribute",
+            // Root reflection type (C#-style System.Type): a Type value can
+            // represent/introspect ANY type in the loaded module.
+            "Type"
         };
 
         // Generic type names → arity (the runtime sees the unbound name for

@@ -238,6 +238,8 @@ public static class CompiledReferenceLoader
         "uint8", "int8", "int16", "uint16", "uint32", "intptr",
         // Generic unbound names are real types, not parameters.
         "List", "Dict", "Delegate", "Attribute",
+        // Root reflection type (C#-style System.Type).
+        "Type",
     };
 
     /// <summary>Maps a wire type name ("int32", "float64[]") to the language type name ("int", "double[]").</summary>

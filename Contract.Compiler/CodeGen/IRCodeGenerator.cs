@@ -322,9 +322,47 @@ public class IRCodeGenerator
                     enumBuilder.EndClass();
                 }
             }
+            // Extension methods whose target is this contract fold into its
+            // class so call sites (obj.method(args)) dispatch to a real VM
+            // function. Extension functions are always static and take the
+            // receiver as their first declared parameter.
+            if (program.Extensions.Count > 0)
+            {
+                foreach (var ext in program.Extensions)
+                {
+                    var target = ResolveTypeName(ext.TargetType);
+                    if (target == cls.FullName || target == cls.Name)
+                    {
+                        foreach (var extFunc in ext.Methods)
+                            GenerateFunction(classBuilder, extFunc);
+                    }
+                }
+            }
+
             _currentTypeParams = savedTypeParams;
 
             classBuilder.EndClass();
+        }
+
+        // Extension methods on targets that are NOT a declared contract
+        // (primitives like Int/String, builtins) get a synthetic host class so
+        // their methods still land in the module's FunctionMap (keyed by
+        // "<Target>.Method", e.g. "Int.DoubleIt"). The VM resolves those by
+        // direct map lookup (CompiledModule.ResolveFunction), so the host
+        // class itself is inert — it only gives the method its qualified name.
+        if (program.Extensions.Count > 0)
+        {
+            foreach (var ext in program.Extensions)
+            {
+                var target = ResolveTypeName(ext.TargetType);
+                bool hostedByContract = _program!.Contracts.Any(c =>
+                    !c.IsExternal && (c.FullName == target || c.Name == target));
+                if (hostedByContract) continue;
+                var extClass = _builder.Class(target);
+                foreach (var extFunc in ext.Methods)
+                    GenerateFunction(extClass, extFunc);
+                extClass.EndClass();
+            }
         }
 
         if (program.Functions.Count > 0)
@@ -760,6 +798,140 @@ public class IRCodeGenerator
             if (f?.Type is TypeDescriptor.Named n && !n.IsEmpty) return ResolveTypeName(n.Name);
         }
         return null;
+    }
+
+    /// <summary>
+    /// Resolves the declared <see cref="TypeDescriptor"/> of an index target
+    /// (<c>list[0]</c>, <c>this.list[0]</c>, <c>obj.list[0]</c>) so the
+    /// indexer protocol (array vs List) can be selected at compile time. Returns
+    /// null when the target's static type is not determinable.
+    /// </summary>
+    private TypeDescriptor? ResolveIndexTargetDescriptor(Expression target)
+    {
+        switch (target)
+        {
+            case IdentifierExpression id:
+                if (_variableTypes.TryGetValue(id.Name, out var vt)) return vt;
+                return null;
+            case CallExpression call:
+                // getList()[i] — resolve from the callee's return type.
+                if (call.Symbol is FunctionDeclaration cfd) return cfd.ReturnType;
+                return null;
+            case MemberExpression mem:
+            {
+                var owner = ResolveExpressionObjectType(mem.Object);
+                if (owner == null || owner == "TODO_DYNAMIC_TYPE") return null;
+                var contract = FindContract(owner);
+                if (contract != null)
+                {
+                    var declaring = FindFieldDeclaringContract(contract, mem.Property, staticOnly: false)
+                        ?? FindFieldDeclaringContract(contract, mem.Property, staticOnly: true);
+                    var f = declaring?.Fields.FirstOrDefault(x => x.Name == mem.Property);
+                    if (f != null) return f.Type;
+                }
+                var structDecl = FindStruct(owner);
+                if (structDecl != null)
+                {
+                    var f = structDecl.Fields.FirstOrDefault(x => x.Name == mem.Property);
+                    if (f != null) return f.Type;
+                }
+                return null;
+            }
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>The indexer on <paramref name="contract"/> or any of its bases,
+    /// most-derived first, or null when none is declared.</summary>
+    private IndexerDeclaration? FindIndexerIncludingBase(ContractDeclaration contract)
+    {
+        for (var c = contract; c != null; c = BaseContract(c))
+            if (c.Indexers.Count > 0) return c.Indexers[0];
+        return null;
+    }
+
+    /// <summary>
+    /// Resolves the <see cref="MethodReference"/> for a contract indexer
+    /// accessor (get or set) applied to <paramref name="target"/>, substituting
+    /// a generic receiver's type parameters into the accessor signature. Returns
+    /// null when the receiver isn't an indexable user contract (so the caller
+    /// falls back to the array ldelem/stelem path). The emitted signature
+    /// matches the synthesized instance method: <c>this</c> + index params for
+    /// the getter, plus the trailing <c>value</c> param for the setter.
+    /// </summary>
+    private MethodReference? TryResolveIndexerAccessorRef(Expression target, bool isGet)
+    {
+        string wireOwner;
+        ContractDeclaration? contract;
+        IndexerDeclaration? idx;
+        string methodName;
+        Dictionary<string, TypeDescriptor>? map = null;
+
+        if (target is IdentifierExpression thi && thi.Name == "this")
+        {
+            // 'this' receiver: the current contract's own indexer. Emit like
+            // other 'this' method calls in generics (raw type-param names);
+            // callvirt dispatches through the concrete receiver at the VM.
+            if (_currentContractName == null) return null;
+            contract = FindContract(_currentContractName);
+            if (contract == null) return null;
+            wireOwner = ResolveTypeName(_currentContractName);
+            idx = FindIndexerIncludingBase(contract);
+            if (idx == null) return null;
+            methodName = isGet ? idx.GetterMethodName : idx.SetterMethodName;
+            if (string.IsNullOrEmpty(methodName)) return null;
+        }
+        else
+        {
+            var recv = ResolveIndexTargetDescriptor(target);
+            if (recv == null) return null;
+
+            switch (recv)
+            {
+                case TypeDescriptor.Named n:
+                    contract = FindContract(n.Name) ?? FindContract(ResolveTypeName(n.Name));
+                    if (contract == null) return null;
+                    wireOwner = ResolveTypeName(n.Name);
+                    break;
+                case TypeDescriptor.GenericInstance g:
+                    contract = FindContract(g.Name);
+                    if (contract == null) return null;
+                    wireOwner = MaterializedContractName(g);
+                    if (contract.TypeParameters.Count > 0)
+                    {
+                        map = new Dictionary<string, TypeDescriptor>();
+                        for (int i = 0; i < contract.TypeParameters.Count && i < g.Arguments.Count; i++)
+                            map[contract.TypeParameters[i]] = g.Arguments[i];
+                    }
+                    break;
+                default:
+                    return null;
+            }
+
+            idx = FindIndexerIncludingBase(contract);
+            if (idx == null) return null;
+
+            methodName = isGet ? idx.GetterMethodName : idx.SetterMethodName;
+            if (string.IsNullOrEmpty(methodName)) return null;
+        }
+
+        var decl = FindContract(idx.ContractName ?? (target is IdentifierExpression t2 && t2.Name == "this" ? _currentContractName : contract.Name)) ?? contract;
+        var member = decl.Members.OfType<FunctionDeclaration>()
+            .FirstOrDefault(f => f.Name == methodName)
+            // inherited accessor: search the declaring indexer's own contract
+            ?? (FindContract(idx.ContractName ?? "") is { } idxOwner
+                ? idxOwner.Members.OfType<FunctionDeclaration>().FirstOrDefault(f => f.Name == methodName)
+                : null);
+        if (member == null) return null;
+
+        var returnType = member.ReturnType != null
+            ? MapType(map != null ? SubstituteTypeParams(member.ReturnType, map) : member.ReturnType)
+            : TypeRef.Int32;
+        var paramTypes = new List<TypeRef> { TypeRef.Object };
+        foreach (var p in member.Parameters)
+            paramTypes.Add(MapType(map != null ? SubstituteTypeParams(p.Type, map) : p.Type));
+        return new MethodReference(new TypeRef(wireOwner), methodName, returnType, paramTypes);
     }
 
     /// <summary>Finds a struct declaration by short or qualified name (top-level or nested in a contract).</summary>
@@ -1933,6 +2105,19 @@ public class IRCodeGenerator
                     }
                     if (bin.Left is IndexExpression indexTarget)
                     {
+                        if (TryResolveIndexerAccessorRef(indexTarget.Target, isGet: false) is MethodReference idxSet)
+                        {
+                            // obj[i] = v → call the synthesized setter. A call
+                            // leaves exactly one value (Nil for void), which the
+                            // statement's trailing pop consumes — so push the
+                            // receiver only once (no Dup as in the array path).
+                            GenerateExpression(ib, indexTarget.Target, paramMap);
+                            foreach (var ix in indexTarget.Indices)
+                                GenerateExpression(ib, ix, paramMap);
+                            GenerateExpression(ib, bin.Right, paramMap);
+                            ib.Callvirt(idxSet);
+                            return;
+                        }
                         // arr[i] = rhs. stelem pops [value, index, array], so
                         // dup the array (matching the member-assignment
                         // convention: obj.f = v leaves the receiver) to keep
@@ -1955,6 +2140,18 @@ public class IRCodeGenerator
                             GenerateExpression(ib, bin.Right, paramMap);
                             ib.Dup();
                             ib.Stsfld(new FieldReference(new TypeRef(staticDecl), memTarget.Property, FindFieldType(staticDecl, memTarget.Property)));
+                        }
+                        else if (_clrImports.TryGetValue(targetName, out var clrWriteTarget))
+                        {
+                            // ClrImport instance facade field write → set the CLR
+                            // instance property/field on the external object. The
+                            // resolver sees two args (receiver, value) and stores.
+                            GenerateExpression(ib, memTarget.Object, paramMap);
+                            GenerateExpression(ib, bin.Right, paramMap);
+                            ib.Call(new MethodReference(
+                                new TypeRef(clrWriteTarget), memTarget.Property, TypeRef.Object,
+                                new List<TypeRef> { TypeRef.Object, TypeRef.Object }));
+                            return;
                         }
                         else
                         {
@@ -2087,16 +2284,51 @@ public class IRCodeGenerator
                     }
                     else if (bin.Left is IndexExpression compoundIndex)
                     {
-                        // a[i] = a[i] op rhs (target/index evaluated twice)
-                        GenerateExpression(ib, compoundIndex.Target, paramMap);
-                        GenerateExpression(ib, compoundIndex.Index, paramMap);
-                        ib.Ldelem();
-                        GenerateExpression(ib, bin.Right, paramMap);
-                        EmitArithmeticOrConcat(ib, op, bin);
-                        ib.Dup();   // leave the result on the stack
-                        GenerateExpression(ib, compoundIndex.Target, paramMap);
-                        GenerateExpression(ib, compoundIndex.Index, paramMap);
-                        ib.Stelem();
+                        if (TryResolveIndexerAccessorRef(compoundIndex.Target, isGet: true) is MethodReference cmpIdxGet
+                            && TryResolveIndexerAccessorRef(compoundIndex.Target, isGet: false) is MethodReference cmpIdxSet)
+                        {
+                            // obj[i] op rhs → read via the getter, compute, store
+                            // via the setter. The setter leaves a Nil result, so
+                            // spill the computed value to a temp to keep the
+                            // stack clean and leave exactly one value (the result).
+                            string resultTemp = $"__idxRes_{_lambdaCounter++}";
+                            EnsureLocal(ib, resultTemp, TypeRef.Object);
+                            GenerateExpression(ib, compoundIndex.Target, paramMap);
+                            foreach (var ix in compoundIndex.Indices)
+                                GenerateExpression(ib, ix, paramMap);
+                            ib.Callvirt(cmpIdxGet);               // [val]
+                            GenerateExpression(ib, bin.Right, paramMap);   // [val, rhs]
+                            EmitArithmeticOrConcat(ib, op, bin);  // [newval]
+                            ib.Stloc(resultTemp);                 // []
+                            GenerateExpression(ib, compoundIndex.Target, paramMap);   // [obj]
+                            foreach (var ix in compoundIndex.Indices)
+                                GenerateExpression(ib, ix, paramMap);                  // [obj, i...]
+                            ib.Ldloc(resultTemp);                 // [obj, i..., newval]
+                            ib.Callvirt(cmpIdxSet);               // -> [Nil]
+                            ib.Pop();                             // []
+                            ib.Ldloc(resultTemp);                 // [newval]
+                        }
+                        else
+                        {
+                            // a[i] op rhs → read via ldelem, compute, store via
+                            // stelem. stelem pops value, index, array (value on
+                            // top), so spill the computed result to a temp: push
+                            // array, index, value, store, then reload the result
+                            // so the statement's trailing pop consumes one value.
+                            string resultTemp = $"__idxRes_{_lambdaCounter++}";
+                            EnsureLocal(ib, resultTemp, TypeRef.Object);
+                            GenerateExpression(ib, compoundIndex.Target, paramMap);   // [arr]
+                            GenerateExpression(ib, compoundIndex.Index, paramMap);    // [arr, i]
+                            ib.Ldelem();                                              // [val]
+                            GenerateExpression(ib, bin.Right, paramMap);              // [val, rhs]
+                            EmitArithmeticOrConcat(ib, op, bin);                      // [newval]
+                            ib.Stloc(resultTemp);                                     // []
+                            GenerateExpression(ib, compoundIndex.Target, paramMap);   // [arr]
+                            GenerateExpression(ib, compoundIndex.Index, paramMap);    // [arr, i]
+                            ib.Ldloc(resultTemp);                                     // [arr, i, newval]
+                            ib.Stelem();                                              // [] (store newval into arr[i])
+                            ib.Ldloc(resultTemp);                                     // [newval]
+                        }
                     }
                     return;
                 }
@@ -2255,11 +2487,16 @@ public class IRCodeGenerator
                     // full method signature (this + params).
                     paramTypes.Insert(0, TypeRef.Object);
                     // Native-bound contracts dispatch to the host module with the
-                    // receiver (an external object handle) as argument 0.
+                    // receiver (an external object handle) as argument 0;
+                    // ClrImport instance facades dispatch to the CLR type name so
+                    // the native resolver invokes the matching CLR instance method.
                     bool isNativeBinding = _nativeBindings.TryGetValue(instanceFunc.ContractName ?? "", out var instBinding);
                     string instanceTarget = isNativeBinding
                         ? instBinding
-                        : ResolveTypeName(instanceFunc.ContractName ?? "TODO");
+                        : _clrImports.TryGetValue(instanceFunc.ContractName ?? "", out var clrInstTarget)
+                            ? clrInstTarget
+                            : ResolveTypeName(instanceFunc.ContractName ?? "TODO");
+                    bool isClrImportInstance = !isNativeBinding && _clrImports.ContainsKey(instanceFunc.ContractName ?? "");
                     // Generic contract instance: b.get() where b: Box<int> — the
                     // target is the materialized name (Box<int32>).
                     if (call.Callee is MemberExpression recvMem
@@ -2277,11 +2514,17 @@ public class IRCodeGenerator
                         // list. Append its type so the call's argc includes it.
                         paramTypes.Add(TypeRef.Object);
                     }
-                    // callvirt lets the runtime refine the target through the
-                    // RECEIVER's concrete type chain (virtual dispatch) — this
-                    // is what makes base/interface-typed variables dispatch to
-                    // the most-derived override (FEATURE_PROPOSALS §6).
-                    ib.Callvirt(new MethodReference(new TypeRef(instanceTarget), instanceFunc.Name, returnType, paramTypes));
+                    // ClrImport instance facades dispatch through the native
+                    // resolver to the CLR instance method — use a plain call with
+                    // the receiver already in param 0 (the CLR resolver invokes
+                    // on args[0]). User-contract/native-binding methods use
+                    // callvirt so the runtime can refine the target through the
+                    // receiver's concrete type chain (virtual dispatch).
+                    var clrInstanceRef = new MethodReference(new TypeRef(instanceTarget), instanceFunc.Name, returnType, paramTypes);
+                    if (isClrImportInstance)
+                        ib.Call(clrInstanceRef);
+                    else
+                        ib.Callvirt(clrInstanceRef);
                 }
                 else if (call.Symbol is FunctionDeclaration staticFunc && staticFunc.IsStatic)
                 {
@@ -2361,6 +2604,18 @@ public class IRCodeGenerator
                     // object through the module's Create method. The call's
                     // result is an external object handle, pushed on the stack.
                     ib.Call(new MethodReference(new TypeRef(nativeBinding), "Create", TypeRef.Object, new List<TypeRef>()));
+                }
+                else if (_clrImports.TryGetValue(newExpr.TypeName, out var clrConstructTarget))
+                {
+                    // ClrImport instance facade: new Facade(args) invokes the
+                    // CLR type's public constructor. The result is a CLR object
+                    // stored as an external handle on the VM stack. The runtime
+                    // resolver dispatches the ".ctor" name to the matching
+                    // public constructor and returns the new instance.
+                    foreach (var arg in newExpr.Arguments)
+                        GenerateExpression(ib, arg, paramMap);
+                    var ctorArgTypes = newExpr.Arguments.Select(_ => TypeRef.Int32).ToList();
+                    ib.Call(new MethodReference(new TypeRef(clrConstructTarget), ".ctor", TypeRef.Object, ctorArgTypes));
                 }
                 else
                 {
@@ -2484,6 +2739,17 @@ public class IRCodeGenerator
                         break;
                     }
                     GenerateExpression(ib, mem.Object, paramMap);
+                    if (_clrImports.TryGetValue(memObjName, out var clrFieldTarget))
+                    {
+                        // ClrImport instance facade field → a CLR instance
+                        // property/field on the external object. Read dispatch:
+                        // call the CLR type's "<field>" with the receiver as
+                        // arg[0]; the native resolver returns the value.
+                        ib.Call(new MethodReference(
+                            new TypeRef(clrFieldTarget), mem.Property, TypeRef.Object,
+                            new List<TypeRef> { TypeRef.Object }));
+                        break;
+                    }
                     if (mem.Property is "Length" or "Count")
                     {
                         // Array length
@@ -2500,9 +2766,21 @@ public class IRCodeGenerator
                 break;
 
             case IndexExpression indexExpr:
-                GenerateExpression(ib, indexExpr.Target, paramMap);
-                GenerateExpression(ib, indexExpr.Index, paramMap);
-                ib.Ldelem();
+                // index[T]: contract indexers dispatch to the synthesized getter;
+                // arrays use ldelem.
+                if (TryResolveIndexerAccessorRef(indexExpr.Target, isGet: true) is MethodReference idxGet)
+                {
+                    GenerateExpression(ib, indexExpr.Target, paramMap);
+                    foreach (var ix in indexExpr.Indices)
+                        GenerateExpression(ib, ix, paramMap);
+                    ib.Callvirt(idxGet);
+                }
+                else
+                {
+                    GenerateExpression(ib, indexExpr.Target, paramMap);
+                    GenerateExpression(ib, indexExpr.Index, paramMap);
+                    ib.Ldelem();
+                }
                 break;
 
             case LambdaExpression lambda:

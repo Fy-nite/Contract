@@ -76,6 +76,8 @@ namespace Contract.Compiler.AST
         public List<StructField> Fields { get; } = new();
         public List<Node> Members { get; } = new();
         public List<AttributeUsage> Attributes { get; } = new();
+        /// <summary>Indexer members (<c>this(index: int) -&gt; T { get/set }</c>).</summary>
+        public List<IndexerDeclaration> Indexers { get; } = new();
 
         /// <summary>Single-inheritance base type name (C#-style), or null.</summary>
         public string? BaseTypeName { get; set; }
@@ -297,6 +299,40 @@ namespace Contract.Compiler.AST
         {
             Name = name;
         }
+    }
+
+    /// <summary>
+    /// A C#-style indexer member: <c>this(index: int) -&gt; T { get { ... } set { ... } }</c>.
+    /// Reads become calls to its getter accessor (<c>obj[i]</c>), writes to its
+    /// setter (<c>obj[i] = v</c>), and compound writes need both.
+    /// The parser lowers the accessors into synthetic instance methods on the
+    /// declaring contract (named <see cref="GetterMethodName"/> /
+    /// <see cref="SetterMethodName"/>), reusing the normal method pipeline for
+    /// analysis, emission and generic materialization.
+    /// </summary>
+    public class IndexerDeclaration : Node
+    {
+        /// <summary>The index parameters in order — one for <c>obj[i]</c>, several for <c>obj[a, b]</c>.</summary>
+        public List<Parameter> Parameters { get; } = new();
+        public List<AttributeUsage> Attributes { get; } = new();
+        /// <summary>The type produced by reading the indexer (<c>obj[i]</c> : ReturnType).</summary>
+        public TypeDescriptor? ReturnType { get; set; }
+        /// <summary>The <c>get { ... }</c> accessor body. Null for a write-only indexer.</summary>
+        public BlockStatement? GetterBody { get; set; }
+        /// <summary>The <c>set { ... }</c> accessor body (parameter <c>value</c>). Null for a read-only indexer.</summary>
+        public BlockStatement? SetterBody { get; set; }
+        public AccessModifier Access { get; set; } = AccessModifier.Default;
+        /// <summary>The owning contract (set by the parser).</summary>
+        public string? ContractName { get; set; }
+        /// <summary>Wire name of the synthetic getter instance method, set by the parser.</summary>
+        public string GetterMethodName { get; set; } = "";
+        /// <summary>Wire name of the synthetic setter instance method, set by the parser.</summary>
+        public string SetterMethodName { get; set; } = "";
+
+        public bool HasGetter => GetterBody != null;
+        public bool HasSetter => SetterBody != null;
+
+        public IndexerDeclaration(int line, int column) : base(line, column) { }
     }
 
     public class Parameter : Node
@@ -743,13 +779,22 @@ namespace Contract.Compiler.AST
     public class IndexExpression : Expression
     {
         public Expression Target { get; }
-        public Expression Index { get; }
+        /// <summary>The index arguments in order — one for arrays and single-parameter
+        /// indexers (<c>obj[i]</c>), several for multi-argument indexers (<c>obj[a, b]</c>).</summary>
+        public List<Expression> Indices { get; }
 
-        public IndexExpression(Expression target, Expression index, int line, int column) : base(line, column)
+        /// <summary>The first (single) index — convenience for arrays and
+        /// single-argument access.</summary>
+        public Expression Index => Indices[0];
+
+        public IndexExpression(Expression target, List<Expression> indices, int line, int column) : base(line, column)
         {
             Target = target;
-            Index = index;
+            Indices = indices;
         }
+
+        public IndexExpression(Expression target, Expression index, int line, int column)
+            : this(target, new List<Expression> { index }, line, column) { }
     }
 
     public class ScopedAccessExpression : Expression

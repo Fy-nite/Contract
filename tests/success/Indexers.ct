@@ -1,0 +1,110 @@
+import __builtin.std;
+
+// C#-style indexers: this(index: T) -> E { get { ... } set { ... = value; } }.
+// Exercise reads, writes, compound assignment, a read-only getter, a
+// write-only setter, multi-argument indexers, field targets, and generic
+// element types — alongside ordinary array indexing.
+
+Contract Matrix {
+    private cells: int[];
+    private rows: int;
+
+    constructor() {
+        this.cells = new int[16];
+        this.rows = 4;
+    }
+
+    this(row: int, col: int) -> int {
+        get {
+            return this.cells[row * this.rows + col];
+        }
+        set {
+            this.cells[row * this.rows + col] = value;
+        }
+    }
+
+    static fn Main() {
+        let m = new Matrix();
+
+        // Multi-argument indexer: get + set.
+        m[1, 2] = 7;
+        IO.Println(Convert.ToString(m[1, 2]));
+
+        // Multi-argument indexer: compound assignment.
+        m[1, 2] += 3;
+        IO.Println(Convert.ToString(m[1, 2]));
+    }
+}
+
+Contract Box<T> {
+    private item: T;
+
+    constructor(value: T) {
+        this.item = value;
+    }
+
+    this(slot: int) -> T {
+        get {
+            return this.item;
+        }
+        set {
+            this.item = value;
+        }
+    }
+}
+
+Contract ReadOnly {
+    private sum: int;
+
+    constructor() {
+        this.sum = 42;
+    }
+
+    // A getter-only indexer.
+    this(k: int) -> int {
+        get {
+            return this.sum + k;
+        }
+    }
+}
+
+Contract WriteOnly {
+    private store: int;
+
+    // A setter-only indexer.
+    this(k: int) -> int {
+        set {
+            this.store = value + k;
+        }
+    }
+}
+
+Contract Fields {
+    points: Box<int>;
+
+    constructor() {
+        this.points = new Box<int>(100);
+    }
+
+    static fn Main2() {
+        let f = new Fields();
+        // Field receiver with a generic indexer (get + set).
+        IO.Println(Convert.ToString(f.points[0]));
+        f.points[1] = 200;
+        IO.Println(Convert.ToString(f.points[1]));
+
+        // Generic contract indexer on a variable receiver.
+        let b: Box<int> = new Box<int>(5);
+        IO.Println(Convert.ToString(b[0]));
+        b[0] = 9;
+        IO.Println(Convert.ToString(b[0]));
+
+        // Read-only indexer.
+        let ro = new ReadOnly();
+        IO.Println(Convert.ToString(ro[3]));
+
+        // Write-only indexer.
+        let wo = new WriteOnly();
+        wo[10] = 5;
+    }
+}

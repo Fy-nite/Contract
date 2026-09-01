@@ -525,6 +525,62 @@ passes `this`.
 > instance, and an instance method cannot be invoked without an object created
 > with `new`.
 
+### Indexers
+
+A contract may declare one `this(...)` indexer giving instances array-style
+access. It is an instance member (never `static`) with at least one parameter,
+an element type, and `get` / `set` accessors (`value` is the incoming value in
+the setter). Either accessor may be omitted for a read-only or write-only
+view:
+
+```ct
+Contract Matrix {
+    cells: int[];
+    rows: int;
+
+    constructor() {
+        this.cells = new int[16];
+        this.rows = 4;
+    }
+
+    // multi-argument indexer, read + write
+    this(row: int, col: int) -> int {
+        get { return this.cells[row * this.rows + col]; }
+        set { this.cells[row * this.rows + col] = value; }
+    }
+}
+
+Contract Box<T> {
+    item: T;
+    constructor(v: T) { this.item = v; }
+
+    // generics work: T resolves per materialized instance
+    this(slot: int) -> T {
+        get { return this.item; }
+        set { this.item = value; }
+    }
+}
+```
+
+Use is just `obj[i]` (read), `obj[i] = v` (write), and compound assignment
+`obj[i] += v` (a read-then-write through both accessors):
+
+```ct
+let m = new Matrix();
+m[1, 2] = 7;
+IO.Println(m[1, 2]);    // 7
+m[1, 2] += 3;           // 10
+
+let b: Box<int> = new Box<int>(5);
+b[0] = 9;
+IO.Println(b[0]);       // 9
+```
+
+The indexer compiles to synthesized instance methods (`__idx_get_N` /
+`__idx_set_N`) on the contract, so it composes with C#-style access and can be
+read/written through a field receiver too (`holder.points[i]`). Inside the
+contract's own methods, `this[i]` dispatches to the indexer the same way.
+
 ### Static Fields
 
 A field declared with `static` is **shared state** on the contract itself,
@@ -589,6 +645,11 @@ Dict.Set(scores, "grace", 100);
 IO.Println(Dict.Get(scores, "ada"));            // 95
 IO.Println(Dict.ContainsKey(scores, "grace"));  // true
 ```
+
+`List<T>` and `Dict<K, V>` are the erased native bindings. `[i]` array-style
+indexing compiles to a *contract indexer* (see "Indexers" below) only when the
+receiver is a user contract that declares one; the raw natives expose
+`List.Get` / `List.Set` directly.
 
 Generic types are valid in signatures, so helpers can take and return typed
 collections:

@@ -349,9 +349,11 @@ namespace Contract.Compiler.Expressions
                 }
                 else if (ctx.Match(TokenType.LBracket))
                 {
-                    var index = ParseExpression(ctx, host);
+                    var indices = new List<Expression> { ParseExpression(ctx, host) };
+                    while (ctx.Match(TokenType.Comma))
+                        indices.Add(ParseExpression(ctx, host));
                     ctx.Consume(TokenType.RBracket, "Expected ']' after array index");
-                    expr = new IndexExpression(expr, index, expr.Line, expr.Column);
+                    expr = new IndexExpression(expr, indices, expr.Line, expr.Column);
                 }
                 else if (ctx.Check(TokenType.DotDot) && ctx.SuppressRangeDepth == 0)
                 {

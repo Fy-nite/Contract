@@ -401,6 +401,22 @@ namespace Contract.Compiler.Parsing
                     function.Access = access;
                     contract.Members.Add(function);
                 }
+                else if (CheckIndexerStart())
+                {
+                    if (isStatic)
+                    {
+                        AddError("Indexers must be instance members — remove the 'static' modifier", Current.Line, Current.Column);
+                    }
+                    var indexer = ParseIndexer();
+                    indexer.Attributes.AddRange(memberAttributes);
+                    indexer.ContractName = name;
+                    indexer.Access = access;
+                    contract.Indexers.Add(indexer);
+                    int ord = contract.Indexers.Count - 1;
+                    indexer.GetterMethodName = indexer.HasGetter ? $"__idx_get_{ord}" : "";
+                    indexer.SetterMethodName = indexer.HasSetter ? $"__idx_set_{ord}" : "";
+                    SynthesizeIndexerAccessors(contract, indexer);
+                }
                 else if (Match(TokenType.Invariant))
                 {
                     var invLine = Previous.Line;
@@ -696,6 +712,141 @@ namespace Contract.Compiler.Parsing
             }
 
             return function;
+        }
+
+        /// <summary>True when the member begins an indexer declaration:
+        /// <c>this(</c> (instance only — indexers take parameters in parens like
+        /// methods, not the <c>this[</c> used at call sites).</summary>
+        private bool CheckIndexerStart()
+            => Current.Type == TokenType.Identifier && Current.Text == "this"
+               && _current + 1 < Tokens.Count && Tokens[_current + 1].Type == TokenType.LParen;
+
+        /// <summary>
+        /// Parses a C#-style indexer: <c>this(index: int) -&gt; T { get { ... } set { ... } }</c>.
+        /// The <c>get</c>/<c>set</c> accessors are ordinary blocks; <c>set</c> bodies
+        /// may reference the implicit parameter <c>value</c>.
+        /// </summary>
+        private IndexerDeclaration ParseIndexer()
+        {
+            int line = Current.Line;
+            int column = Current.Column;
+
+            Advance();   // consume 'this'
+
+            var indexer = new IndexerDeclaration(line, column);
+
+            Consume(TokenType.LParen, "Expected '(' after 'this' in indexer declaration");
+
+            if (!Check(TokenType.RParen))
+            {
+                do
+                {
+                    Consume(TokenType.Identifier, "Expected index parameter name");
+                    string paramName = Previous.Text;
+
+                    string paramType = "";
+                    if (Match(TokenType.Colon))
+                    {
+                        paramType = ParseType();
+                    }
+
+                    indexer.Parameters.Add(new Parameter(paramName, TypeDescriptor.Parse(paramType), Previous.Line, Previous.Column));
+                } while (Match(TokenType.Comma));
+            }
+
+            Consume(TokenType.RParen, "Expected ')' after indexer parameters");
+
+            if (Match(TokenType.Arrow) || Match(TokenType.Colon))
+            {
+                indexer.ReturnType = TypeDescriptor.Parse(ParseType());
+            }
+            else
+            {
+                AddError("Expected '-> <type>' after indexer parameters", Previous.Line, Previous.Column);
+            }
+
+            Consume(TokenType.LBrace, "Expected '{' to start indexer accessors");
+
+            bool sawAccessor = false;
+            while (!Check(TokenType.RBrace) && !IsAtEnd())
+            {
+                if (Current.Type == TokenType.Identifier && Current.Text == "get")
+                {
+                    Advance();
+                    Match(TokenType.LBrace);
+                    indexer.GetterBody = ParseBlock();
+                    sawAccessor = true;
+                }
+                else if (Current.Type == TokenType.Identifier && Current.Text == "set")
+                {
+                    Advance();
+                    Match(TokenType.LBrace);
+                    indexer.SetterBody = ParseBlock();
+                    sawAccessor = true;
+                }
+                else
+                {
+                    AddError("Expected 'get' or 'set' accessor inside indexer", Current.Line, Current.Column);
+                    Advance();
+                }
+            }
+            Consume(TokenType.RBrace, "Expected '}' after indexer accessors");
+
+            if (!sawAccessor)
+            {
+                AddError("Indexer must declare at least one of 'get' or 'set'", line, column);
+            }
+
+            return indexer;
+        }
+
+        /// <summary>
+        /// Lowers an indexer's accessors into synthetic instance methods on the
+        /// contract, reusing the normal method pipeline (analysis, emission,
+        /// generic materialization). The getter takes the index parameters and
+        /// returns the element type; the setter takes the index parameters plus
+        /// a trailing <c>value</c> parameter of the element type.
+        /// </summary>
+        private void SynthesizeIndexerAccessors(ContractDeclaration contract, IndexerDeclaration indexer)
+        {
+            if (indexer.GetterBody != null)
+            {
+                var getter = new FunctionDeclaration(indexer.GetterMethodName, indexer.Line, indexer.Column)
+                {
+                    SourceFile = _sourceFile,
+                    ContractName = contract.Name,
+                    IsInstance = true,
+                    IsStatic = false,
+                    Access = indexer.Access,
+                    ReturnType = indexer.ReturnType,
+                    Body = indexer.GetterBody,
+                };
+                foreach (var p in indexer.Parameters)
+                {
+                    getter.Parameters.Add(new Parameter(p.Name, p.Type, p.Line, p.Column));
+                }
+                contract.Members.Add(getter);
+            }
+
+            if (indexer.SetterBody != null)
+            {
+                var setter = new FunctionDeclaration(indexer.SetterMethodName, indexer.Line, indexer.Column)
+                {
+                    SourceFile = _sourceFile,
+                    ContractName = contract.Name,
+                    IsInstance = true,
+                    IsStatic = false,
+                    Access = indexer.Access,
+                    ReturnType = TypeDescriptor.Parse("void"),
+                    Body = indexer.SetterBody,
+                };
+                foreach (var p in indexer.Parameters)
+                {
+                    setter.Parameters.Add(new Parameter(p.Name, p.Type, p.Line, p.Column));
+                }
+                setter.Parameters.Add(new Parameter("value", indexer.ReturnType ?? TypeDescriptor.Parse("object"), indexer.Line, indexer.Column));
+                contract.Members.Add(setter);
+            }
         }
 
         private ExtendDeclaration ParseExtend()
