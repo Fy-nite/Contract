@@ -13,6 +13,15 @@ namespace Contract.Compiler.StandardLibrary
         public string MethodName { get; }
         public MethodInfo Info { get; }
 
+        /// <summary>
+        /// True when the method was reached through an instance-style member
+        /// chain (<c>this.Module.Classes.Add(node)</c>) on an external helper
+        /// module that is really a static call carrying the receiver as its
+        /// first argument (<c>List.Add(this.Module.Classes, node)</c>). The
+        /// codegen must push the receiver expression first, then the arguments.
+        /// </summary>
+        public bool ReceiverAsFirstArg { get; set; }
+
         public ExternalMethod(string className, string methodName, MethodInfo info)
         {
             ClassName = className;

@@ -67,6 +67,11 @@ namespace Contract.Cli
                 return ListPackages(args.Skip(1).ToArray());
             }
 
+            if (args.Length > 0 && args[0] == "restore")
+            {
+                return RestoreNuGet(args.Skip(1).ToArray());
+            }
+
             if (args.Length > 0 && args[0] == "project")
             {
                 return ProjectCommand(args.Skip(1).ToArray());
@@ -160,6 +165,9 @@ namespace Contract.Cli
                 // Propagate source directory for assembly imports
                 var sourceDir = Path.GetDirectoryName(Path.GetFullPath(filePath));
                 rt.SourceDir = sourceDir;
+
+                // Pre-load NuGet assemblies for <ClrImport> resolution
+                PreloadNuGetAssemblies(sourceDir);
 
                 // JIT / emit / cache options
                 if (jit) rt.Inner.Mode = JitMode.Reflection;
@@ -268,10 +276,19 @@ namespace Contract.Cli
                         return 1;
                     }
 
+                    // Collect NuGet DLLs to include in the bundle
+                    var bundleBindPaths = new List<string>();
+                    if (bindAssembly != null) bundleBindPaths.Add(bindAssembly);
+                    string? bundleNuGetDir = sourceDir != null
+                        ? Path.Combine(sourceDir, ".purr", "nuget")
+                        : null;
+                    if (bundleNuGetDir != null && Directory.Exists(bundleNuGetDir))
+                        bundleBindPaths.AddRange(NuGetResolver.GetAllAssemblyPaths(bundleNuGetDir));
+
                     var spec = new BundleSpec
                     {
                         HostType = hostType,
-                        BindingAssemblyPaths = bindAssembly != null ? new[] { bindAssembly } : Array.Empty<string>(),
+                        BindingAssemblyPaths = bundleBindPaths.ToArray(),
                         Rids = rids,
                         SingleFile = singleFile,
                     };
@@ -406,6 +423,54 @@ namespace Contract.Cli
             return null;
         }
 
+        /// <summary>Restores NuGet packages: `ccl restore [project-root]`.</summary>
+        static int RestoreNuGet(string[] args)
+        {
+            string projectRoot = args.Length > 0
+                ? Path.GetFullPath(args[0])
+                : Directory.GetCurrentDirectory();
+
+            Contract.Compiler.ContractProject? project = null;
+            try { project = Contract.Compiler.ContractProject.Load(projectRoot); }
+            catch (FormatException ex) { Error(ex.Message); return 1; }
+
+            if (project?.NuGetDependencies == null || project.NuGetDependencies.Count == 0)
+            {
+                Console.WriteLine("No NuGet dependencies in this project.");
+                Console.WriteLine("Add them to contract.ctproj:\n");
+                Console.WriteLine("  \"NuGetDependencies\": [");
+                Console.WriteLine("    { \"Name\": \"Newtonsoft.Json\", \"Version\": \"13.0.3\" }");
+                Console.WriteLine("  ]");
+                return 0;
+            }
+
+            Console.WriteLine($"Restoring {project.NuGetDependencies.Count} NuGet package(s)...");
+            var resolver = new NuGetResolver(projectRoot);
+            var count = resolver.RestoreAllAsync(project.NuGetDependencies).GetAwaiter().GetResult();
+            Console.WriteLine($"Done — {count} package(s) restored.");
+            return 0;
+        }
+
+        /// <summary>
+        /// Pre-loads NuGet assemblies from both the project-local
+        /// <c>.purr/nuget/</c> directory and the global cache
+        /// <c>~/.purr/nuget/</c> into the current AppDomain. This makes
+        /// types available for <c>&lt;ClrImport&gt;</c> resolution without
+        /// needing explicit <c>Path:</c> arguments.
+        /// </summary>
+        static void PreloadNuGetAssemblies(string? projectRoot)
+        {
+            // Project-local
+            if (projectRoot != null)
+            {
+                string localNuGet = Path.Combine(projectRoot, ".purr", "nuget");
+                NuGetResolver.PreloadAssemblies(localNuGet);
+            }
+            // Global cache (deduplicates via AppDomain — already-loaded
+            // assemblies are skipped by LoadFrom)
+            NuGetResolver.PreloadAssemblies(NuGetResolver.GlobalCacheDirStatic);
+        }
+
         /// <summary>Dumps a sorted call-frequency table to stderr.</summary>
         static void EmitCallgraph(System.Collections.Concurrent.ConcurrentDictionary<string, long> counts)
         {
@@ -464,6 +529,7 @@ Project commands:
                           Read ./contract.ctproj, compile the main file
                           (always emits a .orbt binary module)
                          --static resolves imports at build time
+  contract restore            Restore NuGet packages for this project
   contract doc [--format html|md]  Generate API docs from /// comments
   contract install <pkg[@ver]>    Install a package from the Purr registry
   contract remove <pkg>           Remove an installed package
@@ -604,6 +670,21 @@ Examples:
                 return 1;
             }
 
+            // ── Auto-restore NuGet packages if needed ──────────────────
+            if (project.NuGetDependencies?.Count > 0)
+            {
+                string nugetDir = Path.Combine(project.RootPath!, ".purr", "nuget");
+                bool needsRestore = project.NuGetDependencies.Any(dep =>
+                    !Directory.Exists(Path.Combine(nugetDir, dep.Name.ToLowerInvariant())));
+                if (needsRestore)
+                {
+                    Console.WriteLine("Restoring NuGet packages...");
+                    var resolver = new NuGetResolver(project.RootPath);
+                    resolver.RestoreAllAsync(project.NuGetDependencies).GetAwaiter().GetResult();
+                    Console.WriteLine();
+                }
+            }
+
             // ── Route to the correct build mode ───────────────────────
             if (project.Projects != null && project.Projects.Count > 0)
                 return BuildSolution(project, staticLink, output);
@@ -618,12 +699,20 @@ Examples:
         /// <summary>Multi-project solution build: `ccl build` with a Projects array.</summary>
         static int BuildSolution(Contract.Compiler.ContractProject project, bool staticLink, string? output)
         {
+            // Pre-load NuGet assemblies for <ClrImport> resolution
+            PreloadNuGetAssemblies(project.RootPath);
+
             Console.WriteLine($"Solution: {project.Name} ({project.Projects!.Count} project(s))");
             try
             {
                 var result = Contract.Compiler.SolutionBuilder.Build(project, staticLink, output);
                 if (!result.Success)
                 {
+                    var failed = result.Projects.Where(p => !p.Success).ToList();
+                    foreach (var res in failed)
+                    {
+                        Error($"Project '{res.Project.Name}' failed to build ({res.Diagnostics.Diagnostics.Count(d => d.Severity == Contract.Compiler.Diagnostics.DiagnosticSeverity.Error)} error(s)).");
+                    }
                     Error("Solution build failed.");
                     return 1;
                 }
@@ -647,22 +736,15 @@ Examples:
                 return 1;
             }
 
+            // Pre-load NuGet assemblies for <ClrImport> resolution
+            PreloadNuGetAssemblies(project.RootPath);
+
             // Expand globs
             var sourceFiles = new List<string>();
             foreach (var pattern in project.Sources!)
             {
-                string dir = project.RootPath!;
-                string searchPattern = Path.GetFileName(pattern);
-                string? searchDir = Path.GetDirectoryName(pattern);
-
-                if (!string.IsNullOrEmpty(searchDir))
-                    dir = Path.Combine(dir, searchDir.Replace('/', Path.DirectorySeparatorChar));
-
-                if (Directory.Exists(dir))
-                {
-                    var files = Directory.GetFiles(dir, searchPattern, SearchOption.AllDirectories);
-                    sourceFiles.AddRange(files.Where(f => f.EndsWith(".ct", StringComparison.OrdinalIgnoreCase)));
-                }
+                sourceFiles.AddRange(ExpandGlob(project.RootPath!, pattern)
+                    .Where(f => f.EndsWith(".ct", StringComparison.OrdinalIgnoreCase)));
             }
 
             if (sourceFiles.Count == 0)
@@ -706,7 +788,12 @@ Examples:
                 return 1;
             }
 
-            string ir = codeGen.GetIRText();
+            string? ir = codeGen.GetIRText();
+            if (ir == null)
+            {
+                diagnostics.ReportToConsole();
+                return 1;
+            }
             string outDir = output != null
                 ? (Path.IsPathRooted(output) ? output : Path.Combine(project.RootPath!, output))
                 : (project.OutputPath ?? Path.Combine(project.RootPath!, "bin"));
@@ -730,6 +817,16 @@ Examples:
             return 0;
         }
 
+        /// <summary>
+        /// Expands a glob pattern under <paramref name="root"/> with full
+        /// <c>**</c> (zero or more directories), <c>*</c> and <c>?</c> support
+        /// in ANY path component. Returns the matching file paths (directories
+        /// are not matched at the final component). The caller filters the
+        /// desired extension. Patterns that are already rooted are used as-is.
+        /// </summary>
+        static List<string> ExpandGlob(string root, string pattern)
+            => Contract.Compiler.ContractProject.ExpandGlob(root, pattern);
+
         /// <summary>Single-file mode: `ccl build` with a Main entry point.</summary>
         static int BuildSingleFile(Contract.Compiler.ContractProject project, bool staticLink, bool run, string? output)
         {
@@ -738,6 +835,9 @@ Examples:
                 Error($"Project main file not found: {project.Main}");
                 return 1;
             }
+
+            // Pre-load NuGet assemblies for <ClrImport> resolution
+            PreloadNuGetAssemblies(project.RootPath);
 
             var ir = Contract.Runtime.ContractCompiler.CompileFile(
                 project.MainPath, out var diagnostics,
@@ -1109,10 +1209,12 @@ Examples:
                 return 1;
             }
 
-            // Resolve the target: directory → look for contract.ctproj inside
+            // Resolve the target: a directory → its settings file (contract.ctproj,
+            // or any *.ctproj / the explicit file when given).
             string targetPath = Contract.Compiler.ImportResolver.NormalizeAbsolutePath(inputPath);
             if (Directory.Exists(targetPath))
-                targetPath = Path.Combine(targetPath, Contract.Compiler.ContractProject.FileName);
+                targetPath = Contract.Compiler.ContractProject.ResolveSettingsFile(targetPath)
+                    ?? Path.Combine(targetPath, Contract.Compiler.ContractProject.FileName);
 
             if (!File.Exists(targetPath))
             {
@@ -1191,7 +1293,8 @@ Examples:
 
                 string absCtproj;
                 if (Directory.Exists(absPath))
-                    absCtproj = Path.Combine(absPath, Contract.Compiler.ContractProject.FileName);
+                    absCtproj = Contract.Compiler.ContractProject.ResolveSettingsFile(absPath)
+                        ?? Path.Combine(absPath, Contract.Compiler.ContractProject.FileName);
                 else
                     absCtproj = absPath;
 
@@ -1252,10 +1355,11 @@ Examples:
                 string normalizedRel = rel.Replace('/', Path.DirectorySeparatorChar);
                 string absPath = Path.Combine(project.RootPath!, normalizedRel);
 
-                // If it's a directory, look for ctproj inside
+                // If it's a directory, look for the settings file (contract.ctproj or any *.ctproj)
                 string absCtproj;
                 if (Directory.Exists(absPath))
-                    absCtproj = Path.Combine(absPath, Contract.Compiler.ContractProject.FileName);
+                    absCtproj = Contract.Compiler.ContractProject.ResolveSettingsFile(absPath)
+                        ?? Path.Combine(absPath, Contract.Compiler.ContractProject.FileName);
                 else
                     absCtproj = absPath;
 

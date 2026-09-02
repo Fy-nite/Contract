@@ -112,6 +112,43 @@ Each entry is a `PackageDependency` object:
 | `Name` | `string` | `""` | Package name on the Purr registry (e.g. `"ObjektRT"`). |
 | `Version` | `string` | `"*"` | Semver version range. `"*"` or empty string means latest. |
 
+### `NuGetDependencies`
+
+| | |
+|---|---|
+| **Type** | `NuGetDependency[] \| null` |
+| **Default** | `null` |
+| **Description** | NuGet package dependencies. Each entry is downloaded from nuget.org during `ccl restore` and placed in the project-local `.purr/nuget/` directory. Restored assemblies are automatically available for `<ClrImport>` binding without explicit `Path:` arguments. |
+
+Each entry is a `NuGetDependency` object:
+
+#### `NuGetDependency`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `Name` | `string` | `""` | NuGet package ID (e.g. `"Newtonsoft.Json"`, `"Serilog"`). |
+| `Version` | `string` | `"*"` | Semver version or range. `"*"` means latest. Supports exact (`"13.0.3"`), bracket ranges (`"[1.0.0, 2.0.0)"`), and minimum (`"1.0.0"`). Transitive dependencies are resolved automatically. |
+
+Run `ccl restore` to download all listed packages, or `ccl build` will auto-restore missing packages before compilation.
+
+```ct
+// Example: use Newtonsoft.Json from NuGet
+<ClrImport("Newtonsoft.Json.JsonConvert")>
+Contract Json {
+    static fn SerializeObject(obj: object) -> string { }
+    static fn DeserializeObject(json: string) -> object { }
+}
+```
+
+```json
+{
+  "NuGetDependencies": [
+    { "Name": "Newtonsoft.Json", "Version": "13.0.3" },
+    { "Name": "Serilog", "Version": "*" }
+  ]
+}
+```
+
 ### `Projects`
 
 | | |
@@ -201,3 +238,22 @@ The compiler compiles every `.ct` file in the project root and emits `bin/MyLib.
   ]
 }
 ```
+
+### Executable with NuGet dependencies
+
+```json
+{
+  "Name": "MyApp",
+  "Type": "exe",
+  "Main": "src/main.ct",
+  "Output": "bin",
+  "Version": "1.0.0",
+  "Description": "A Contract app using NuGet packages",
+  "NuGetDependencies": [
+    { "Name": "Newtonsoft.Json", "Version": "13.0.3" },
+    { "Name": "Serilog.Sinks.Console", "Version": "6.0.0" }
+  ]
+}
+```
+
+After running `ccl restore`, the NuGet assemblies are available for `<ClrImport>` binding automatically — no `Path:` argument needed.

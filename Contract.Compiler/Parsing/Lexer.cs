@@ -57,6 +57,7 @@ namespace Contract.Compiler.Parsing
             ["invariant"] = TokenType.Invariant,
             ["extend"] = TokenType.Extend,
             ["is"] = TokenType.Is,
+            ["as"] = TokenType.As,
             ["host"] = TokenType.Host
         };
 

@@ -123,16 +123,8 @@ public static class SolutionBuilder
             var sourceFiles = new List<string>();
             foreach (var pattern in project.Sources!)
             {
-                string dir = project.RootPath!;
-                string searchPattern = Path.GetFileName(pattern);
-                string? searchDir = Path.GetDirectoryName(pattern);
-                if (!string.IsNullOrEmpty(searchDir))
-                    dir = Path.Combine(dir, searchDir.Replace('/', Path.DirectorySeparatorChar));
-                if (Directory.Exists(dir))
-                {
-                    var files = Directory.GetFiles(dir, searchPattern, SearchOption.AllDirectories);
-                    sourceFiles.AddRange(files.Where(f => f.EndsWith(".ct", StringComparison.OrdinalIgnoreCase)));
-                }
+                sourceFiles.AddRange(ContractProject.ExpandGlob(project.RootPath!, pattern)
+                    .Where(f => f.EndsWith(".ct", StringComparison.OrdinalIgnoreCase)));
             }
             program = driver.Compile(sourceFiles, project.RootPath!);
         }

@@ -1,0 +1,35 @@
+import __builtin.std;
+
+Contract Animal {
+    fn speak() -> string { return "..."; }
+}
+
+Contract Dog : Animal {
+    fn speak() -> string { return "Woof!"; }
+}
+
+Contract Program {
+    static fn Main() {
+        // `as` casts an object to a type, yielding that value or null
+        var obj: object = "hello";
+        var s = obj as string;
+        if (s != null) {
+            IO.Println("cast string: " + s);
+        }
+
+        var d: object = new Dog();
+        var dog = d as Dog;
+        if (dog != null) {
+            IO.Println(dog.speak());
+        }
+
+        // Mismatched cast yields null
+        var num: object = 42;
+        var notString = num as string;
+        if (notString == null) {
+            IO.Println("mismatch cast to null (correct)");
+        }
+
+        IO.Println("as cast tests passed");
+    }
+}

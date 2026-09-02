@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -18,6 +19,25 @@ namespace Contract.Compiler
         public string Version { get; set; } = "*";
 
         public override string ToString() => string.IsNullOrEmpty(Version) || Version == "*" ? Name : $"{Name}@{Version}";
+    }
+
+    /// <summary>
+    /// A reference to a NuGet package dependency. NuGet packages provide
+    /// .NET assemblies that can be bound to via <c>&lt;ClrImport&gt;</c>.
+    /// Packages are restored to <c>~/.purr/nuget/{id}/{version}/</c>
+    /// (global cache) and linked into <c>.purr/nuget/{id}/{version}/</c>
+    /// (project-local).
+    /// </summary>
+    public class NuGetDependency
+    {
+        /// <summary>NuGet package ID (e.g. "Newtonsoft.Json").</summary>
+        public string Name { get; set; } = "";
+
+        /// <summary>Semver version or range. Empty or "*" means latest.
+        /// Supports NuGet version ranges: <c>[1.0.0]</c>, <c>[1.0.0, 2.0.0)</c>.</summary>
+        public string Version { get; set; } = "*";
+
+        public override string ToString() => string.IsNullOrEmpty(Version) || Version == "*" ? Name : $"{Name} {Version}";
     }
 
     /// <summary>
@@ -64,6 +84,14 @@ namespace Contract.Compiler
         public List<PackageDependency>? Dependencies { get; set; }
 
         /// <summary>
+        /// NuGet package dependencies. Each entry triggers a download from
+        /// nuget.org during <c>ccl restore</c>. Restored assemblies are
+        /// available for <c>&lt;ClrImport&gt;</c> binding without explicit
+        /// <c>Path:</c> arguments.
+        /// </summary>
+        public List<NuGetDependency>? NuGetDependencies { get; set; }
+
+        /// <summary>
         /// Sub-project paths (relative to this project's root). When present,
         /// this project acts as a solution: each sub-project is built in
         /// dependency order. Mutually exclusive with <see cref="Main"/> and
@@ -105,14 +133,113 @@ namespace Contract.Compiler
         public static string SettingsPathFor(string projectRoot)
             => Path.Combine(projectRoot, FileName);
 
-        /// <summary>Loads the project settings from <paramref name="settingsPath"/> (or a directory containing it).</summary>
+        /// <summary>
+        /// Resolves the project settings file inside <paramref name="projectRoot"/>:
+        /// <paramref name="fileName"/> when given, else <c>contract.ctproj</c> when
+        /// present, else the single remaining <c>*.ctproj</c> (or the first, ordered
+        /// deterministically) when present. Null when no settings file is found.
+        /// </summary>
+        public static string? ResolveSettingsFile(string projectRoot, string? fileName = null)
+        {
+            if (!string.IsNullOrEmpty(fileName))
+            {
+                var direct = Path.Combine(projectRoot, fileName);
+                return File.Exists(direct) ? direct : null;
+            }
+            var standard = Path.Combine(projectRoot, FileName);
+            if (File.Exists(standard)) return standard;
+            var others = Directory.GetFiles(projectRoot, "*.ctproj", SearchOption.TopDirectoryOnly);
+            if (others.Length == 0) return null;
+            Array.Sort(others, StringComparer.OrdinalIgnoreCase);
+            return others[0];
+        }
+
+        /// <summary>
+        /// Expands a glob pattern under <paramref name="root"/> with full
+        /// <c>**</c> (zero or more directories), <c>*</c> and <c>?</c> support
+        /// in ANY path component. Returns the matching file paths (directories
+        /// are not matched at the final component). Patterns that are already
+        /// rooted are used as-is.
+        /// </summary>
+        public static List<string> ExpandGlob(string root, string pattern)
+        {
+            var result = new List<string>();
+            string baseDir = Path.IsPathRooted(pattern) ? "" : root;
+            string normalized = pattern.Replace('/', Path.DirectorySeparatorChar)
+                                       .Replace('\\', Path.DirectorySeparatorChar);
+            var parts = normalized.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0) return result;
+            ExpandGlobInto(baseDir, parts, 0, result);
+            return result.Distinct()
+                .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static void ExpandGlobInto(string currentDir, string[] parts, int idx, List<string> result)
+        {
+            if (idx >= parts.Length)
+            {
+                result.Add(currentDir);
+                return;
+            }
+
+            string part = parts[idx];
+
+            if (part == "**")
+            {
+                // `**` matches zero OR more directory levels.
+                ExpandGlobInto(currentDir, parts, idx + 1, result);          // zero dirs
+                if (!Directory.Exists(currentDir)) return;
+                foreach (var sub in Directory.EnumerateDirectories(currentDir))
+                {
+                    // Recurse on the SAME `**` component to consume one+ dirs.
+                    ExpandGlobInto(sub, parts, idx, result);
+                }
+            }
+            else if (idx == parts.Length - 1)
+            {
+                // Final component: match files.
+                if (!Directory.Exists(currentDir)) return;
+                if (part.IndexOfAny(new[] { '*', '?' }) >= 0)
+                {
+                    foreach (var file in Directory.EnumerateFiles(currentDir, part))
+                        result.Add(file);
+                }
+                else
+                {
+                    var full = Path.Combine(currentDir, part);
+                    if (File.Exists(full)) result.Add(full);
+                }
+            }
+            else
+            {
+                // Intermediate component: match directories.
+                if (!Directory.Exists(currentDir)) return;
+                if (part.IndexOfAny(new[] { '*', '?' }) >= 0)
+                {
+                    foreach (var sub in Directory.EnumerateDirectories(currentDir, part))
+                        ExpandGlobInto(sub, parts, idx + 1, result);
+                }
+                else
+                {
+                    ExpandGlobInto(Path.Combine(currentDir, part), parts, idx + 1, result);
+                }
+            }
+        }
+
+        /// <summary>Loads the project settings from <paramref name="settingsPath"/>.
+        /// When <paramref name="settingsPath"/> is a directory,
+        /// <paramref name="fileName"/> (default <c>contract.ctproj</c>) is used.
+        /// When no explicit name is given and <c>contract.ctproj</c> is absent,
+        /// any <c>*.ctproj</c> in the directory is used so custom-named project
+        /// files are still discovered.</summary>
         /// <remarks>Throws <see cref="FormatException"/> when the settings file exists but is malformed,
         /// so callers can distinguish "no project here" from "project file is broken".</remarks>
-        public static ContractProject? Load(string settingsPath)
+        public static ContractProject? Load(string settingsPath, string? fileName = null)
         {
             string full = ImportResolver.NormalizeAbsolutePath(settingsPath);
             if (Directory.Exists(full))
-                full = Path.Combine(full, FileName);
+                full = ResolveSettingsFile(full, fileName);
             if (!File.Exists(full)) return null;
 
             var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true, ReadCommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };

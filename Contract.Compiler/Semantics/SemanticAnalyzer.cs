@@ -2251,11 +2251,17 @@ namespace Contract.Compiler.Semantics
                         DeclareVariable(isExpr.PatternVariable, new TypeDescriptor.Named(resolved), isExpr.Line, isExpr.Column, isMutable: true, warnOnShadow: false);
                     }
                     break;
+                case AsExpression asExpr:
+                    AnalyzeExpression(asExpr.Value);
+                    if (!_typeRegistry.IsValidTypeName(asExpr.TypeName) && !IsTypeParamInScope(asExpr.TypeName))
+                    {
+                        _diagnostics.AddWarning($"Unknown type '{asExpr.TypeName}' in cast", asExpr.Line, asExpr.Column);
+                    }
+                    break;
                 case NullCoalesceExpression ncExpr:
                     AnalyzeExpression(ncExpr.Left);
                     AnalyzeExpression(ncExpr.Right);
-                    break;
-                case SafeAccessExpression safeExpr:
+                    break;                case SafeAccessExpression safeExpr:
                     AnalyzeExpression(safeExpr.Object);
                     break;
                 case ArrayLiteralExpression arrLit:
@@ -2999,6 +3005,8 @@ namespace Contract.Compiler.Semantics
                 }
                 case IsExpression:
                     return new TypeDescriptor.Named("bool");
+                case AsExpression asExpr:
+                    return new TypeDescriptor.Named(ResolveTypeName(asExpr.TypeName));
                 case NullCoalesceExpression ncExpr:
                     return InferType(ncExpr.Left) ?? InferType(ncExpr.Right);
                 case SafeAccessExpression safeExpr:
@@ -3328,10 +3336,172 @@ namespace Contract.Compiler.Semantics
             return SubstituteFunction(fn, map, genericContract);
         }
 
+        /// <summary>
+        /// Resolves the static type of an arbitrary member-access chain used as
+        /// a receiver: <c>this.Module.Classes</c> → the <c>List&lt;ClassNode&gt;</c>
+        /// field type. Walks Identifier / MemberExpression / CallExpression /
+        /// IndexExpression roots, deriving each hop's declared type descriptor.
+        /// Returns null when the type cannot be determined.
+        /// </summary>
+        private TypeDescriptor? ResolveChainType(Expression expr)
+        {
+            switch (expr)
+            {
+                case IdentifierExpression id:
+                    // `this` → the current contract; a variable → its declared type.
+                    if (id.Name == "this" && _currentContractName != null)
+                        return new TypeDescriptor.Named(_currentContractName);
+                    return FindVariableType(id.Name);
+                case MemberExpression mem:
+                {
+                    var ownerType = ResolveChainType(mem.Object);
+                    return ResolveFieldTypeOnDescriptor(ownerType, mem.Property);
+                }
+                case CallExpression call:
+                    if (call.Symbol is ExternalMethod em)
+                        return MapSystemTypeToLanguageType(em.Info.ReturnType);
+                    if (call.Symbol is FunctionDeclaration fd && fd.ReturnType != null && !fd.ReturnType.IsEmpty)
+                        return fd.ReturnType;
+                    return null;
+                case IndexExpression idx:
+                    if (idx.Target is IdentifierExpression idxId
+                        && FindVariableType(idxId.Name) is TypeDescriptor.ArrayOf arrT)
+                        return arrT.Element;
+                    return null;
+                default:
+                    return InferType(expr);
+            }
+        }
+
+        /// <summary>
+        /// The declared type descriptor of <paramref name="fieldName"/> on the
+        /// owners represented by <paramref name="ownerType"/> (a contract name,
+        /// a struct name, or a generic-instance name). Handles inherited and
+        /// statically-declared fields. Returns null when the field isn't found.
+        /// </summary>
+        private TypeDescriptor? ResolveFieldTypeOnDescriptor(TypeDescriptor? ownerType, string fieldName)
+        {
+            if (ownerType == null) return null;
+            switch (ownerType)
+            {
+                case TypeDescriptor.Named n:
+                    return FindFieldType(n.Name, fieldName)
+                        ?? FindStaticFieldType(n.Name, fieldName);
+                case TypeDescriptor.GenericInstance g:
+                    // Field on a generic instance's contract (e.g. an indexer or
+                    // backing collection declared on the generic contract), or on
+                    // an external helper module's static field.
+                    if (FindGenericContract(g.Name) is { } genContract)
+                    {
+                        var declaring = FindFieldDeclaringContract(genContract, fieldName, staticOnly: false);
+                        return declaring?.Fields.FirstOrDefault(f => f.Name == fieldName)?.Type;
+                    }
+                    var staticField = FindStaticFieldType(g.Name, fieldName);
+                    if (staticField != null) return staticField;
+                    // Hop on the element type of a List<T>-style external: a
+                    // genuine multi-word chain like list.SubList isn't a thing
+                    // here, so fall through.
+                    return null;
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>The static field type of <paramref name="fieldName"/> on a contract.</summary>
+        private TypeDescriptor? FindStaticFieldType(string ownerName, string fieldName)
+        {
+            if (_program == null) return null;
+            var contract = FindContract(ownerName);
+            if (contract == null) return null;
+            var declaring = FindFieldDeclaringContract(contract, fieldName, staticOnly: true);
+            return declaring?.Fields.FirstOrDefault(f => f.Name == fieldName)?.Type;
+        }
+
+        /// <summary>
+        /// Resolves a method <c>receiverExpr.methodName(args)</c> where
+        /// <paramref name="receiverType"/> is the receiver's static type. Binds
+        /// user contract instance methods, generic-contract methods, and
+        /// external helper modules reached instance-style (receiver as first
+        /// argument). Returns true when the call was bound.
+        /// </summary>
+        private bool ResolveMethodOnReceiverType(TypeDescriptor receiverType, string methodName, CallExpression call, Expression receiverExpr)
+        {
+            switch (receiverType)
+            {
+                case TypeDescriptor.Named n:
+                    if (FindContract(n.Name) is { } contract)
+                    {
+                        var member = FindMethodIncludingBase(contract, methodName, instanceOnly: true);
+                        if (member != null)
+                        {
+                            if (!IsAccessibleFrom(member.Access, member.ContractName ?? ""))
+                            {
+                                _diagnostics.AddError(
+                                    $"Method '{member.ContractName}.{methodName}' is {AccessName(member.Access)} — not accessible from '{_currentContractName}'",
+                                    call.Line, call.Column);
+                            }
+                            call.Symbol = member;
+                            _usedFunctions.Add(member.Name);
+                            _usedTypes.Add(contract.FullName);
+                            return true;
+                        }
+                    }
+                    break;
+
+                case TypeDescriptor.GenericInstance g:
+                    // User generic contract instance: a.getValue().
+                    if (FindGenericContract(g.Name) is { } genContract
+                        && FindMethodIncludingBase(genContract, methodName, instanceOnly: true) is { } genMethod)
+                    {
+                        call.Symbol = ResolveGenericTarget(genMethod, call, TypeParamMap(genContract, g));
+                        _usedFunctions.Add(genMethod.Name);
+                        _usedTypes.Add(g.Name);
+                        _usedTypes.Add(genContract.FullName);
+                        return true;
+                    }
+                    // External helper module reached instance-style: the receiver
+                    // is the static method's first argument
+                    // (this.Module.Classes.Add(node) → List.Add(recv, node)).
+                    if (_symbolTable.TryResolveMethod(g.Name, methodName, call.Arguments.Count, out var helperMethod)
+                        && helperMethod is ExternalMethod helper)
+                    {
+                        if (IsAccessibleFrom(helper))
+                        {
+                            helper.ReceiverAsFirstArg = true;
+                            call.Symbol = helper;
+                            _usedTypes.Add(g.Name);
+                            return true;
+                        }
+                    }
+                    break;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// True when an external method is public (external modules are only
+        /// reachable through their public surface).
+        /// </summary>
+        private static bool IsAccessibleFrom(ExternalMethod em) => em.Info.IsPublic;
+
         private void ResolveCall(CallExpression call)
         {
             if (call.Callee is MemberExpression mem)
             {
+                // Chain receiver: this.Module.Classes.Add(node) — a multi-level
+                // member chain (or a call/index result) as the receiver. The
+                // single-level cases below assume an identifier root, so resolve
+                // the receiver's type through the chain and bind the method on it.
+                if (mem.Object is not IdentifierExpression)
+                {
+                    var chainType = ResolveChainType(mem.Object);
+                    if (chainType != null && ResolveMethodOnReceiverType(chainType, mem.Property, call, mem.Object))
+                    {
+                        return;
+                    }
+                    // Fall through — an unknown chain still reports the standard
+                    // error below rather than emitting a misbound call.
+                }
                 // General extension dispatch — handles receivers that are not
                 // identifier-rooted paths (e.g. 5.DoubleIt(), "hi".Ext()).
                 // TryGetModuleAccessPath below requires Identifier root and

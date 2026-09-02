@@ -2050,6 +2050,23 @@ public class IRCodeGenerator
                 ib.Cne();
                 break;
 
+            case AsExpression asExpr:
+                // expr as TypeName — like C# `as`: the value cast to TypeName,
+                // or null when the runtime type does not match.
+                GenerateExpression(ib, asExpr.Value, paramMap);
+                string asTypeName = ResolveTypeName(asExpr.TypeName);
+                if (IsPrimitiveType(asTypeName))
+                {
+                    // Primitives have no type record — use TypeHelper.CastOrNull helper
+                    ib.Ldstr(asTypeName);
+                    ib.Call(new MethodReference(new TypeRef("TypeHelper"), "CastOrNull", TypeRef.Object, new List<TypeRef> { TypeRef.Object, TypeRef.String }));
+                }
+                else
+                {
+                    ib.Isinst(asTypeName);
+                }
+                break;
+
             case NullCoalesceExpression ncExpr:
                 // expr ?? default — desugar to: temp = expr; temp != null ? temp : default
                 GenerateExpression(ib, ncExpr.Left, paramMap);
@@ -2488,6 +2505,15 @@ public class IRCodeGenerator
                 {
                     // Extension method: push the receiver as the first argument
                     GenerateExpression(ib, extRecv.Object, paramMap);
+                }
+
+                // External helper reached instance-style: this.Module.Classes
+                // .Add(node) → List.Add(recv, node). The receiver is the static
+                // method's first argument and is pushed before the rest.
+                if (call.Symbol is ExternalMethod { ReceiverAsFirstArg: true }
+                    && call.Callee is MemberExpression chainRecv)
+                {
+                    GenerateExpression(ib, chainRecv.Object, paramMap);
                 }
 
                 // Push arguments to stack

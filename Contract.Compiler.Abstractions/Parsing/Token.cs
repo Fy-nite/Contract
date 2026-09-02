@@ -8,7 +8,7 @@ namespace Contract.Compiler.Parsing
         Break, Continue, True, False, Enum, Namespace,
         Try, Catch, Finally, Throw, Match, In,
         Requires, Ensures, Invariant, Extend,
-        Is, Host,
+        Is, As, Host,
 
         // Literals
         Identifier, IntLiteral, FloatLiteral, StringLiteral, InterpolatedString,

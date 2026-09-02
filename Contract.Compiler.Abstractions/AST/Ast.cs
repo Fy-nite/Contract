@@ -939,6 +939,23 @@ namespace Contract.Compiler.AST
     }
 
     /// <summary>
+    /// A type cast expression: <c>expr as TypeName</c>.
+    /// Evaluates to the value cast to <c>TypeName</c> (like C# <c>as</c>):
+    /// the original value when the runtime type matches, otherwise <c>null</c>.
+    /// </summary>
+    public class AsExpression : Expression
+    {
+        public Expression Value { get; }
+        public string TypeName { get; }
+
+        public AsExpression(Expression value, string typeName, int line, int column) : base(line, column)
+        {
+            Value = value;
+            TypeName = typeName;
+        }
+    }
+
+    /// <summary>
     /// A null coalescing expression: <c>expr ?? defaultValue</c>.
     /// Returns the left operand if non-null, otherwise the right operand.
     /// </summary>

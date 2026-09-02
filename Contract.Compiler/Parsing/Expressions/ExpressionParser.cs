@@ -173,10 +173,12 @@ namespace Contract.Compiler.Expressions
                 expr = new BinaryExpression(expr, op, right, expr.Line, expr.Column);
             }
 
-            // is type check: expr is TypeName
-            if (ctx.Match(TokenType.Is))
+            // Relational type ops: expr is TypeName [varName]  |  expr as TypeName
+            if (ctx.Match(TokenType.Is, TokenType.As))
             {
-                ctx.Consume(TokenType.Identifier, "Expected type name after 'is'");
+                bool isAs = ctx.Previous.Type == TokenType.As;
+                string keywordText = ctx.Previous.Text;
+                ctx.Consume(TokenType.Identifier, $"Expected type name after '{keywordText}'");
                 string typeName = ctx.Previous.Text;
                 // Handle dotted type names
                 while (ctx.Match(TokenType.Dot))
@@ -184,7 +186,18 @@ namespace Contract.Compiler.Expressions
                     ctx.Consume(TokenType.Identifier, "Expected identifier after '.' in type name");
                     typeName += "." + ctx.Previous.Text;
                 }
-                expr = new IsExpression(expr, typeName, expr.Line, expr.Column);
+                if (isAs)
+                {
+                    expr = new AsExpression(expr, typeName, expr.Line, expr.Column);
+                }
+                else
+                {
+                    // Optional pattern variable: expr is TypeName varName
+                    string? patternVar = null;
+                    if (ctx.Check(TokenType.Identifier))
+                        patternVar = ctx.Advance().Text;
+                    expr = new IsExpression(expr, typeName, expr.Line, expr.Column, patternVar);
+                }
             }
 
             return expr;

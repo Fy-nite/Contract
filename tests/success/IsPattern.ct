@@ -1,0 +1,32 @@
+import __builtin.std;
+
+Contract Animal {
+    fn speak() -> string { return "..."; }
+}
+
+Contract Dog : Animal {
+    fn speak() -> string { return "Woof!"; }
+}
+
+Contract Program {
+    static fn Main() {
+        // `is` with a pattern variable binds the checked variable
+        var obj: object = "hello";
+        if (obj is string s) {
+            IO.Println("bound string: " + s);
+        }
+
+        // Pattern variable is usable in && chains
+        if (obj is string s2 && String.Length(s2) > 0) {
+            IO.Println("non-empty: " + s2);
+        }
+
+        // Pattern variable for a contract type
+        var a: object = new Dog();
+        if (a is Dog d) {
+            IO.Println(d.speak());
+        }
+
+        IO.Println("is pattern tests passed");
+    }
+}
