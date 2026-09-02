@@ -2107,9 +2107,13 @@ public class IRCodeGenerator
                 GenerateExpression(ib, isExpr.Value, paramMap);
                 string isTypeName = ResolveTypeName(isExpr.TypeName);
                 bool isPrimitive = IsPrimitiveType(isTypeName);
-                if (isPrimitive)
+                bool isTypeParam = _currentTypeParams.Contains(isTypeName);
+                if (isPrimitive || isTypeParam)
                 {
-                    // Primitives have no type record for isinst — use TypeHelper.CastOrNull helper
+                    // Primitives have no type record for isinst — use TypeHelper.CastOrNull
+                    // helper. A contract type param may materialize to a primitive, so it
+                    // is routed the same way; the literal type name gets substituted to the
+                    // concrete type (e.g. "int32") during generic materialization.
                     ib.Ldstr(isTypeName);
                     ib.Call(new MethodReference(new TypeRef("TypeHelper"), "CastOrNull", TypeRef.Object, new List<TypeRef> { TypeRef.Object, TypeRef.String }));
                 }
@@ -2140,9 +2144,11 @@ public class IRCodeGenerator
                 // or null when the runtime type does not match.
                 GenerateExpression(ib, asExpr.Value, paramMap);
                 string asTypeName = ResolveTypeName(asExpr.TypeName);
-                if (IsPrimitiveType(asTypeName))
+                if (IsPrimitiveType(asTypeName) || _currentTypeParams.Contains(asTypeName))
                 {
                     // Primitives have no type record — use TypeHelper.CastOrNull helper
+                    // (also used for contract type params, which may materialize to a
+                    // primitive; the literal name is substituted during materialization).
                     ib.Ldstr(asTypeName);
                     ib.Call(new MethodReference(new TypeRef("TypeHelper"), "CastOrNull", TypeRef.Object, new List<TypeRef> { TypeRef.Object, TypeRef.String }));
                 }

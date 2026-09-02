@@ -1478,8 +1478,22 @@ m.Free();
 The generic contract is auto-shadowed by the runtime `ManagedPtr` host binding
 (`ObjektRT.Stdlib.Memory.PtrHost`, marked `[ClassBinding("ManagedPtr")]`), so
 `Read`/`Write`/`Count`/... resolve to `host.`-style native calls, mirroring how
-`DateTime` is bound. Element size is computed from `T` (each element is
-treated as a 32-bit/4-byte slot in the current implementation).
+`DateTime` is bound. The element type `T` is passed to the host as its wire
+type name: `ManagedPtr<T>`'s constructor passes the literal `"T"`, which
+generic materialization rewrites to the concrete wire name (`int32`, `int64`,
+`float32`, `float64`, ...). The host computes the element size and kind from
+that name, so `<int>`, `<long>`, `<float>` and `<double>` all work with the
+correct per-element size and integer-vs-float semantics.
+
+Typed access is element-aware: `Read`/`Write` dispatch on the buffer's element
+kind (4-byte int and 4-byte float share a size but not semantics), so
+`ManagedPtr<float>` reads/writes real 32-bit floats and `ManagedPtr<long>`
+64-bit longs. On the language side the read/write layer uses `as T` and `is T`
+to unbox; because the VM surfaces every boxed numeric as a `System.Double` on
+the object boundary, the primitive cast helper (`TypeHelper.CastOrNull`)
+*coerces* the value to the target type rather than requiring an exact CLR
+type match. This is why typed element access needs `TypeHelper.CastOrNull`
+(see [Casts](#casts)).
 
 Reading or writing past the end of the block throws (the block is
 bound-checked), so out-of-range access is a runtime error, not undefined
@@ -1521,6 +1535,20 @@ on a value that has an `Address()` method (i.e. a `ManagedPtr`); on anything
 else, member resolution reports a compile error. `&` and `*` are lexed as
 their own tokens (single `&` is address-of; `&&` is logical-and; `*` is
 deref in prefix position and multiply in infix position).
+
+> Printing: an expression of type `int`/`long`/`bool` cannot be concatenated
+> into a string directly (`"x " + *m` fails at runtime). Convert first:
+> `IO.Println("addr: " + Convert.ToString(&m))`, `Convert.ToStringB(cond)`
+> for booleans. See [String Concatenation](#string-concatenation).
+
+**Zero-copy native interop.** `&m` returns a real native pointer (the buffer is
+an HGlobal allocation), so a custom host binding (`[ClassBinding(…)]`, loaded
+with `ccl --bind myhost.dll`) can take that `long`, re-create the `IntPtr`, and
+span it as `Span<float>`/`Span<byte>` to read and write the *same* memory as
+the `.ct` side — no copying. Declare the host methods with a
+`<NativeBinding("MyHost")>` facade. Full worked example:
+`ContractIR/examples/NativeAudio/` (a `ManagedPtr<int>` read as a `float`
+stream for gain/RMS/sine processing).
 
 ### `IL { ... }` inline blocks
 

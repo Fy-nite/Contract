@@ -1,0 +1,72 @@
+import __builtin.std;
+import "../../../ContractStdlib/src/Memory/ManagedPtr.ct";
+
+/// Zero-copy native interop between Contract and a custom C# host binding.
+///
+/// A `ManagedPtr<int>` holds a native (HGlobal) buffer. `&m` lowers to
+/// `m.Address()`, returning the buffer's real native address as a `long`.
+/// We hand that address to a C# host binding — `[ClassBinding("NativeAudio")]`
+/// — which re-creates the pointer and reads/writes the SAME memory via a
+/// `Span<float>` (an int element is bit-identical to a float). No copying:
+/// only the address crosses the boundary.
+///
+/// Compile & run:
+///   ccl --bind NativeAudioHost.dll NativeInterop.ct
+/// (the host binding DLL is built from examples/NativeAudio/NativeAudioHost)
+<NativeBinding("NativeAudio")>
+Contract Audio {
+    static fn EchoAddress(address: long) -> long { }
+    static fn PeekBytes(address: long, length: int, at: int) -> long { }
+    static fn ApplyGain(address: long, elementCount: int, gain: float) -> float { }
+    static fn Rms(address: long, elementCount: int) -> double { }
+    static fn FillSine(address: long, elementCount: int, frequency: double, sampleRate: double) -> double { }
+}
+
+Contract Program {
+    static fn Main() {
+        IO.Println("== zero-copy native interop ==");
+
+        // Allocate a 8-element int buffer (4 bytes each = 32 bytes).
+        var m = new ManagedPtr<int>(8);
+
+        // Answer the question we started from: is the address a real pointer?
+        var addr: long = &m;
+        IO.Println("&m native address      => " + Convert.ToStringL(addr));
+        IO.Println("host sees same address => " + Convert.ToStringL(Audio.EchoAddress(addr)));
+
+        // Write some bytes through the Common indexer, then
+        // read the exact same bytes on the host side via PeekBytes.
+        m[0] = 127;
+        m[1] = 128;
+        IO.Println("host reads m[0]        => " + Convert.ToStringL(Audio.PeekBytes(addr, 32, 0)));
+        IO.Println("host reads m[1]        => " + Convert.ToStringL(Audio.PeekBytes(addr, 32, 4)));
+
+        // Zero-copy audio "mixer": the host treats the int buffer as a float
+        // stream and multiplies every sample in place. We seed the float bit
+        // pattern of 1.5f (0x3FC00000) etc. through the int indexer; the host
+        // reads them as floats, scales, and writes back. Reading m[0] again
+        // proves the native side mutated OUR memory.
+        m[0] = 1069547520;  // float 1.5f
+        m[1] = 1073741824;  // float 2.0f
+        m[2] = 1056964608;  // float 0.5f
+        m[3] = 1077936128;  // float 3.0f
+        var peak: float = Audio.ApplyGain(addr, 8, 2.0);   // x2 -> 3,4,1,6
+        IO.Println("host peak after gain   => " + Convert.ToStringF(peak));                 // 6
+        IO.Println("m[0] now holds float 3 => " + Convert.ToString(m[0]) + " (was 1.5f)");  // 3.0f's bit pattern
+
+        // Zero-copy feature extraction: RMS over the buffer read on the host.
+        var rms: double = Audio.Rms(addr, 8);
+        IO.Println("rms over buffer        => " + Convert.ToStringD(rms));
+
+        // Zero-copy producer: host fills a sine wave into OUR buffer; we read a
+        // sample back through the indexer and show its float value.
+        var buffer = new ManagedPtr<int>(64);
+        var sineRms: double = Audio.FillSine(&buffer, 64, 440.0, 48000.0);
+        IO.Println("sine rms               => " + Convert.ToStringD(sineRms));
+        IO.Println("sine[0] float bits     => " + Convert.ToString(buffer[0]));
+
+        buffer.Free();
+        m.Free();
+        IO.Println("done");
+    }
+}

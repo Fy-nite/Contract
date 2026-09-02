@@ -205,13 +205,24 @@ rather than calling these directly.
 
 | Method | Description |
 |---|---|
-| `Alloc(count, size)` | Allocate a bound-checked pointer buffer of `count` elements each `size` bytes wide, return an opaque handle |
+| `Alloc(count, elemTypeName)` | Allocate a zeroed bound-checked buffer of `count` elements whose size and kind come from the element type wire name (`"int32"`, `"int64"`, `"float32"`, `"float64"`, ...); return an opaque handle |
 | `Free(ptr)` | Reclaim the buffer (idempotent) |
 | `Length(ptr)` | Element count of the buffer |
 | `Address(ptr)` | Native address of the buffer (pointer-sized) |
 | `IsFreed(ptr)` | True if the buffer has been freed |
-| `ReadI4 / ReadI8 / ReadR4 / ReadR8` | Read a typed value at element index |
-| `WriteI4 / WriteI8 / WriteR4 / WriteR8` | Write a typed value at element index |
+| `Read(ptr, index)` | Read the element at `index` as the buffer's element kind, boxed to its CLR type |
+| `Write(ptr, index, value)` | Write `value` at `index` in the buffer's element kind |
+| `ReadI4 / ReadI8 / ReadR4 / ReadR8` | Read a typed value at element index (fixed-kind accessors) |
+| `WriteI4 / WriteI8 / WriteR4 / WriteR8` | Write a typed value at element index (fixed-kind accessors) |
+
+Each buffer carries an element kind (4-byte int vs 4-byte float share a size
+but not semantics), so `Read`/`Write` dispatch on the allocation's element
+type. Access is bound-checked: reading or writing out of range throws. The
+generic `ManagedPtr<T>` contract passes the literal element type name (e.g.
+`"int32"`), which generic materialization rewrites to the concrete wire name;
+`<int>`, `<long>`, `<float>` and `<double>` are all supported. See
+`CONTRACT_LANGUAGE.md` > Pointers & Managed Memory and the `_MemoryRuntimeCheck`
+example for the language-level semantics and typed usage.
 
 Access is bound-checked: reading or writing out of range throws. See
 `CONTRACT_LANGUAGE.md` > Pointers & Managed Memory for the language-level
