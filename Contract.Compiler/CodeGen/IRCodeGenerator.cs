@@ -1970,6 +1970,91 @@ public class IRCodeGenerator
                 GenerateExpression(ib, throwStmt.Value, paramMap);
                 ib.Throw();
                 break;
+
+            case Contract.Compiler.AST.InlineIlStatement il:
+                EmitInlineIl(ib, il);
+                break;
+        }
+    }
+
+    private void EmitInlineIl(InstructionBuilder ib, Contract.Compiler.AST.InlineIlStatement il)
+    {
+        string? source = GetSourceLine(il.Line);
+        ib.SetLocation(il.Line, il.Column, source);
+
+        // Split on semicolons and newlines to get individual instructions
+        var parts = il.IlText.Split(new[] { ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var rawPart in parts)
+        {
+            string trimmed = rawPart.Trim();
+            if (string.IsNullOrEmpty(trimmed)) continue;
+            if (trimmed.StartsWith("//")) continue;
+
+            // First token is the mnemonic; the rest is the operand string
+            int spaceIdx = trimmed.IndexOf(' ');
+            string mnemonic;
+            string operand;
+            if (spaceIdx >= 0)
+            {
+                mnemonic = trimmed[..spaceIdx].Trim();
+                operand = trimmed[(spaceIdx + 1)..].Trim();
+            }
+            else
+            {
+                mnemonic = trimmed;
+                operand = "";
+            }
+
+            // Resolve the AST OpCode from the mnemonic
+            if (!ObjektRT.Core.AST.OpCodeConverter.TryParse(mnemonic, out var astOp))
+            {
+                _diagnostics.AddError(
+                    $"Unknown IL instruction '{mnemonic}' in inline IL block",
+                    il.Line, il.Column);
+                continue;
+            }
+
+            // Handle call/callvirt/callnative specially: resolve to MethodReference
+            if (astOp == ObjektRT.Core.AST.OpCode.Call
+                || astOp == ObjektRT.Core.AST.OpCode.Callvirt
+                || astOp == ObjektRT.Core.AST.OpCode.NativeCall)
+            {
+                // Operand format: "DeclaringType/MethodName" or "DeclaringType.MethodName"
+                string declaring;
+                string methodName;
+                int sep = operand.IndexOf('/');
+                if (sep >= 0)
+                {
+                    declaring = operand[..sep];
+                    methodName = operand[(sep + 1)..];
+                }
+                else
+                {
+                    int dot = operand.LastIndexOf('.');
+                    if (dot >= 0)
+                    {
+                        declaring = operand[..dot];
+                        methodName = operand[(dot + 1)..];
+                    }
+                    else
+                    {
+                        declaring = "Global";
+                        methodName = operand;
+                    }
+                }
+                var target = new MethodReference(
+                    new TypeRef(declaring), methodName, TypeRef.Object, new List<TypeRef> { TypeRef.Object });
+                if (astOp == ObjektRT.Core.AST.OpCode.Call)
+                    ib.Call(target);
+                else if (astOp == ObjektRT.Core.AST.OpCode.Callvirt)
+                    ib.Callvirt(target);
+                else
+                    ib.Callnative(target);
+                continue;
+            }
+
+            // All other instructions: emit via EmitRaw
+            ib.EmitRaw(astOp, string.IsNullOrEmpty(operand) ? null : operand);
         }
     }
 
@@ -3501,7 +3586,7 @@ public class IRCodeGenerator
 
     private static bool IsPrimitiveType(string type) => type.ToLower() switch
     {
-        "string" or "bool" or "int" or "int32" or "int64" or "long" or "double" or "float" or "float32" or "float64" or "object" or "byte" or "sbyte" or "short" or "ushort" or "uint" or "uint8" or "int8" or "int16" or "uint16" or "uint32" or "void" or "null" => true,
+        "string" or "bool" or "int" or "int32" or "int64" or "long" or "double" or "float" or "float32" or "float64" or "object" or "byte" or "sbyte" or "short" or "ushort" or "uint" or "uint8" or "int8" or "int16" or "uint16" or "uint32" or "void" or "null" or "intptr" or "uintptr" or "nuint" => true,
         _ => false
     };
 
@@ -3532,6 +3617,10 @@ public class IRCodeGenerator
             "short" => new TypeRef("int16"),
             "ushort" => new TypeRef("uint16"),
             "uint" => new TypeRef("uint32"),
+            // Pointer-sized integers: mapped to I8 / Int64 in the VM.
+            "intptr" => TypeRef.Int64,
+            "uintptr" => TypeRef.Int64,
+            "nuint" => TypeRef.Int64,
             _ => new TypeRef(ResolveTypeName(type))
         };
     }

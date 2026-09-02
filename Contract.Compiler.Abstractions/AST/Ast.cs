@@ -1060,4 +1060,30 @@ namespace Contract.Compiler.AST
             TargetType = targetType;
         }
     }
+
+    // ── Inline IL block ────────────────────────────────────────────
+
+    /// <summary>
+    /// A raw inline instruction block: <c>IL { ldstr "hi" ; call System.X ; ... }</c>.
+    /// Each line is one instruction in the same mnemonic form as the `.oil` text IR
+    /// (e.g. <c>ldstr "Hello"</c>, <c>call System.Console/Write</c>, <c>ldarg 0</c>),
+    /// separated by semicolons. The instructions are emitted verbatim so users can
+    /// call any opcode without a method wrapper.
+    /// </summary>
+    public class InlineIlStatement : Statement
+    {
+        /// <summary>The raw instruction text (processed, without the surrounding <c>IL { }</c>).</summary>
+        public string IlText { get; }
+
+        /// <summary>Number of the line/column where the block began.</summary>
+        public int StartLine { get; }
+        public int StartColumn { get; }
+
+        public InlineIlStatement(string ilText, int line, int column) : base(line, column)
+        {
+            IlText = ilText;
+            StartLine = line;
+            StartColumn = column;
+        }
+    }
 }

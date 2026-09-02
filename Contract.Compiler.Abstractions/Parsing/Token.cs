@@ -17,7 +17,7 @@ namespace Contract.Compiler.Parsing
         LParen, RParen, LBrace, RBrace, LBracket, RBracket,
         Semicolon, Colon, DoubleColon, Comma, Dot, Plus, Minus, Star, Slash, Percent,
         Less, LessEqual, Greater, GreaterEqual, EqualEqual, Bang, BangEqual, Assign, Arrow, Pipe, BitwiseOr,
-        PlusEqual, MinusEqual, StarEqual, SlashEqual, PercentEqual, AndAnd, OrOr,
+        PlusEqual, MinusEqual, StarEqual, SlashEqual, PercentEqual, AndAnd, OrOr, Ampersand,
         DotDot, GreaterGreater, LessLess, Question, FatArrow,
         QuestionDot, NullCoalesce,
 

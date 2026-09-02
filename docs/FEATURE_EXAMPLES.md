@@ -1,16 +1,16 @@
 ﻿# Feature Examples
 
-Companion to [FEATURE_PROPOSALS.md](FEATURE_PROPOSALS.md) â€” one worked example per
+Companion to [FEATURE_PROPOSALS.md](FEATURE_PROPOSALS.md)  one worked example per
 proposal, numbered to match its sections. **These use proposed syntax and do not
 compile against the current CLI**; they are design targets showing what each
 feature looks like from the programmer's seat. Syntax follows the v1.0 spec
 wherever a proposal doesn't change it (`Contract X { ... }`, `var/let`,
 `fun x -> e`, `<Attr(...)>`, `List<T>`).
 
-## Â§1 Match expressions
+## §1 Match expressions
 
 ```text
-// PROPOSAL Â§1 â€” value-producing match with or-patterns and guards.
+// PROPOSAL §1  value-producing match with or-patterns and guards.
 
 import __builtin.std;
 
@@ -56,10 +56,10 @@ Contract Traffic {
 }
 ```
 
-## Â§2 Sum types (+ exhaustive match)
+## §2 Sum types (+ exhaustive match)
 
 ```text
-// PROPOSAL Â§2 â€” tagged unions give match something to be exhaustive over.
+// PROPOSAL §2  tagged unions give match something to be exhaustive over.
 
 type Shape {
     Circle(radius: double)
@@ -77,7 +77,7 @@ Contract Areas {
         List.Add(shapes, Shape.Unit);
 
         var total: double = 0.0;
-        for (s in shapes) {                    // Â§5 for-in
+        for (s in shapes) {                    // §5 for-in
             total += match (s) {             // destructuring arms (match stage 2)
                 Circle(r) => 3.14159 * r * r,
                 Rect(w, h) => w * h,
@@ -89,7 +89,7 @@ Contract Areas {
 }
 ```
 
-## Â§3 `if` as an expression
+## §3 `if` as an expression
 
 ```text
 import __builtin.std;
@@ -112,10 +112,10 @@ Contract AbsMax {
 }
 ```
 
-## Â§4 Null-safe operators
+## §4 Null-safe operators
 
 ```text
-// PROPOSAL Â§4 â€” ?. safe navigation and ?? coalesce over existing null.
+// PROPOSAL §4  ?. safe navigation and ?? coalesce over existing null.
 
 Contract Profile { email: string; }
 Contract User    { profile: Profile; }
@@ -137,7 +137,7 @@ Contract Directory {
 }
 ```
 
-## Â§5 `for ... in` iteration
+## §5 `for ... in` iteration
 
 ```text
 import __builtin.std;
@@ -162,12 +162,12 @@ Contract Loops {
 ```
 
 Lowering note: ranges desugar to the existing C-style `for`; collection loops
-lower to index protocol calls on List/Dict/arrays â€” no runtime changes.
+lower to index protocol calls on List/Dict/arrays  no runtime changes.
 
-## Â§6 Interfaces
+## §6 Interfaces
 
 ```text
-// PROPOSAL Â§6 â€” same inheritance slot Attribute uses today.
+// PROPOSAL §6  same inheritance slot Attribute uses today.
 
 interface Drawable {
     fn Draw();
@@ -202,10 +202,10 @@ Contract Gallery {
 }
 ```
 
-## Â§7 Higher-order stdlib functions
+## §7 Higher-order stdlib functions
 
 ```text
-// PROPOSAL Â§7 â€” built on the delegate machinery that already ships.
+// PROPOSAL §7  built on the delegate machinery that already ships.
 
 import __builtin.std;
 
@@ -228,7 +228,7 @@ Contract Pipeline {
 }
 ```
 
-## Â§8 Interpolation upgrades
+## §8 Interpolation upgrades
 
 ```text
 Contract Receipt {
@@ -241,7 +241,7 @@ Contract Receipt {
         // total: 3.50 (2 x coffee)
 
         IO.Println("{item.ToUpper()} costs {price * qty}");
-        // coffee.ToUpper()... no â€” COFFEE costs 7
+        // coffee.ToUpper()... no  COFFEE costs 7
         // (full expressions inside {}, not just identifiers)
     }
 }
@@ -250,7 +250,7 @@ Contract Receipt {
 Format specifiers: `F2` fixed-point, `X` hex for ints, `,10` right-pad width.
 Anything unparseable inside `{}` stays literal text for back-compat.
 
-## Â§9 Numeric literal forms
+## §9 Numeric literal forms
 
 ```text
 Contract Literals {
@@ -270,7 +270,7 @@ Contract Literals {
 }
 ```
 
-## Â§10 Labeled break / continue
+## §10 Labeled break / continue
 
 ```text
 Contract Grid {
@@ -293,7 +293,7 @@ Contract Grid {
 Trivial in the current lowering: labels resolve through the loop stack that
 break/continue already walks.
 
-## Â§11 Default and named arguments
+## §11 Default and named arguments
 
 ```text
 Contract Window {
@@ -312,15 +312,15 @@ Contract Window {
 Defaults are recorded once in metadata; named args are reordered by the
 compiler at the call site, so the IR call sequence is unchanged.
 
-## Â§12 Attributes
+## §12 Attributes
 
-Shipped â€” see `examples/AttributesDemo.ct`. Extensions (field applications,
-named args, tooling attributes) are sketched in FEATURE_PROPOSALS.md Â§12.
+Shipped  see `examples/AttributesDemo.ct`. Extensions (field applications,
+named args, tooling attributes) are sketched in FEATURE_PROPOSALS.md §12.
 
-## Â§13 Channels
+## §13 Channels
 
 ```text
-// PROPOSAL Â§13 â€” typed queues pairing with Thread.Spawn; no locked heap needed.
+// PROPOSAL §13  typed queues pairing with Thread.Spawn; no locked heap needed.
 
 Contract Workers {
     static fn Main() {
@@ -344,7 +344,7 @@ Contract Workers {
 Channels live as external objects on the shared heap like List/Dict; the
 queue itself is the lock boundary, so the heap stays unlocked.
 
-## Â§14 `is` type tests
+## §14 `is` type tests
 
 ```text
 Contract Cat { meow() -> string }
@@ -361,10 +361,10 @@ Contract Kennel {
 }
 ```
 
-Lowers to a class-name check on the heap object's handle â€” the metadata the
+Lowers to a class-name check on the heap object's handle  the metadata the
 runtime already keeps in its type tables.
 
-## Â§15 Comptime constants
+## §15 Comptime constants
 
 ```text
 const TICKS_PER_DAY: long = 24 * 60 * 60 * 1000;   // folded at compile time
@@ -373,15 +373,15 @@ Contract Config {
     const APP_NAME: string = "contract";
 
     static fn Main() {
-        IO.Println(TICKS_PER_DAY);   // ldc.i8 86400000 â€” no runtime math
+        IO.Println(TICKS_PER_DAY);   // ldc.i8 86400000  no runtime math
     }
 }
 ```
 
-## Â§16 Design-by-contract clauses
+## §16 Design-by-contract clauses
 
 ```text
-// PROPOSAL Â§16 â€” requires / ensures / invariant.
+// PROPOSAL §16  requires / ensures / invariant.
 
 Contract Math2 {
     invariant total >= 0;
@@ -401,8 +401,8 @@ Runtime fault output mirrors VM error reporting:
 
 ```text
 runtime error: PostconditionFailed: ensures result * b <= a
-  â””â”€ at Math2.div  [exit]
-  â””â”€ source line 9:9
+  ”””€ at Math2.div  [exit]
+  ”””€ source line 9:9
 ```
 
 Requires check on entry, ensures on every exit path (including implicit
@@ -410,10 +410,12 @@ zero-value returns), invariants after field writes on the carrying contract.
 Off by default under `-O`, on under debug builds unless suppressed with
 <Unchecked>.
 
-## Â§17 Inline IR blocks
+## §17 Inline IR blocks
 
 ```text
-// PROPOSAL Â§17 â€” escape hatch to raw ObjektRT opcodes.
+// PROPOSAL §17  escape hatch to raw ObjektRT opcodes.
+// Now realized: the implemented block statement is `IL { ... }`, not `ir { }`.
+// See CONTRACT_LANGUAGE.md > Pointers & Managed Memory > `IL { ... }` inline blocks.
 
 Contract FastMath {
     static fn FreshArray() -> object {
@@ -428,10 +430,10 @@ Contract FastMath {
 The verifier (existing stack-discipline checks) runs over the block; misuse
 is a compile error, not undefined behavior.
 
-## Â§18 Quote / eval
+## §18 Quote / eval
 
 ```text
-// PROPOSAL Â§18 â€” the compiler's AST as a runtime value.
+// PROPOSAL §18  the compiler's AST as a runtime value.
 
 Contract Meta {
     static fn Main() {
@@ -445,14 +447,14 @@ Contract Meta {
 }
 ```
 
-Staged: quote (pure data) â†’ eval (embedded compiler invocation) â†’ macros
+Staged: quote (pure data) †’ eval (embedded compiler invocation) †’ macros
 (compile-time fns over quoted ASTs). Self-hosting makes step two small: the
 pipeline is already a library.
 
-## Â§19 Runtime delegate retargeting
+## §19 Runtime delegate retargeting
 
 ```text
-// PROPOSAL Â§19 â€” delegates are { target: string, closure }; rewrite target.
+// PROPOSAL §19  delegates are { target: string, closure }; rewrite target.
 
 Contract Hotfix {
     static fn Main() {
@@ -460,7 +462,7 @@ Contract Hotfix {
 
         handler("boot");                       // v1: boot
         Delegate.Retarget(handler, "Hotfix.v2");
-        handler("boot");                       // v2: boot â€” same closure, new body
+        handler("boot");                       // v2: boot  same closure, new body
     }
 
     static fn v2(s: string) { IO.Println("v2: " + s); }
@@ -470,10 +472,10 @@ Contract Hotfix {
 One heap write; every thread holding the delegate sees the new target on its
 next Invoke. A <Pinned> attribute could forbid retargeting sensitive methods.
 
-## Â§20 Time-travel debugging
+## §20 Time-travel debugging
 
 ```text
-// PROPOSAL Â§20 â€” snapshot/rewind over state the interpreter already owns.
+// PROPOSAL §20  snapshot/rewind over state the interpreter already owns.
 
 Contract Undo {
     static fn Main() {
@@ -491,10 +493,10 @@ Contract Undo {
 Checkpoint copies statics + heap (byte-buffered objects copy cheaply); Rewind
 swaps them back. Also the substrate for debugger scrub bars (ROADMAP: DAP).
 
-## Â§21 Units of measure
+## §21 Units of measure
 
 ```text
-// PROPOSAL Â§21 â€” F#-style units; algebra lives entirely in semantic analysis.
+// PROPOSAL §21  F#-style units; algebra lives entirely in semantic analysis.
 
 Contract Trip {
     static fn Main() {
@@ -514,7 +516,7 @@ Contract Trip {
 The IR never sees anything but float64; unit tags are interned strings on the
 type registry entries, erased at lowering.
 
-## Â§22 Refinement types lite
+## §22 Refinement types lite
 
 ```text
 Contract Signup {
@@ -532,10 +534,10 @@ Contract Signup {
 Guards discharge refinements: after `if (age >= 0) { ... }` the positive fact
 holds inside the branch, feeding match guards too.
 
-## Â§23 Typestates
+## §23 Typestates
 
 ```text
-// PROPOSAL Â§23 â€” methods callable only in the declared state.
+// PROPOSAL §23  methods callable only in the declared state.
 
 Contract File<state> {
     static fn Open(path: string) -> File<Closed> { ... }
@@ -556,10 +558,10 @@ Contract Demo {
 Ordinary materialized generics underneath (GENERICS_MATERIALIZATION.md);
 the states are phantom parameters erased before lowering.
 
-## Â§24 Generators / `yield`
+## §24 Generators / `yield`
 
 ```text
-// PROPOSAL Â§24 â€” resumable frames.
+// PROPOSAL §24  resumable frames.
 
 Contract Fib {
     static fn fib() yields int {
@@ -586,12 +588,12 @@ Contract Fib {
 ```
 
 Locals hoist into a closure-like object; `yield` parks pc + spills, resume
-restores them â€” one new executor op ("park frame"), everything else exists.
+restores them  one new executor op ("park frame"), everything else exists.
 
-## Â§25 `amb` â€” nondeterministic evaluation
+## §25 `amb`  nondeterministic evaluation
 
 ```text
-// PROPOSAL Â§25 â€” backtrack until constraints hold.
+// PROPOSAL §25  backtrack until constraints hold.
 
 Contract Puzzle {
     static fn Main() {
@@ -605,12 +607,12 @@ Contract Puzzle {
 ```
 
 Fork interpreter state at each `amb`; failed asserts rewind to the most
-recent choice point (reuses Â§20 snapshots). Doubles as the shrinker for Â§28.
+recent choice point (reuses §20 snapshots). Doubles as the shrinker for §28.
 
-## Â§26 Guaranteed tail calls
+## §26 Guaranteed tail calls
 
 ```text
-// PROPOSAL Â§26 â€” recursion that never grows the stack.
+// PROPOSAL §26  recursion that never grows the stack.
 
 Contract Countdown {
     static fn loop(n: int) {
@@ -627,10 +629,10 @@ Contract Countdown {
 Executor rule: a call whose result is immediately returned replaces the
 current frame. Makes recursive folds and parsers free of overflow.
 
-## Â§27 Custom infix operators
+## §27 Custom infix operators
 
 ```text
-// PROPOSAL Â§27 â€” declare operator spellings bound to functions.
+// PROPOSAL §27  declare operator spellings bound to functions.
 
 infix >< = cross at 6;    // precedence tier, multiplicative band
 
@@ -655,10 +657,10 @@ Contract Physics {
 Pure desugaring to `Vec2.cross(p, q)`; emoji spellings ride along once the
 lexer accepts unicode identifiers/operators.
 
-## Â§28 Built-in property testing
+## §28 Built-in property testing
 
 ```text
-// PROPOSAL Â§28 â€” attributes (shipped) + Random (shipped) + shrinking (Â§25).
+// PROPOSAL §28  attributes (shipped) + Random (shipped) + shrinking (§25).
 
 <Property(iterations = 1000)>
 fn add_commutative(a: int, b: int) {
@@ -675,10 +677,10 @@ fn abs_nonnegative(x: int) {
 `ccl test` collects <Property>-marked functions, generates arguments from
 parameter types via Random, reports the failing seed and minimal shrink.
 
-## Â§29 Heap introspection
+## §29 Heap introspection
 
 ```text
-// PROPOSAL Â§29 â€” the language inspects its own running state.
+// PROPOSAL §29  the language inspects its own running state.
 
 Contract Probe {
     static fn Main() {
@@ -697,4 +699,4 @@ Contract Probe {
 ```
 
 Combined with metaclasses (spec future work): heap-graph queries as match
-patterns, leak detection, live object census â€” all in-language.
+patterns, leak detection, live object census  all in-language.

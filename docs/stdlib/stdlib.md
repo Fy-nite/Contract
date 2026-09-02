@@ -29,6 +29,7 @@ The stdlib is organized into namespaces:
 | `ObjektRT.Stdlib.Math` | `Numbers` |
 | `ObjektRT.Stdlib.Threading` | `Thread` |
 | `ObjektRT.Stdlib.Generics` | `Array`, `List`, `Dict` |
+| `ObjektRT.Stdlib.Memory` | `PtrHost` (managed-pointer host binding) |
 
 ## Threads
 
@@ -193,4 +194,25 @@ Object-backed dictionary (any key/value types).
 | `Set(dict, key, value)` / `Get(dict, key)` | Read/write |
 | `ContainsKey(dict, key)` / `Remove(dict, key)` | Membership |
 | `Keys(dict)` | Array of keys |
-| `Count(dict)` | Entry count | 
+| `Count(dict)` | Entry count |
+
+### System.Memory
+
+Host binding for the managed-pointer system. The high-level, type-safe
+`ManagedPtr<T>` generic contract (lives in the Contract stdlib's
+`ObjektRT.std.Memory` namespace) delegates to this host; use that contract
+rather than calling these directly.
+
+| Method | Description |
+|---|---|
+| `Alloc(count, size)` | Allocate a bound-checked pointer buffer of `count` elements each `size` bytes wide, return an opaque handle |
+| `Free(ptr)` | Reclaim the buffer (idempotent) |
+| `Length(ptr)` | Element count of the buffer |
+| `Address(ptr)` | Native address of the buffer (pointer-sized) |
+| `IsFreed(ptr)` | True if the buffer has been freed |
+| `ReadI4 / ReadI8 / ReadR4 / ReadR8` | Read a typed value at element index |
+| `WriteI4 / WriteI8 / WriteR4 / WriteR8` | Write a typed value at element index |
+
+Access is bound-checked: reading or writing out of range throws. See
+`CONTRACT_LANGUAGE.md` > Pointers & Managed Memory for the language-level
+semantics.

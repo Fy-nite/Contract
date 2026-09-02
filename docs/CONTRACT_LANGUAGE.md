@@ -467,6 +467,9 @@ Constants are immutable: assigning to one (`X = 1`, `X += 1`, `Config.X = 1`) is
 | `float` | 32-bit floating point | `float32` |
 | `object` | Opaque object handle (lists, dicts, ...) | `object` |
 | `void` | No value (return type only) | `void` |
+| `intptr` | Pointer-sized signed integer (`int` when 32-bit, `int64` when 64-bit) | `int64` |
+| `uintptr` | Pointer-sized unsigned integer | `int64` |
+| `nuint` | Pointer-sized unsigned integer (alias of `uintptr`) | `int64` |
 
 The narrow integer widths (`byte`, `sbyte`, `short`, `ushort`, `uint`) exist
 primarily for native interop. At the VM level they all ride on the 32-bit
@@ -476,6 +479,14 @@ unsigned literals: an integer literal that overflows the signed 32-bit range is
 clamped with a warning, so expect results of `uint`-typed calls to appear as
 their signed 32-bit view (e.g. a native `uint` returning `4294967295` reads as
 `-1`).
+
+The pointer-sized types (`intptr`, `uintptr`, `nuint`) are used to hold
+addresses returned by native interop and the managed-memory system. They are
+the Contract names for pointer-sized integers: there is no dedicated
+`ValueTag.Ptr` in the VM yet, so at runtime they ride on the 64-bit integer
+slot (IR type `int64`). They are primarily meant for storing and passing
+`Address()` values around, not for raw address arithmetic (see Pointers &
+Managed Memory below).
 
 Type names are **case-insensitive**: `Int`, `String`, and `int` all refer to the same type.
 
@@ -1417,6 +1428,172 @@ Contract Program {
 }
 ```
 
+## Pointers & Managed Memory
+
+Contract has an explicit managed-memory system built on two layers: a
+**`ManagedPtr<T>`** generic contract in the standard `Memory` library (the
+high-level, type-safe face), and **`IL { ... }` inline blocks** (the escape
+hatch to raw ObjektRT pointer opcodes). Both share one runtime primitive: a
+pinned, bound-checked pointer block. Allocation is manual — there is no
+mark-and-sweep garbage collector yet — so every block you allocate must have a
+matching free.
+
+The surface is: create a block with a fixed element count, then read and
+write typed values at element positions. Element access has three C-style
+forms — the deref `*m`, indexed `m[i]`, and address-of `&m` (see C-style
+element access below). The raw deref instructions operate at one element at a
+time (see the opcode table in the `IL {}` section below). Pointer arithmetic
+(`m + i`/`m - i`) and adjustments beyond a single step are the next planned
+follow-up.
+
+### `ManagedPtr<T>` (Memory library)
+
+`ManagedPtr<T>` is instance-based: constructing it allocates a bound-checked
+buffer of `count` elements, and you read/write/free through the instance.
+
+```ct
+import ObjektRT.std.Memory;
+
+// Allocate a managed buffer of 4 ints (manual lifetime).
+var m = new ManagedPtr<int>(4);
+
+// Store at element index.
+m.Write(0, 10);
+m.Write(1, 20);
+m.Write(2, 42);
+
+// Read back.
+var a: int = m.Read(0);   // 10
+var b: int = m.Read(2);   // 42
+
+// Introspection.
+var cnt: int    = m.Count();      // 4
+var addr: long  = m.Address();    // non-zero, host-managed
+var freed: bool = m.IsFreed();    // false while allocated
+
+// Reclaim the buffer (idempotent).
+m.Free();
+```
+
+The generic contract is auto-shadowed by the runtime `ManagedPtr` host binding
+(`ObjektRT.Stdlib.Memory.PtrHost`, marked `[ClassBinding("ManagedPtr")]`), so
+`Read`/`Write`/`Count`/... resolve to `host.`-style native calls, mirroring how
+`DateTime` is bound. Element size is computed from `T` (each element is
+treated as a 32-bit/4-byte slot in the current implementation).
+
+Reading or writing past the end of the block throws (the block is
+bound-checked), so out-of-range access is a runtime error, not undefined
+behavior:
+
+```ct
+m.Write(99, 1);   // throws: index out of range
+```
+
+### C-style element access
+
+`ManagedPtr<T>` (and any contract with an indexer) supports the classic
+C-array operators, so buffer access reads like pointer arithmetic without the
+manual stepping:
+
+| Operator | Meaning | Lowered to |
+| --- | --- | --- |
+| `m[i]` | element at index `i` (read) | the indexer getter (`__idx_get`), bounds-checked |
+| `m[i] = v` | write element at `i` | the indexer setter (`__idx_set`), bounds-checked |
+| `m[i] += v` | read-modify-write through both accessors | — |
+| `*m` | deref — current element (`*m == m[0]`) | `m[0]` |
+| `*m = v` | deref-write element 0 | `m[0] = v` |
+| `&m` | address-of — the block's raw address | `m.Address()` (a `long`) |
+
+```ct
+var m = new ManagedPtr<int>(4);
+*m = 7;                    // *m == m[0] → writes element 0
+m[1] = 20;
+m[2] = 42;
+var a: int = *m;           // 7   (deref read)
+var b: int = m[2];         // 42  (indexed read)
+m[2] += 8;                 // 50  (compound through get+set)
+var raw: long = &m;        // 123456 (the block's native address)
+```
+
+Because `*m` lowers to `m[0]` and `m[i]` lowers to the indexer, all of these
+are bounds-checked and throw on an out-of-range index. `&m` only makes sense
+on a value that has an `Address()` method (i.e. a `ManagedPtr`); on anything
+else, member resolution reports a compile error. `&` and `*` are lexed as
+their own tokens (single `&` is address-of; `&&` is logical-and; `*` is
+deref in prefix position and multiply in infix position).
+
+### `IL { ... }` inline blocks
+
+`IL { ... }` is a statement that emits a sequence of raw ObjektRT opcodes
+directly into the enclosing function. Each line is one instruction (mnemonic
+with optional operand). No method wrapper is produced — the instructions run
+in place, in the function's body, and can use the function's locals by name.
+It is the escape hatch when the high-level language cannot express an
+operation, and it is verified like ordinary code.
+
+```ct
+fn RawAdd() -> int {
+    var r = 0;
+    IL {
+        ldc.i4 20
+        ldc.i4 22
+        add
+        stloc r
+    }
+    return r;   // 42
+}
+```
+
+The block is reconstructed verbatim from the source between the braces, so
+`ldc.i4 20` keeps its mnemonic and literal as one instruction. Statements are
+newline-separated (a semicolon also works).
+
+### Pointer opcodes
+
+The `IL {}` block can target any pointer opcode directly. The runtime opcode
+table lists them as `ldptr.*`/`stptr.*` (typed deref), `ptr.addr`, `ptr.len`,
+`ptr.alloc`, and `ptr.free`. In an `IL {}` block the `ptr.*` spellings map to
+their `ldind.*`/`stind.*`/alloc/free opcodes:
+
+| Example | Operation |
+| --- | --- |
+| `ptr.alloc` | Pop an element count then an element size (both pushed, size on top), allocate a bound-checked block, push its handle |
+| `ptr.len` | Pop a block handle, push its element count |
+| `ptr.addr` | Pop a block handle, push its native address |
+| `ldptr.i4` / `ldptr.i8` / `ldptr.r4` / `ldptr.r8` | Pop a block handle, push the value at element 0 (typed) |
+| `stptr.i4` / `stptr.i8` / `stptr.r4` / `stptr.r8` | Pop a value and a block handle, store at element 0 (typed) |
+| `ptr.free` | Pop a block handle, reclaim it |
+
+```ct
+fn RawPtrLen() -> int {
+    var n = 0;
+    var h: object = null;
+    IL {
+        ldc.i4 3        // count
+        ldc.i4 4        // element size
+        ptr.alloc
+        stloc h
+        ldloc h
+        ptr.len
+        stloc n
+        ldloc h
+        ptr.free
+    }
+    return n;           // 3
+}
+```
+
+Notes:
+- The deref opcodes (`ldptr.*` / `stptr.*`) read and write at element position 0
+  of a block handle — they do not take a raw address and there is no pointer
+  arithmetic or indexing yet. Element access through `ManagedPtr<T>` handles
+  indexing in the binding, so prefer it for indexed access.
+- Pointer handles are opaque `object` values on the VM stack — there is no
+  dedicated `ValueTag.Ptr` yet.
+- Instructions flow through the same operand-emitter and local
+  name-to-slot resolution as ordinary `stloc r`/`ldloc r`, so a local used by
+  an `IL {}` block must be declared first.
+
 ## Standard Library
 
 The standard library modules below are implemented in the generic
@@ -1426,6 +1603,24 @@ their short names (`IO.Println`, `String.Length`, ...) and their
 fully-qualified names (`ObjektRT.Stdlib.System.IO.Println`, ...), so both
 forms work. The one Contract-specific binding, `Reflect`, is hosted by
 `Contract.Runtime`.
+
+### Memory Module
+
+The `Memory` library lives in the Contract stdlib under the
+`ObjektRT.std.Memory` namespace (a separate `Memory` project) and binds to the
+runtime `ObjektRT.Stdlib.Memory.PtrHost` host. It provides the managed-pointer
+generic contract:
+
+```ct
+import ObjektRT.std.Memory;
+
+var m = new ManagedPtr<int>(4);
+m.Write(0, 10);
+var x: int = m.Read(0);   // 10
+m.Free();
+```
+
+See Pointers & Managed Memory above for the full API and semantics.
 
 ### IO Module
 

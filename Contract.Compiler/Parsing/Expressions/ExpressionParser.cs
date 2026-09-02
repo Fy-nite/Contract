@@ -259,6 +259,28 @@ namespace Contract.Compiler.Expressions
                 var operand = ParseUnary(ctx, host);
                 return new UnaryExpression(operand, op.Text, op.Line, op.Column);
             }
+            // C-style dereference: `*p` lowers to `p[0]` — the current element
+            // of the pointer (array or ManagedPtr). Reusing the indexer means
+            // `*p`, `*p = v` and `*p += v` all work through the indexer
+            // machinery. `*p == p[0]`, as in C.
+            if (ctx.Match(TokenType.Star))
+            {
+                var op = ctx.Previous;
+                var operand = ParseUnary(ctx, host);
+                var zero = new LiteralExpression(0, op.Line, op.Column);
+                return new IndexExpression(operand, zero, op.Line, op.Column);
+            }
+            // Address-of: `&m` lowers to `m.Address()` (a long). Reusing the
+            // normal method-call machinery means it resolves and emits exactly
+            // like a call to the pointer's `Address()` method. The operand must
+            // be a ManagedPtr; otherwise member resolution reports a compile error.
+            if (ctx.Match(TokenType.Ampersand))
+            {
+                var op = ctx.Previous;
+                var operand = ParseUnary(ctx, host);
+                var address = new MemberExpression(operand, "Address", op.Line, op.Column);
+                return new CallExpression(address, op.Line, op.Column);
+            }
             return ParsePostfix(ctx, host);
         }
 

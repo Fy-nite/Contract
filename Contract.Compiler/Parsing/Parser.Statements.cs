@@ -9,6 +9,47 @@ namespace Contract.Compiler.Parsing
     {
         private Statement ParseStatement()
         {
+            // Inline IL block: IL { ... }
+            if (Current.Type == TokenType.Identifier && Current.Text == "IL"
+                && CheckNext(TokenType.LBrace))
+            {
+                int line = Current.Line;
+                int column = Current.Column;
+                Advance(); // consume 'IL'
+                Advance(); // consume '{'
+                int start = _current;
+                int depth = 1;
+                while (!IsAtEnd() && depth > 0)
+                {
+                    if (Current.Type == TokenType.LBrace) depth++;
+                    else if (Current.Type == TokenType.RBrace) depth--;
+                    if (depth > 0) Advance();
+                }
+                // Reconstruct raw token text between the braces, preserving
+                // adjacency: insert a space only where consecutive tokens are
+                // separated by whitespace (so `ldc.i4 20` keeps its '.' and the
+                // literal stays one token apart).
+                var parts = new System.Text.StringBuilder();
+                for (int i = start; i < _current; i++)
+                {
+                    if (i > start)
+                    {
+                        var prev = Tokens[i - 1];
+                        var cur = Tokens[i];
+                        // Newline boundary (columns reset, so compare lines first) → newline.
+                        // Otherwise, insert a space only where tokens are separated by whitespace
+                        // (so `ldc.i4 20` keeps its '.' and the literal stays one token apart).
+                        if (cur.Line != prev.Line)
+                            parts.Append('\n');
+                        else if (cur.Column > prev.EndColumn)
+                            parts.Append(' ');
+                    }
+                    parts.Append(Tokens[i].Text);
+                }
+                Consume(TokenType.RBrace, "Expected '}' to close IL block");
+                return new InlineIlStatement(parts.ToString(), line, column);
+            }
+
             if (Match(TokenType.Var) || Match(TokenType.Let))
             {
                 return ParseVariableDeclaration();

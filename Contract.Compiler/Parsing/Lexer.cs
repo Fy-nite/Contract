@@ -386,10 +386,9 @@ namespace Contract.Compiler.Parsing
                     }
                     else
                     {
-                        _diagnostics.AddError($"Unexpected character: {c}", _line, _column, _sourceFile);
-                        _position++;
-                        _column++;
-                        return null;
+                        // Lone '&' — address-of operator (e.g. `&m`).
+                        type = TokenType.Ampersand;
+                        length = 1;
                     }
                     break;
                 case '!':

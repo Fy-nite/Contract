@@ -14,6 +14,8 @@ namespace Contract.Compiler.Semantics
             // distinct names exist so DllImport signatures and interop struct
             // fields keep their native C widths (byte -> uint8, etc.).
             "byte", "sbyte", "short", "ushort", "uint",
+            // Pointer-sized integer types (mapped to I8 / Int64 in the VM).
+            "intptr", "uintptr", "nuint",
             // Built-in base type for attribute declarations (C#-style custom attributes).
             "Attribute",
             // Root reflection type (C#-style System.Type): a Type value can

@@ -260,7 +260,7 @@ public static class CompiledReferenceLoader
     {
         "int", "string", "bool", "double", "float", "object", "int64", "long", "null", "void",
         "byte", "sbyte", "short", "ushort", "uint", "int32", "float32", "float64",
-        "uint8", "int8", "int16", "uint16", "uint32", "intptr",
+        "uint8", "int8", "int16", "uint16", "uint32", "intptr", "uintptr", "nuint",
         // Generic unbound names are real types, not parameters.
         "List", "Dict", "Delegate", "Attribute",
         // Root reflection type (C#-style System.Type).
