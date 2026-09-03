@@ -6,6 +6,7 @@ All notable changes to this project since the last release are documented in thi
 
 ### Added
 
+- Add the `.coi` binary package format: `ccl pack` bundles a compiled `.orbt` module, `bindings/*.dll`, and transitive native `runtimes/<rid>/native` assets into a single installable archive; `ccl install <pkg.coi>` extracts it into a project's `.purr/packages/`, and `ccl` auto-registers its compiled namespaces and `[ClassBinding]` assemblies so consumers `import <pkg>;` with no `--bind`. Bundles and the LSP also pick up a project's installed `.coi` bindings automatically. See `docs/COI_FORMAT.md`.
 - Add the `libs/ContractStdlib` submodule (Contract-written stdlib) pinned to `main`.
 - Add `ObjektRT.std.Security`: SHA-256/SHA-512 hashing, HMAC-SHA256/SHA-512, CSPRNG bytes/salt/nonce and URL-safe base64 tokens, and constant-time compare, all as pure `CLRImport` facades over `System.Security.Cryptography`.
 - Add `Convert.ToUTF8Bytes` and `Convert.ToUTF8String` builtins for string/`byte[]` UTF-8 conversion.

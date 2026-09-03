@@ -166,4 +166,89 @@ namespace Contract.Compiler
             AllowTrailingCommas = true,
         };
     }
+
+    /// <summary>
+    /// Discovers installed <c>.coi</c> packages under a project's
+    /// <c>.purr/packages/</c> directory and registers their compiled-namespace
+    /// maps so <c>import PkgNs;</c> resolves to the package's compiled module,
+    /// and reports their module directories and binding assembly paths. Shared by
+    /// the CLI and the language server so both resolve a project's packages.
+    /// </summary>
+    public static class CoiResolver
+    {
+        /// <summary>
+        /// Registers the namespace → module map of every installed <c>.coi</c>
+        /// package under <paramref name="projectRoot"/> and returns the search
+        /// roots (each package's <c>lib/</c> dir, then the package root) so
+        /// compiled references are also found by path. Call before importing.
+        /// </summary>
+        public static List<string> RegisterPackages(string projectRoot)
+        {
+            var roots = new List<string>();
+            var packagesDir = System.IO.Path.Combine(projectRoot, ".purr", "packages");
+            if (!System.IO.Directory.Exists(packagesDir)) return roots;
+
+            foreach (var pkgDir in System.IO.Directory.GetDirectories(packagesDir))
+            {
+                var manifest = LoadManifest(System.IO.Path.Combine(pkgDir, "manifest.json"));
+                if (manifest == null) continue;
+
+                if (manifest.Namespaces != null)
+                {
+                    foreach (var (ns, modPath) in manifest.Namespaces)
+                    {
+                        string abs = System.IO.Path.Combine(pkgDir, modPath.Replace('/', System.IO.Path.DirectorySeparatorChar));
+                        if (System.IO.File.Exists(abs)) ImportResolver.RegisterCompiledNamespace(ns, abs);
+                    }
+                }
+
+                string lib = System.IO.Path.Combine(pkgDir, "lib");
+                if (System.IO.Directory.Exists(lib)) roots.Add(lib);
+                roots.Add(pkgDir);
+            }
+            return roots;
+        }
+
+        /// <summary>Returns the absolute binding-assembly paths auto-provided by
+        /// every installed <c>.coi</c> package (its <c>bindings/*.dll</c>).</summary>
+        public static List<string> InstalledBindingAssemblies(string projectRoot)
+        {
+            var result = new List<string>();
+            var packagesDir = System.IO.Path.Combine(projectRoot, ".purr", "packages");
+            if (!System.IO.Directory.Exists(packagesDir)) return result;
+
+            foreach (var pkgDir in System.IO.Directory.GetDirectories(packagesDir))
+            {
+                var manifest = LoadManifest(System.IO.Path.Combine(pkgDir, "manifest.json"));
+                if (manifest == null) continue;
+                foreach (var b in manifest.Bindings)
+                {
+                    string path = System.IO.Path.Combine(pkgDir, b);
+                    if (System.IO.File.Exists(path)) result.Add(path);
+                }
+            }
+            return result;
+        }
+
+        /// <summary>Reads a <c>manifest.json</c> from an installed (extracted)
+        /// package directory, or null. The file is plain JSON — not a zip — so
+        /// this deserializes directly.</summary>
+        public static CoiManifest? LoadManifest(string manifestPath)
+        {
+            if (!System.IO.File.Exists(manifestPath)) return null;
+            try
+            {
+                return System.Text.Json.JsonSerializer.Deserialize<CoiManifest>(
+                    System.IO.File.ReadAllText(manifestPath),
+                    new System.Text.Json.JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true,
+                        ReadCommentHandling = System.Text.Json.JsonCommentHandling.Skip,
+                        AllowTrailingCommas = true,
+                    });
+            }
+            catch { return null; }
+        }
+    }
 }
+

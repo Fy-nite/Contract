@@ -303,6 +303,8 @@ namespace Contract.Cli
                     // Collect NuGet DLLs to include in the bundle
                     var bundleBindPaths = new List<string>();
                     if (bindAssembly != null) bundleBindPaths.Add(bindAssembly);
+                    if (projectRoot != null)
+                        bundleBindPaths.AddRange(CoiSupport.InstalledBindingAssemblies(projectRoot));
                     string? bundleNuGetDir = sourceDir != null
                         ? Path.Combine(sourceDir, ".purr", "nuget")
                         : null;

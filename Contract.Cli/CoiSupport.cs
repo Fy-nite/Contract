@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Text.Json;
 using Contract.Compiler;
 
 namespace Contract.Cli;
@@ -135,23 +136,7 @@ public static class CoiSupport
     /// <c>--bind</c> is unnecessary.
     /// </summary>
     public static List<string> InstalledBindingAssemblies(string projectRoot)
-    {
-        var result = new List<string>();
-        var packagesDir = Path.Combine(projectRoot, ".purr", "packages");
-        if (!Directory.Exists(packagesDir)) return result;
-
-        foreach (var pkgDir in Directory.GetDirectories(packagesDir))
-        {
-            var manifest = LoadManifest(Path.Combine(pkgDir, "manifest.json"));
-            if (manifest == null) continue;
-            foreach (var b in manifest.Bindings)
-            {
-                string path = Path.Combine(pkgDir, b);
-                if (File.Exists(path)) result.Add(path);
-            }
-        }
-        return result;
-    }
+        => CoiResolver.InstalledBindingAssemblies(projectRoot);
 
     /// <summary>
     /// Registers the namespace→module map of every installed <c>.coi</c> package
@@ -160,41 +145,11 @@ public static class CoiSupport
     /// <c>lib/</c> dir) that let compiled references be found by path as well.
     /// </summary>
     public static List<string> RegisterPackageImportRoots(string projectRoot)
-    {
-        var roots = new List<string>();
-        var packagesDir = Path.Combine(projectRoot, ".purr", "packages");
-        if (!Directory.Exists(packagesDir)) return roots;
-
-        foreach (var pkgDir in Directory.GetDirectories(packagesDir))
-        {
-            var manifest = LoadManifest(Path.Combine(pkgDir, "manifest.json"));
-            if (manifest == null) continue;
-
-            // Register namespace -> module path for dotted imports.
-            if (manifest.Namespaces != null)
-            {
-                foreach (var (ns, modPath) in manifest.Namespaces)
-                {
-                    string abs = Path.Combine(pkgDir, modPath.Replace('/', Path.DirectorySeparatorChar));
-                    if (File.Exists(abs)) ImportResolver.RegisterCompiledNamespace(ns, abs);
-                }
-            }
-
-            // Also expose lib/ as a search root so path-style lookups work.
-            string lib = Path.Combine(pkgDir, LibDir);
-            if (Directory.Exists(lib)) roots.Add(lib);
-            roots.Add(pkgDir);
-        }
-        return roots;
-    }
+        => CoiResolver.RegisterPackages(projectRoot);
 
     /// <summary>Reads a manifest.json from an installed package directory, or null.</summary>
     public static CoiManifest? LoadManifest(string manifestPath)
-    {
-        if (!File.Exists(manifestPath)) return null;
-        try { using var pkg = CoiPackage.Open(manifestPath); return pkg.Manifest; }
-        catch { return null; }
-    }
+        => CoiResolver.LoadManifest(manifestPath);
 
     private static void AddDirectoryToArchive(ZipArchive archive, string sourceDir, string targetPrefix)
     {
