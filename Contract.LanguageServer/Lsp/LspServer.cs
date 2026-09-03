@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -66,10 +67,71 @@ public class LspServer
     public void RegisterBindingAssembly(System.Reflection.Assembly assembly)
         => _compiler.RegisterBindingAssembly(assembly);
 
+    /// <summary>
+    /// Discovers the workspace's <c>contract.ctproj</c> (walking up from the root
+    /// folder), then registers every installed <c>.coi</c> package: its compiled
+    /// namespaces (so <c>import PkgNs;</c> resolves) and its binding assemblies
+    /// (so <c>[ClassBinding]</c> modules resolve in editor diagnostics). The
+    /// package module directories are also added to the loader's search roots.
+    /// </summary>
+    private void RegisterProjectPackages(string rootPath)
+    {
+        try
+        {
+            string? projectRoot = FindProjectRoot(rootPath);
+            if (projectRoot == null) return;
+
+            var roots = Contract.Compiler.CoiResolver.RegisterPackages(projectRoot);
+            foreach (var root in roots)
+                _compiler.AddPackageSearchRoot(root);
+
+            foreach (var bindingPath in Contract.Compiler.CoiResolver.InstalledBindingAssemblies(projectRoot))
+            {
+                var assembly = System.Reflection.Assembly.LoadFrom(bindingPath);
+                RegisterBindingAssembly(assembly);
+            }
+        }
+        catch (Exception)
+        {
+            // A malformed package or workspace must not take down the language
+            // server; just degrade to no package awareness.
+        }
+    }
+
+    private static string? FindProjectRoot(string startDir)
+    {
+        var dir = new DirectoryInfo(startDir);
+        while (dir != null)
+        {
+            if (File.Exists(Path.Combine(dir.FullName, "contract.ctproj"))) return dir.FullName;
+            dir = dir.Parent;
+        }
+        return null;
+    }
+
     // ── Lifecycle ────────────────────────────────────────────────────────────
 
-    private Task<object?> Initialize(JsonElement _, CancellationToken _2)
+    private Task<object?> Initialize(JsonElement rootParams, CancellationToken _2)
     {
+        // Read the workspace root so we can discover the project's installed
+        // .coi packages and register their namespaces/bindings before documents
+        // open (contract.ctproj + .purr/packages).
+        if (rootParams.TryGetProperty("rootUri", out var rootUriElem)
+            && rootUriElem.ValueKind == JsonValueKind.String
+            && rootUriElem.GetString() is string rootUri
+            && TextUtility.UriToPath(rootUri) is string rootPath
+            && Directory.Exists(rootPath))
+        {
+            RegisterProjectPackages(rootPath);
+        }
+        else if (rootParams.TryGetProperty("rootPath", out var rootPathElem)
+            && rootPathElem.ValueKind == JsonValueKind.String
+            && rootPathElem.GetString() is string rootPathStr
+            && Directory.Exists(rootPathStr))
+        {
+            RegisterProjectPackages(rootPathStr);
+        }
+
         var result = new InitializeResult
         {
             Capabilities = new ServerCapabilities

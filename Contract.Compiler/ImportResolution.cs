@@ -36,6 +36,36 @@ namespace Contract.Compiler
         // multi-library build scanning the same roots repeatedly does not re-read.
         private static readonly Dictionary<string, string?> s_namespaceCache = new(StringComparer.OrdinalIgnoreCase);
 
+        // Maps a dotted namespace directly to a compiled module (.orbt/.oil)
+        // provided by an installed .coi package. Consulted ahead of path-based
+        // resolution so `import OwnAudioSharp;` finds the compiled module inside
+        // the package even though there is no OwnAudioSharp.ct file.
+        private static readonly Dictionary<string, string> s_compiledNamespaces = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Registers a dotted namespace → compiled module file mapping
+        /// (used by installed <c>.coi</c> packages). Compiles to the fully
+        /// qualified path so a <c>import</c> of that namespace returns the module.</summary>
+        public static void RegisterCompiledNamespace(string ns, string moduleFile)
+        {
+            if (string.IsNullOrWhiteSpace(ns)) return;
+            string abs;
+            try { abs = NormalizeAbsolutePath(Path.GetFullPath(moduleFile)); }
+            catch { abs = moduleFile; }
+            lock (s_compiledNamespaces)
+            {
+                s_compiledNamespaces[ns] = abs;
+            }
+        }
+
+        /// <summary>Resolves a registered compiled-module namespace, or null.</summary>
+        public static string? TryResolveCompiledNamespace(string ns)
+        {
+            lock (s_compiledNamespaces)
+            {
+                return s_compiledNamespaces.TryGetValue(ns, out var p) && File.Exists(p) ? p : null;
+            }
+        }
+
         /// <summary>
         /// Maps a dotted namespace to a file path: dots become directory
         /// separators and the last segment becomes the file name. Tries source
@@ -47,6 +77,12 @@ namespace Contract.Compiler
         /// </summary>
         public static string? ResolveNamespace(string ns, string importingFile, IEnumerable<string> extraSearchRoots)
         {
+            // An installed .coi package may map this namespace directly to a
+            // compiled module; that takes precedence so precompiled libraries
+            // resolve without shipping .ct source.
+            string? compiled = TryResolveCompiledNamespace(ns);
+            if (compiled != null) return compiled;
+
             string relative = ns.Replace('.', Path.DirectorySeparatorChar);
 
             foreach (var ext in new[] { ".ct", ".oir", ".oil", ".orbt" })

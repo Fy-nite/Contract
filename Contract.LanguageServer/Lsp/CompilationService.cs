@@ -51,9 +51,18 @@ public class CompilationService
     private readonly DocumentStore _store;
     private readonly List<System.Reflection.Assembly> _extraBindings = new();
 
+    /// <summary>Extra search roots (installed <c>.coi</c> package dirs) that
+    /// compiled references can be found in by path.</summary>
+    public static readonly List<string> PackageSearchRoots = new();
+
     public CompilationService(DocumentStore store)
     {
         _store = store;
+    }
+
+    public void AddPackageSearchRoot(string root)
+    {
+        if (!PackageSearchRoots.Contains(root)) PackageSearchRoots.Add(root);
     }
 
     /// <summary>Registers a custom host binding assembly so its
@@ -156,6 +165,8 @@ public class ProgramLoader
             ? Path.GetDirectoryName(Contract.Compiler.ImportResolver.NormalizeAbsolutePath(_mainPath))
             : null;
         if (!string.IsNullOrEmpty(mainDir)) yield return mainDir;
+        foreach (var root in CompilationService.PackageSearchRoots)
+            yield return root;
         yield return Environment.CurrentDirectory;
     }
 

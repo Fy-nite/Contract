@@ -2633,6 +2633,20 @@ public class IRCodeGenerator
                     break;
                 }
 
+                // obj.delegateField(args) / this.delegateField(args): a field
+                // whose type is a function or Delegate<F>. Load the field (a
+                // delegate) and invoke it. The analyzer leaves call.Symbol null
+                // for this case, so we detect it on the callee shape + field type.
+                if (call.Callee is MemberExpression memField
+                    && TryGetMemberFunctionType(memField, out var memFnType))
+                {
+                    GenerateExpression(ib, memField, paramMap);
+                    var mpt = memFnType.Parameters.Select(MapType).ToList();
+                    var mret = MapType(memFnType.Return);
+                    ib.Callvirt(new MethodReference(new TypeRef(DelegateClassName), DelegateInvokeMethod, mret, mpt));
+                    break;
+                }
+
                 if (call.Symbol is ExternalMethod em)
                 {
                     var paramTypes = em.Info.GetParameters().Select(p => MapTypeFromSystemType(p.ParameterType)).ToList();
@@ -3551,8 +3565,16 @@ public class IRCodeGenerator
     private TypeDescriptor.Function? GetCallFunctionType(CallExpression call)
     {
         // f() where the resolved declaration's return type is a function type.
-        if (call.Symbol is FunctionDeclaration fd && fd.ReturnType is TypeDescriptor.Function fn)
-            return fn;
+        if (call.Symbol is FunctionDeclaration fd)
+        {
+            if (fd.ReturnType is TypeDescriptor.Function fn)
+                return fn;
+            // f() where the declared return type is Delegate<F> — unwrap to F so
+            // f()(args) resolves the outer invocation's parameter list.
+            if (fd.ReturnType is TypeDescriptor.GenericInstance gRet
+                && TryGetDelegateFunctionType(gRet, out var fnRet))
+                return fnRet;
+        }
 
         // Calling a function-typed local/param: the value's function type is the
         // type of the call RESULT (a delegate), so the delegate produced by the
@@ -3577,7 +3599,42 @@ public class IRCodeGenerator
         return null;
     }
 
-    /// <summary>True when 'name' is a captured variable of the active lambda body.</summary>
+    /// <summary>
+    /// The function type of a <c>receiver.delegateField</c> member expression,
+    /// when the field's declared type is a function or <c>Delegate&lt;F&gt;</c>.
+    /// Resolves the receiver's declaring type (a contract, struct, or the
+    /// implicit <c>this</c>) and unwraps <c>Delegate&lt;F&gt;</c> to <c>F</c> so an
+    /// invocation can be emitted as a <c>Callvirt Delegate.Invoke</c>.
+    /// </summary>
+    private bool TryGetMemberFunctionType(MemberExpression mem, out TypeDescriptor.Function functionType)
+    {
+        functionType = null!;
+        var owner = ResolveExpressionObjectType(mem.Object);
+        TypeDescriptor? fieldType = null;
+
+        var contract = FindContract(owner);
+        if (contract == null && mem.Object is IdentifierExpression thisId && thisId.Name == "this" && _currentContractName != null)
+            contract = FindContract(_currentContractName);
+        if (contract != null)
+        {
+            var declaring = FindFieldDeclaringContract(contract, mem.Property, staticOnly: false)
+                ?? FindFieldDeclaringContract(contract, mem.Property, staticOnly: true);
+            fieldType = declaring?.Fields.FirstOrDefault(f => f.Name == mem.Property)?.Type;
+        }
+        else
+        {
+            var structDecl = FindStruct(owner);
+            fieldType = structDecl?.Fields.FirstOrDefault(f => f.Name == mem.Property)?.Type;
+        }
+
+        if (fieldType is TypeDescriptor.Function f) { functionType = f; return true; }
+        if (fieldType is TypeDescriptor.GenericInstance g && TryGetDelegateFunctionType(g, out var gf))
+        {
+            functionType = gf;
+            return true;
+        }
+        return false;
+    }
     private bool IsCaptured(string name)
         => _captureNames != null
            && _captureNames.Contains(name)

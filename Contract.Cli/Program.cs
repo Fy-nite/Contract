@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using Contract.Compiler;
 using Contract.LanguageServer;
 using Contract.Runtime;
 using ObjectRT.Runtime;
@@ -50,6 +51,11 @@ namespace Contract.Cli
             if (args.Length > 0 && args[0] == "install")
             {
                 return InstallPackage(args.Skip(1).ToArray());
+            }
+
+            if (args.Length > 0 && args[0] == "pack")
+            {
+                return PackPackage(args.Skip(1).ToArray());
             }
 
             if (args.Length > 0 && args[0] == "remove")
@@ -169,6 +175,19 @@ namespace Contract.Cli
                 // Pre-load NuGet assemblies for <ClrImport> resolution
                 PreloadNuGetAssemblies(sourceDir);
 
+                // Discover installed .coi packages: register their namespace →
+                // module maps (so `import PkgNs;` resolves) and load their binding
+                // assemblies so [ClassBinding] types are visible without --bind.
+                string? projectRoot = FindProjectRoot(sourceDir);
+                var packageBindAssemblies = new List<System.Reflection.Assembly>();
+                if (projectRoot != null)
+                {
+                    RegisterPackageImports(projectRoot);
+                    packageBindAssemblies = LoadPackageBindingAssemblies(projectRoot);
+                    foreach (var pba in packageBindAssemblies)
+                        rt.RegisterBindingAssembly(pba);
+                }
+
                 // JIT / emit / cache options
                 if (jit) rt.Inner.Mode = JitMode.Reflection;
                 if (emitDir != null) { ObjectRT.Runtime.Runtime.EmitDir = emitDir; Directory.CreateDirectory(emitDir); }
@@ -183,6 +202,11 @@ namespace Contract.Cli
                     rt.RegisterBindingAssembly(bindingAsm);
                     if (verbose) Console.Error.WriteLine($"; Loaded bindings from {bindAssembly}");
                 }
+
+                // Combined set of assemblies the compiler can validate against:
+                // explicit --bind plus auto-discovered package bindings.
+                var bindAssembliesForCompiler = new List<System.Reflection.Assembly>(packageBindAssemblies);
+                if (bindingAsm != null) bindAssembliesForCompiler.Add(bindingAsm);
 
                 // ── --list-imports: enumerate available CLR types ─────
                 if (listImports)
@@ -250,7 +274,7 @@ namespace Contract.Cli
                     else
                     {
                         var compiled = ContractCompiler.CompileFileToBinary(filePath, out var bundleDiags,
-                            bindingAsm != null ? new[] { bindingAsm } : null);
+                            bindAssembliesForCompiler);
                         if (compiled == null)
                         {
                             bundleDiags.ReportToConsole();
@@ -279,6 +303,8 @@ namespace Contract.Cli
                     // Collect NuGet DLLs to include in the bundle
                     var bundleBindPaths = new List<string>();
                     if (bindAssembly != null) bundleBindPaths.Add(bindAssembly);
+                    if (projectRoot != null)
+                        bundleBindPaths.AddRange(CoiSupport.InstalledBindingAssemblies(projectRoot));
                     string? bundleNuGetDir = sourceDir != null
                         ? Path.Combine(sourceDir, ".purr", "nuget")
                         : null;
@@ -318,7 +344,7 @@ namespace Contract.Cli
                 // ── Compile .ct source ────────────────────────────────────
                 if (verbose) Console.Error.WriteLine($"; Compiling {filePath}");
                 var ir = ContractCompiler.CompileFile(filePath, out var diagnostics,
-                    bindingAsm != null ? new[] { bindingAsm } : null);
+                    bindAssembliesForCompiler);
                 if (ir == null)
                 {
                     diagnostics.ReportToConsole();
@@ -1032,6 +1058,35 @@ Examples:
             catch (FormatException ex) { Error(ex.Message); return 1; }
 
             string projectRoot = project?.RootPath ?? Directory.GetCurrentDirectory();
+
+            // Local .coi file install — no registry needed.
+            if (CoiPackage.IsCoiFile(packageName))
+            {
+                try
+                {
+                    string name = CoiSupport.Install(packageName, projectRoot);
+                    if (project != null)
+                    {
+                        project.Dependencies ??= new();
+                        if (!project.Dependencies.Any(d => d.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            string ver = CoiSupport.LoadManifest(
+                                Path.Combine(projectRoot, ".purr", "packages", name, "manifest.json"))?.Version ?? "*";
+                            project.Dependencies.Add(new Contract.Compiler.PackageDependency { Name = name, Version = ver });
+                            project.Save(projectRoot);
+                        }
+                    }
+                    Console.WriteLine($"Installed {name} into {Path.Combine(projectRoot, ".purr", "packages", name)}");
+                    RegisterPackageImports(projectRoot);
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    Error(ex.Message);
+                    return 1;
+                }
+            }
+
             using var client = new PurrClient();
             var resolver = new PackageResolver(client, projectRoot);
 
@@ -1155,6 +1210,110 @@ Examples:
                 Console.WriteLine($"  {pkg.Name} v{pkg.Version}");
 
             return 0;
+        }
+
+        /// <summary>
+        /// Packs compiled modules and binding DLLs into a .coi package:
+        /// <c>ccl pack &lt;name&gt; &lt;module.orbt&gt; [--bind dll] [-o out.coi]</c>.
+        /// </summary>
+        static int PackPackage(string[] args)
+        {
+            if (args.Length == 0 || args[0] is "-h" or "--help")
+            {
+                Console.WriteLine("Usage: ccl pack <name> <module.orbt> [--bind dll...] [-o out.coi]");
+                Console.WriteLine();
+                Console.WriteLine("Packs a compiled Contract module (.orbt/.oil) and its binding");
+                Console.WriteLine("assemblies into a single .coi package.");
+                Console.WriteLine();
+                Console.WriteLine("Examples:");
+                Console.WriteLine("  ccl pack MyLib lib/MyLib.orbt                     # no bindings");
+                Console.WriteLine("  ccl pack OwnAudioSharp lib/own.orbt --bind bridge\\OwnAudioSharp.Contract.dll");
+                return 0;
+            }
+
+            string packageName = args[0];
+            var modules = new List<string>();
+            var binds = new List<string>();
+            string? output = null;
+            string? ns = null;
+
+            for (int i = 1; i < args.Length; i++)
+            {
+                switch (args[i])
+                {
+                    case "--bind" or "-B":
+                        if (++i >= args.Length) { Error("--bind requires an assembly path"); return 1; }
+                        binds.Add(args[i]);
+                        break;
+                    case "-o" or "--output":
+                        if (++i >= args.Length) { Error("-o requires an output path"); return 1; }
+                        output = args[i];
+                        break;
+                    case "-n" or "--namespace":
+                        if (++i >= args.Length) { Error("-n requires a namespace"); return 1; }
+                        ns = args[i];
+                        break;
+                    default:
+                        modules.Add(args[i]);
+                        break;
+                }
+            }
+
+            if (modules.Count == 0) { Error("No compiled module specified."); return 1; }
+            if (output == null) output = $"{packageName}.coi";
+
+            try
+            {
+                CoiSupport.Pack(packageName, "1.0.0", modules, binds.Count > 0 ? binds : null, ns, output);
+            }
+            catch (Exception ex)
+            {
+                Error(ex.Message);
+                return 1;
+            }
+
+            Console.WriteLine($"Wrote {Path.GetFullPath(output)}");
+            return 0;
+        }
+
+        /// <summary>
+        /// Registers the import roots and compiled-namespace maps of every
+        /// installed .coi package so <c>import SomeNs;</c> resolves to the
+        /// package's compiled modules. Call after install and before compiling.
+        /// </summary>
+        static void RegisterPackageImports(string projectRoot)
+        {
+            CoiSupport.RegisterPackageImportRoots(projectRoot);
+        }
+
+        /// <summary>Walks up from <paramref name="startDir"/> to find the nearest
+        /// directory containing a contract.ctproj, or null.</summary>
+        static string? FindProjectRoot(string? startDir)
+        {
+            string? dir = startDir;
+            while (dir != null)
+            {
+                if (File.Exists(Path.Combine(dir, Contract.Compiler.ContractProject.FileName)))
+                    return dir;
+                dir = Path.GetDirectoryName(dir);
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Loads every binding assembly auto-provided by installed .coi packages
+        /// into the current AppDomain, so their [ClassBinding] types are visible
+        /// for compile-time validation and runtime dispatch without --bind.
+        /// </summary>
+        static List<System.Reflection.Assembly> LoadPackageBindingAssemblies(string projectRoot)
+        {
+            var asms = new List<System.Reflection.Assembly>();
+            foreach (var dll in CoiSupport.InstalledBindingAssemblies(projectRoot))
+            {
+                try { asms.Add(System.Reflection.Assembly.LoadFrom(dll)); }
+                catch { /* skip unresolvable */ }
+            }
+            return asms;
         }
 
         // ── Project management ──────────────────────────────────────────
