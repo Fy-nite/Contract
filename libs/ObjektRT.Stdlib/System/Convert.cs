@@ -65,4 +65,10 @@ public static class Convert
 
     /// <summary>True when <paramref name="value"/> is "true" or "false" (case-insensitive).</summary>
     public static bool TryToBool(string value) => bool.TryParse(value, out _);
+
+    /// <summary>Encodes <paramref name="value"/> to its UTF-8 byte representation.</summary>
+    public static byte[] ToUTF8Bytes(string value) => global::System.Text.Encoding.UTF8.GetBytes(value);
+
+    /// <summary>Decodes a UTF-8 byte buffer to a string.</summary>
+    public static string ToUTF8String(byte[] value) => global::System.Text.Encoding.UTF8.GetString(value);
 }

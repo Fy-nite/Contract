@@ -7,3 +7,6 @@
 [submodule "libs/Stdlib"]
 	path = libs/Stdlib
 	url = https://github.com/OpenStudioCorp/ObjectRT.Stdlib
+[submodule "libs/ContractStdlib"]
+	path = libs/ContractStdlib
+	url = https://github.com/Fy-nite/ObjekRT-stdlib.git

@@ -2,6 +2,18 @@
 
 All notable changes to this project since the last release are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Add the `libs/ContractStdlib` submodule (Contract-written stdlib) pinned to `main`.
+- Add `ObjektRT.std.Security`: SHA-256/SHA-512 hashing, HMAC-SHA256/SHA-512, CSPRNG bytes/salt/nonce and URL-safe base64 tokens, and constant-time compare, all as pure `CLRImport` facades over `System.Security.Cryptography`.
+- Add `Convert.ToUTF8Bytes` and `Convert.ToUTF8String` builtins for string/`byte[]` UTF-8 conversion.
+
+### Fixed
+
+- Fix CLRImport argument/array marshaling for narrow integral types: `byte`/`sbyte`/`short`/`ushort`/`uint` values (boxed as VM `int`) are now coerced to the declared parameter/element type, so CLRImport facades can accept and return `byte[]` (and other narrow arrays).
+
 ## [V1.0 beta 2]
 
 ### Added

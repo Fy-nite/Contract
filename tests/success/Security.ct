@@ -1,0 +1,61 @@
+import __builtin.std;
+
+/// Regression: CLRImport facades must accept and return `byte[]` (and other
+/// narrow integral arrays). The VM marshals byte/sbyte/short/ushort elements
+/// as boxed ints; CoerceTo/CoerceScalar must narrow them to the declared
+/// element/parameter type instead of handing raw ints to Array.SetValue /
+/// reflection Invoke.
+<ClrImport("System.Security.Cryptography.SHA256")>
+Contract Sha256 {
+    static fn HashData(data: byte[]) -> byte[] { }
+}
+
+<ClrImport("System.Security.Cryptography.HMACSHA256")>
+Contract Hmac256 {
+    static fn HashData(key: byte[], data: byte[]) -> byte[] { }
+}
+
+<ClrImport("System.Security.Cryptography.RandomNumberGenerator")>
+Contract Rng {
+    static fn GetBytes(count: int) -> byte[] { }
+}
+
+<ClrImport("System.Convert")>
+Contract HexText {
+    static fn ToHexString(data: byte[]) -> string { }
+}
+
+Contract TimingSafe {
+    static fn Equals(a: byte[], b: byte[]) -> bool {
+        var la: int = Array.Length(a);
+        var lb: int = Array.Length(b);
+        var diff: int = la - lb;
+        var n: int = la;
+        if (lb < n) {
+            n = lb;
+        }
+        for (var i: int = 0; i < n; i = i + 1) {
+            diff = diff | (a[i] - b[i]);
+        }
+        return diff == 0;
+    }
+}
+
+Contract Program {
+    static fn Main() {
+        var data: byte[] = Convert.ToUTF8Bytes("abc");
+        var digest: byte[] = Sha256.HashData(data);
+        var hex: string = HexText.ToHexString(digest);
+        IO.Println(hex);
+        IO.Println(Convert.ToStringB(hex == "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"));
+
+        var key: byte[] = Convert.ToUTF8Bytes("key");
+        var mac: byte[] = Hmac256.HashData(key, data);
+        IO.Println(Convert.ToStringB(HexText.ToHexString(mac) == "F7BC83F430538424B13298E6AA6FB143EF4D59A14946175997479DBC2D1A3CD8"));
+
+        var tok: byte[] = Rng.GetBytes(16);
+        IO.Println(Convert.ToString(Array.Length(tok)));
+        IO.Println(Convert.ToStringB(TimingSafe.Equals(digest, digest)));
+        IO.Println(Convert.ToStringB(TimingSafe.Equals(digest, tok) == false));
+    }
+}
