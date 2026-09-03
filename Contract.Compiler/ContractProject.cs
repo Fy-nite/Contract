@@ -107,6 +107,17 @@ namespace Contract.Compiler
         /// </summary>
         public List<string>? Sources { get; set; }
 
+        /// <summary>
+        /// Extra search roots for <c>import</c> resolution (C#/Java
+        /// "classpath"-style). Each entry is a directory (absolute, or
+        /// relative to this project's root) that is added to the compiler's
+        /// import search roots, so a <c>import Some.Namespace;</c> can find a
+        /// library source by its DECLARED namespace no matter which file
+        /// declares it. Typical use: point at a sibling library repo's source
+        /// directory, e.g. <c>["../../OwnAudioSharp.Contract/src"]</c>.
+        /// </summary>
+        public List<string>? ImportRoots { get; set; }
+
         /// <summary>True when the project builds as an executable (requires a Main entry point).</summary>
         [JsonIgnore]
         public bool IsExecutable => !string.Equals(Type, "lib", StringComparison.OrdinalIgnoreCase);

@@ -77,7 +77,10 @@ namespace Contract.Compiler
 
         /// <summary>
         /// Search roots for Python-style namespace imports, after the importing
-        /// file's own directory: the main file's directory, then the CWD,
+        /// file's own directory: the main file's directory, any declared
+        /// <c>ImportRoots</c> from the project's <c>contract.ctproj</c> (a
+        /// C#/Java "classpath" so <c>import Some.Namespace;</c> finds a library
+        /// source by its DECLARED namespace wherever it lives), then the CWD,
         /// then any Purr package directories.
         /// </summary>
         private IEnumerable<string> ExtraSearchRoots()
@@ -86,13 +89,28 @@ namespace Contract.Compiler
             {
                 yield return _mainFileDir;
 
-                // Check for .purr/packages/ in the project root
+                // Find the nearest contract.ctproj (the project root).
                 string? projectRoot = _mainFileDir;
                 while (projectRoot != null && !File.Exists(Path.Combine(projectRoot, ContractProject.FileName)))
                     projectRoot = Path.GetDirectoryName(projectRoot);
 
                 if (projectRoot != null)
                 {
+                    // Yield the project's declared extra import roots first.
+                    ContractProject? project = null;
+                    try { project = ContractProject.Load(projectRoot); }
+                    catch { project = null; }
+                    if (project?.ImportRoots is { Count: > 0 })
+                    {
+                        string projectBase = project.RootPath ?? projectRoot;
+                        foreach (var impRoot in project.ImportRoots)
+                        {
+                            string full = ImportResolver.NormalizeAbsolutePath(
+                                Path.IsPathRooted(impRoot) ? impRoot : Path.Combine(projectBase, impRoot));
+                            if (!string.IsNullOrEmpty(full)) yield return full;
+                        }
+                    }
+
                     string purrPackages = Path.Combine(projectRoot, ".purr", "packages");
                     if (Directory.Exists(purrPackages))
                     {

@@ -32,21 +32,176 @@ namespace Contract.Compiler
             return ResolveNamespace(spec, importingFile, extraSearchRoots);
         }
 
+        // Memoizes the declared-namespace of an already-scanned .ct file so a
+        // multi-library build scanning the same roots repeatedly does not re-read.
+        private static readonly Dictionary<string, string?> s_namespaceCache = new(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>
         /// Maps a dotted namespace to a file path: dots become directory
         /// separators and the last segment becomes the file name. Tries source
         /// (<c>.ct</c>) then compiled-reference (<c>.oir</c>/<c>.oil</c>/<c>.orbt</c>)
-        /// extensions. Returns null when no candidate file exists.
+        /// extensions. When no file matches by location, falls back to a
+        /// content search: any <c>.ct</c> under the search roots whose first
+        /// declared <c>namespace</c> equals <paramref name="ns"/> is returned,
+        /// regardless of its file name. Returns null when no candidate exists.
         /// </summary>
         public static string? ResolveNamespace(string ns, string importingFile, IEnumerable<string> extraSearchRoots)
         {
             string relative = ns.Replace('.', Path.DirectorySeparatorChar);
+
             foreach (var ext in new[] { ".ct", ".oir", ".oil", ".orbt" })
             {
                 string? hit = ResolveRelativePath(relative + ext, importingFile, extraSearchRoots);
                 if (hit != null) return hit;
             }
+
+            // No file at the expected dotted-path location. C#/Java-style
+            // namespace imports don't require a type-named file: find the
+            // source that DECLARES this namespace, by content. Only the
+            // implicit bootstrap namespace (__builtin.*) and the pure runtime
+            // .NET namespaces (System.*) are never source-located; ObjektRT.*,
+            // std.* and any user/library namespaces are genuine source
+            // namespaces and are scanned by content so files like ManagedPtr.ct
+            // (declaring `namespace ObjektRT.std.Memory;`) resolve on name.
+            return IsRuntimeBindingNamespace(ns)
+                ? null
+                : ResolveNamespaceByContent(ns, importingFile, extraSearchRoots);
+        }
+
+        /// <summary>True for namespace conventions that resolve at runtime /
+        /// by bootstrap, never by a source file's declared namespace: the
+        /// implicit <c>__builtin.*</c> bootstrap and pure .NET runtime
+        /// <c>System.*</c> namespaces.</summary>
+        private static bool IsRuntimeBindingNamespace(string ns)
+        {
+            return ns.StartsWith("__builtin", StringComparison.OrdinalIgnoreCase)
+                || ns.StartsWith("System", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Scans every search root recursively for a <c>.ct</c> source whose
+        /// first declared <c>namespace ...;</c> equals <paramref name="ns"/>.
+        /// Returns the first (deterministic, breadth-first by directory) match,
+        /// or null. This lets <c>import OwnAudioSharp;</c> resolve an
+        /// arbitrarily-named file that declares <c>namespace OwnAudioSharp;</c>.
+        /// Scans are memoized per namespace so a build touching the roots more
+        /// than once stays cheap.
+        /// </summary>
+        public static string? ResolveNamespaceByContent(string ns, string importingFile, IEnumerable<string> extraSearchRoots)
+        {
+            if (string.IsNullOrWhiteSpace(ns)) return null;
+
+            // Deterministic root order: importing file's dir first, then main, then extras.
+            string? importingDir = SafeGetDirectoryName(importingFile);
+            var roots = new List<string>();
+            if (importingDir != null) roots.Add(importingDir);
+            foreach (var root in extraSearchRoots)
+                if (!string.IsNullOrEmpty(root) && !roots.Contains(root))
+                    roots.Add(root);
+
+            foreach (var root in roots)
+            {
+                if (!Directory.Exists(root)) continue;
+                string? hit = ScanRootForNamespace(root, ns);
+                if (hit != null) return hit;
+            }
             return null;
+        }
+
+        private static string? ScanRootForNamespace(string root, string ns)
+        {
+            // Breadth-first by depth, then by path, so results are deterministic.
+            foreach (var file in EnumerateCtFilesBfs(root))
+            {
+                if (DeclaredNamespace(file) == ns)
+                    return file;
+            }
+            return null;
+        }
+
+        private static IEnumerable<string> EnumerateCtFilesBfs(string root)
+        {
+            var dirs = new Queue<string>();
+            dirs.Enqueue(root);
+            while (dirs.Count > 0)
+            {
+                string dir = dirs.Dequeue();
+                IEnumerable<string> children;
+                try { children = Directory.GetFileSystemEntries(dir); }
+                catch { continue; }
+
+                // Emit this directory's .ct files first (deterministic order),
+                // then queue its subdirectories for the next breadth level.
+                var seenDirs = new List<string>();
+                string[] ctFiles;
+                try { ctFiles = Directory.GetFiles(dir, "*.ct", SearchOption.TopDirectoryOnly); }
+                catch { ctFiles = Array.Empty<string>(); }
+                Array.Sort(ctFiles, StringComparer.OrdinalIgnoreCase);
+                foreach (var f in ctFiles) yield return f;
+
+                foreach (var entry in children)
+                {
+                    if (Directory.Exists(entry)) seenDirs.Add(entry);
+                }
+                seenDirs.Sort(StringComparer.OrdinalIgnoreCase);
+                foreach (var d in seenDirs) dirs.Enqueue(d);
+            }
+        }
+
+        /// <summary>
+        /// Reads the first <c>namespace</c> declaration of a <c>.ct</c> file,
+        /// skipping blank lines and <c>//</c> line comments. Cheap: only reads
+        /// up to the first non-comment 'namespace' token, or the first ';'.
+        /// Returns the dotted namespace string, or null when the file has none
+        /// (e.g. it only imports and declares contracts without a namespace).
+        /// </summary>
+        public static string? DeclaredNamespace(string file)
+        {
+            if (!File.Exists(file))
+            {
+                lock (s_namespaceCache) { s_namespaceCache[file] = null; }
+                return null;
+            }
+            if (s_namespaceCache.TryGetValue(file, out var cached)) return cached;
+
+            string? result = null;
+            try
+            {
+                using var reader = new StreamReader(file);
+                while (!reader.EndOfStream)
+                {
+                    string? line = reader.ReadLine();
+                    if (line == null) break;
+                    string trimmed = line.TrimStart();
+                    if (trimmed.Length == 0) continue;
+                    if (trimmed.StartsWith("//", StringComparison.Ordinal))
+                    {
+                        // Keep scanning; a block comment spanning lines is rare
+                        // before a namespace and not worth tracking here.
+                        continue;
+                    }
+                    if (trimmed.StartsWith("namespace", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string rest = trimmed.Substring("namespace".Length).TrimStart();
+                        int semi = rest.IndexOf(';');
+                        if (semi > 0)
+                        {
+                            result = rest.Substring(0, semi).Trim();
+                            break;
+                        }
+                    }
+                    // A real statement that isn't a namespace declaration is
+                    // enough to stop: imports/contracts follow the namespace.
+                    break;
+                }
+            }
+            catch
+            {
+                result = null;
+            }
+
+            lock (s_namespaceCache) { s_namespaceCache[file] = result; }
+            return result;
         }
 
         /// <summary>

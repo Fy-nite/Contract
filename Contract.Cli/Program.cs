@@ -878,7 +878,7 @@ Examples:
                 }
                 catch (Exception ex)
                 {
-                    Console.Error.WriteLine($"error: {ex.Message}");
+                    Error(ex.Message);
                     return 1;
                 }
             }
