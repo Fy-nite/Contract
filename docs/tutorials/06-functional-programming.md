@@ -149,6 +149,46 @@ static fn Main() {
 }
 ```
 
+## Delegate types
+
+A lambda is a first-class value, and its type can be named explicitly. The
+`<>`-bracketed inline generic `Delegate<(params) -> return>` is the named form;
+the bare function type `(params) -> return` is interchangeable anywhere a
+delegate is expected.
+
+```ct
+// A function-typed field, assigned in the constructor and called later.
+Contract Box {
+    public add: Delegate<(int, int) -> int>;
+
+    constructor() {
+        this.add = fun (x: int, y: int) -> {
+            return x + y;
+        };
+    }
+
+    fn Sum(a: int, b: int) -> int {
+        return this.add(a, b);   // invoke the stored delegate
+    }
+}
+
+static fn apply(f: Delegate<(int, int) -> int>, x: int, y: int) -> int {
+    return f(x, y);
+}
+
+static fn Main() {
+    let add = fun (x: int, y: int) -> {
+        return x + y;
+    };
+    IO.Println(apply(add, 3, 4));   // 7 (passed as a value)
+    IO.Println((new Box()).Sum(10, 32)); // 42 (via a field)
+}
+```
+
+Delegates can be stored in fields, passed as arguments, returned from
+functions, and invoked immediately from a call — `makeAdd()(5, 5)` — including
+when the function's declared return type is `Delegate<(...) -> ...>`.
+
 ## Why bother?
 
 Pipes read left-to-right, matching how you'd describe the data flow:

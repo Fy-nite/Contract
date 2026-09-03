@@ -1360,7 +1360,8 @@ static fn Main() {
 }
 ```
 
-`Delegate<T>` can be used as a field type:
+`Delegate<T>` can be used as a field type, and a delegate field is invoked the
+same way as any other delegate — through the field name:
 
 ```ct
 Contract Box {
@@ -1369,8 +1370,16 @@ Contract Box {
     constructor() {
         this.add = Program.makeAdd();
     }
+
+    fn Sum(a: int, b: int) -> int {
+        return this.add(a, b);   // delegate field invocation
+    }
 }
 ```
+
+Delegate fields can be assigned and invoked on any receiver — `this.add(...)`
+inside the contract, or `box.add(...)` on an instance — and work the same for a
+struct field typed with a function type.
 
 ### Calling a function's returned delegate
 
@@ -1390,7 +1399,25 @@ static fn Main() {
 ```
 
 This also works with capturing closures and with inferred result types
-(`var r = makeAdd()(2, 3);` infers `int`).
+(`var r = makeAdd()(2, 3);` infers `int`), and when the function's declared
+return type is the `Delegate<F>` form rather than the bare function type:
+
+```ct
+static fn makeScale(k: int) -> Delegate<(int) -> int> {
+    return fun (v: int) -> {
+        return v * k;
+    };
+}
+
+static fn Main() {
+    IO.Println(makeScale(100)(5));   // 500
+}
+```
+
+The delegate type is always written with the angle-bracket form
+`Delegate<(params) -> return>` (or, in any position that expects a delegate, the
+bare function type `(params) -> return` is interchangeable). `Delegate<F>` and
+`F` are the same value for calling purposes.
 
 ### Pipe Operator (`|>`)
 

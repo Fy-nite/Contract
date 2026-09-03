@@ -2035,7 +2035,8 @@ namespace Contract.Compiler.Semantics
                     // their first parameter and the first call argument, so the
                     // counts still line up. The delegate case f()(args) has its
                     // own arity check in ResolveCall.
-                    if (call.Symbol is FunctionDeclaration resolvedFn && !resolvedFn.IsExtension)
+                    if (call.Callee is not CallExpression
+                        && call.Symbol is FunctionDeclaration resolvedFn && !resolvedFn.IsExtension)
                     {
                         if (resolvedFn.Parameters.Count != call.Arguments.Count)
                         {
@@ -3732,27 +3733,17 @@ namespace Contract.Compiler.Semantics
                         // Fall through to error below.
                     }
 
-                    // Struct field of function type: fn.lambdaFn(args) where
-                    // fn is a variable of a struct type with a field named
-                    // methodName that has a function type.
-                    if (IsVariableDefined(className))
+                    // A field of function/delegate type being called directly:
+                    // a struct field (h.add(args)), a contract instance field
+                    // (this.add(args)), or a field reached through a contract/
+                    // struct-typed variable (box.add(args)). The field type is a
+                    // Function or Delegate<F>. We don't set call.Symbol — the
+                    // codegen resolves the field access and emits a delegate
+                    // Invoke.
+                    if (TryResolveDelegateFieldCall(className, methodName))
                     {
-                        var varType = FindVariableType(className);
-                        if (varType is TypeDescriptor.Named n
-                            && FindStruct(n.Name) is { } structDecl)
-                        {
-                            var field = structDecl.Fields.FirstOrDefault(f => f.Name == methodName);
-                            if (field != null && field.Type is TypeDescriptor.Function fnType)
-                            {
-                                // The struct field is a function — treat this as
-                                // a call to that function type.  We don't set
-                                // call.Symbol because the codegen resolves the
-                                // field access + callvirt separately (member
-                                // expression on the left is already handled).
-                                _usedTypes.Add(n.Name);
-                                return;
-                            }
-                        }
+                        _usedTypes.Add(className);
+                        return;
                     }
 
                     // Extension fallback for dotted paths that passed
@@ -3942,8 +3933,19 @@ namespace Contract.Compiler.Semantics
         private TypeDescriptor.Function? GetCallResultFunctionType(CallExpression call)
         {
             // f() where f's declared return type is a function type.
-            if (call.Symbol is FunctionDeclaration fd && fd.ReturnType is TypeDescriptor.Function fn)
-                return fn;
+            if (call.Symbol is FunctionDeclaration fd)
+            {
+                if (fd.ReturnType is TypeDescriptor.Function fn)
+                    return fn;
+                // f() where f's declared return type is Delegate<F> — the
+                // angle-bracket generic delegate form — unwrap to F so the
+                // double-call f()(args) resolves its parameter list.
+                if (fd.ReturnType is TypeDescriptor.GenericInstance gRet
+                    && gRet.Name.Equals("Delegate", StringComparison.OrdinalIgnoreCase)
+                    && gRet.Arguments.Count == 1
+                    && gRet.Arguments[0] is TypeDescriptor.Function fnRet)
+                    return fnRet;
+            }
 
             // Bare function call by name: f() with f declared elsewhere.
             if (call.Callee is IdentifierExpression id
@@ -3974,8 +3976,56 @@ namespace Contract.Compiler.Semantics
             return null;
         }
 
+        /// <summary>True when a type descriptor is a function type or a
+        /// <c>Delegate&lt;F&gt;</c> generic delegate type.</summary>
+        private static bool IsFunctionOrDelegateType(TypeDescriptor t)
+        {
+            if (t is TypeDescriptor.Function) return true;
+            return t is TypeDescriptor.GenericInstance g
+                && g.Name.Equals("Delegate", StringComparison.OrdinalIgnoreCase)
+                && g.Arguments.Count == 1
+                && g.Arguments[0] is TypeDescriptor.Function;
+        }
+
         /// <summary>
-        /// Collects the dotted identifier spine on the left of a member access:
+        /// True when <c>className.methodName(args)</c> is an invocation of a
+        /// field whose type is a function/delegate. Handles a struct field
+        /// (<c>h.add(args)</c>), a contract instance field through the implicit
+        /// receiver (<c>this.add(args)</c>), and a contract instance field
+        /// reached through a variable (<c>box.add(args)</c>). Sets nothing on
+        /// <c>call</c> — the codegen resolves the field access and emits a
+        /// delegate invoke.
+        /// </summary>
+        private bool TryResolveDelegateFieldCall(string receiverName, string fieldName)
+        {
+            if (receiverName == "this" && _currentIsInstance && _currentContractName != null)
+            {
+                if (FindContract(_currentContractName) is { } thisContract
+                    && FindFieldDeclaringContract(thisContract, fieldName, staticOnly: false) is { } thisDecl)
+                {
+                    var thisField = thisDecl.Fields.FirstOrDefault(x => x.Name == fieldName);
+                    return thisField != null && IsFunctionOrDelegateType(thisField.Type);
+                }
+                return false;
+            }
+
+            if (!IsVariableDefined(receiverName)) return false;
+            if (FindVariableType(receiverName) is not TypeDescriptor.Named n) return false;
+
+            if (FindContract(n.Name) is { } contract
+                && FindFieldDeclaringContract(contract, fieldName, staticOnly: false) is { } decl)
+            {
+                var f = decl.Fields.FirstOrDefault(x => x.Name == fieldName);
+                return f != null && IsFunctionOrDelegateType(f.Type);
+            }
+
+            if (FindStruct(n.Name) is { } structDecl)
+            {
+                var f = structDecl.Fields.FirstOrDefault(x => x.Name == fieldName);
+                return f != null && IsFunctionOrDelegateType(f.Type);
+            }
+            return false;
+        }
         /// IO.Println → "IO"; ObjektRT.Stdlib.System.IO.Println → "ObjektRT.Stdlib.System.IO".
         /// The outermost <see cref="MemberExpression.Property"/> is the member, not part of the path.
         /// Returns false when the base is not a pure identifier chain.
