@@ -1,0 +1,31 @@
+import __builtin.std;
+
+<ClrImport("System.Security.Cryptography.HMACSHA256")>
+Contract Hmac256 {
+    static fn HashData(key: byte[], data: byte[]) -> byte[] { }
+}
+
+<ClrImport("System.Security.Cryptography.RandomNumberGenerator")>
+Contract Rng {
+    static fn GetBytes(count: int) -> byte[] { }
+}
+
+<ClrImport("System.Convert")>
+Contract HexText {
+    static fn ToHexString(data: byte[]) -> string { }
+}
+
+Contract Program {
+    static fn Main() {
+        var bytes: byte[] = Convert.ToUTF8Bytes("abc");
+        IO.Println("utf8 len: " + Convert.ToString(Array.Length(bytes)));
+
+        var key: byte[] = Convert.ToUTF8Bytes("key");
+        var msg: byte[] = Convert.ToUTF8Bytes("The quick brown fox jumps over the lazy dog");
+        var mac: byte[] = Hmac256.HashData(key, msg);
+        IO.Println("hmac: " + HexText.ToHexString(mac));
+
+        var tok: byte[] = Rng.GetBytes(16);
+        IO.Println("rand len: " + Convert.ToString(Array.Length(tok)));
+    }
+}

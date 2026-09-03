@@ -1,0 +1,25 @@
+import __builtin.std;
+
+/// Probe: can a CLRImport facade bind byte[] params/returns to a BCL static
+/// method? If yes, the Security library can self-host on System.Security.Cryptography.
+<ClrImport("System.Security.Cryptography.SHA256")>
+Contract Sha256 {
+    static fn HashData(data: byte[]) -> byte[] { }
+}
+
+<ClrImport("System.Convert")>
+Contract Conv {
+    static fn ToHexString(data: byte[]) -> string { }
+}
+
+Contract Program {
+    static fn Main() {
+        var data: byte[] = new byte[3];
+        data[0] = 97;   // 'a'
+        data[1] = 98;   // 'b'
+        data[2] = 99;   // 'c'
+        var digest: byte[] = Sha256.HashData(data);
+        IO.Println("digest len: " + Convert.ToString(Array.Length(digest)));
+        IO.Println("hex: " + Conv.ToHexString(digest));
+    }
+}

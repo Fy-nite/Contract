@@ -1,0 +1,14 @@
+import __builtin.std;
+
+<ClrImport("System.Convert")>
+Contract Conv {
+    static fn FromHexString(s: string) -> byte[] { }
+    static fn ToBase64String(inArray: byte[]) -> string { }
+}
+
+Contract Program {
+    static fn Main() {
+        var bytes: byte[] = Conv.FromHexString("BAADF00D");
+        IO.Println("returned byte[] len: " + Convert.ToString(Array.Length(bytes)));
+    }
+}
