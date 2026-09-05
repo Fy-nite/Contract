@@ -13,6 +13,7 @@
     <Description>A compiler for the Contract programming language</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/charlie-sans/Contract</RepositoryUrl>
+    <AssemblyName>ccl</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>

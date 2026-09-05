@@ -69,9 +69,9 @@ Alternatively, ccl can be installed via a nix shell with
 let
   pkgs = import <nixpkgs> {};
   contract = import (fetchGit {
-    url = https://github.com/Fy-nite/Contract.git;
+    url = "https://github.com/carson-coder/Contract.git";
     submodules = true;
-  );
+  });
 in
 pkgs.mkShell {
   packages = [

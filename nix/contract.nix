@@ -29,5 +29,7 @@ buildDotnetModule (finalAttrs: {
 
   projectFile = "Contract.Cli/Contract.Cli.csproj";
 
+  executables = [ "ccl" ];
+
   nugetDeps = ./deps.json;
 })
