@@ -184,16 +184,20 @@ namespace Contract.Compiler
 
                 // Namespace imports (`import ovh.finite.hello.Terminal;`) also
                 // map to files by location (dots → directory separators), like
-                // Python modules. Stdlib-only namespace imports simply have no
-                // file, which is fine — they still register for name resolution.
+                // Python modules. A namespace may span several files
+                // (OwnAudio.ct + Chip.ct both declaring `namespace OwnAudioSharp;`),
+                // so every module that declares the namespace is loaded. Stdlib-only
+                // namespace imports simply have no file, which is fine — they still
+                // register for name resolution.
                 foreach (var ns in program.NamespaceImports)
                 {
-                    string? nsFile = ImportResolver.ResolveNamespace(ns, absolutePath, ExtraSearchRoots());
-                    if (nsFile == null) continue;
-                    if (CompiledReferenceLoader.IsCompiledReference(nsFile))
-                        LoadCompiledReference(nsFile, fullProgram);
-                    else
-                        LoadFile(nsFile, fullProgram);
+                    foreach (var nsFile in ImportResolver.ResolveNamespaceFiles(ns, absolutePath, ExtraSearchRoots()))
+                    {
+                        if (CompiledReferenceLoader.IsCompiledReference(nsFile))
+                            LoadCompiledReference(nsFile, fullProgram);
+                        else
+                            LoadFile(nsFile, fullProgram);
+                    }
                 }
             }
             catch (Exception ex)

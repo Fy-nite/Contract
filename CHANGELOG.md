@@ -15,6 +15,8 @@ All notable changes to this project since the last release are documented in thi
 
 - Fix delegate invocation bugs: calling a function that returns a `Delegate<F>` could raise a false arity error; invoking a `Delegate<F>` returned by a function (`makeAdd()(5, 5)`) called the delegate twice; and invoking a function/delegate stored in a contract or struct field (`this.add(...)`, `box.add(...)`) emitted no call, leaving a wrong value on the stack. All forms now compile and run correctly.
 - Fix CLRImport argument/array marshaling for narrow integral types: `byte`/`sbyte`/`short`/`ushort`/`uint` values (boxed as VM `int`) are now coerced to the declared parameter/element type, so CLRImport facades can accept and return `byte[]` (and other narrow arrays).
+- Fix namespace imports spanning multiple source files: `import Some.Namespace;` content resolution previously returned only the *first* `.ct` declaring that namespace, so members declared in sibling files (e.g. `OwnAudio.ct` + `Chip.ct` both declaring `namespace OwnAudioSharp;`) silently fell back to host bindings or failed to resolve. Namespace imports now load **every** matching source file (compiled `.coi` mapping and directory-located file still win/come first).
+- Fix a false "Namespace import 'X' is never used" warning: short module names recorded for usage tracking (e.g. `Chip`, `OwnAudio`) are now resolved through the unique-short-name index before comparing against import prefixes, so a namespace import used through its member types no longer warns spuriously.
 
 ## [V1.0 beta 2]
 

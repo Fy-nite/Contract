@@ -314,8 +314,7 @@ namespace Contract.Compiler.Semantics
                 string ns = program.NamespaceImports[i];
                 if (_usedNamespaceImports.Contains(i)) continue;
                 if (_symbolTable.UsedImportedNamespaces.Contains(ns)) continue;
-                if (_usedModulePaths.Any(p => p == ns || p.StartsWith(ns + ".", StringComparison.Ordinal)
-                                             || ns.StartsWith(p + ".", StringComparison.Ordinal))) continue;
+                if (_usedModulePaths.Any(p => ImportMatchesModulePath(p, ns))) continue;
                 _diagnostics.AddWarning($"Namespace import '{ns}' is never used", 1, 1, _mainSourceFile);
             }
 
@@ -2737,6 +2736,23 @@ namespace Contract.Compiler.Semantics
         {
             if (_currentContractName == null || _program == null) return null;
             return _program.Contracts.FirstOrDefault(c => c.Name == _currentContractName)?.Namespace;
+        }
+
+        /// <summary>True when <paramref name="ns"/> was the import that gave access
+        /// to the used module path <paramref name="path"/> (which may be a short
+        /// name like "Chip" that resolves to OwnAudioSharp.Chip).</summary>
+        private bool ImportMatchesModulePath(string path, string ns)
+        {
+            if (path == ns
+                || path.StartsWith(ns + ".", StringComparison.Ordinal)
+                || ns.StartsWith(path + ".", StringComparison.Ordinal))
+                return true;
+
+            // A short path reaches a namespace-declared user type iff its unique
+            // full name lives under the import prefix.
+            string? full = UniqueShortMatch(path);
+            if (full == null) return false;
+            return full == ns || full.StartsWith(ns + ".", StringComparison.Ordinal);
         }
 
         /// <summary>The single qualified name for a short name, or null when ambiguous/absent.</summary>

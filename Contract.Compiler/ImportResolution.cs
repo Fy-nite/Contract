@@ -155,6 +155,70 @@ namespace Contract.Compiler
             return null;
         }
 
+        /// <summary>
+        /// All <c>.ct</c> files under a root whose declared namespace equals
+        /// <paramref name="ns"/> (deterministic: breadth-first by depth, then by
+        /// path, so <c>Chip.ct</c> precedes <c>OwnAudio.ct</c> in the same dir).
+        /// </summary>
+        private static IEnumerable<string> ScanRootForFilesWithNamespace(string root, string ns)
+        {
+            foreach (var file in EnumerateCtFilesBfs(root))
+            {
+                if (DeclaredNamespace(file) == ns)
+                    yield return file;
+            }
+        }
+
+        /// <summary>
+        /// Every source module that POPULATES a namespace import — the
+        /// directory-located file (dots → path separators) plus every
+        /// content-matched <c>.ct</c> under the search roots that declares the
+        /// namespace. <see cref="ResolveNamespace"/> keeps resolving the single
+        /// first hit for single-file consumers; this variant lets a namespace
+        /// span multiple files (e.g. <c>OwnAudio.ct</c> + <c>Chip.ct</c> both
+        /// declaring <c>namespace OwnAudioSharp;</c>), each of which is loaded
+        /// into the consuming program so all declared members resolve.
+        /// </summary>
+        public static IEnumerable<string> ResolveNamespaceFiles(string ns, string importingFile, IEnumerable<string> extraSearchRoots)
+        {
+            // An installed .coi package maps the whole namespace to one module.
+            string? compiled = TryResolveCompiledNamespace(ns);
+            if (compiled != null)
+            {
+                yield return compiled;
+                yield break;
+            }
+
+            var yielded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // The directory-located file (the ResolveNamespace convention).
+            string relative = ns.Replace('.', Path.DirectorySeparatorChar);
+            foreach (var ext in new[] { ".ct", ".oir", ".oil", ".orbt" })
+            {
+                string? hit = ResolveRelativePath(relative + ext, importingFile, extraSearchRoots);
+                if (hit != null && yielded.Add(hit)) yield return hit;
+            }
+
+            if (IsRuntimeBindingNamespace(ns)) yield break;
+
+            // Content search: every source declaring this namespace.
+            string? importingDir = SafeGetDirectoryName(importingFile);
+            var roots = new List<string>();
+            if (importingDir != null) roots.Add(importingDir);
+            foreach (var root in extraSearchRoots)
+                if (!string.IsNullOrEmpty(root) && !roots.Contains(root))
+                    roots.Add(root);
+
+            foreach (var root in roots)
+            {
+                if (!Directory.Exists(root)) continue;
+                foreach (var file in ScanRootForFilesWithNamespace(root, ns))
+                {
+                    if (yielded.Add(file)) yield return file;
+                }
+            }
+        }
+
         private static IEnumerable<string> EnumerateCtFilesBfs(string root)
         {
             var dirs = new Queue<string>();
