@@ -1,0 +1,47 @@
+[
+  {
+    "pname": "Humanizer.Core",
+    "version": "2.14.1",
+    "hash": "sha256-EXvojddPu+9JKgOG9NSQgUTfWq1RpOYw7adxDPKDJ6o="
+  },
+  {
+    "pname": "Json.More.Net",
+    "version": "2.0.1.2",
+    "hash": "sha256-fnp/By8n8xKa8bhvUbO2p8rlze5AvgA+z9ZvWEpL/Ls="
+  },
+  {
+    "pname": "JsonPointer.Net",
+    "version": "5.0.0",
+    "hash": "sha256-OCeXHpJyHJSyh2vpnrY8nSuM4u3eNXtN6YXnJZyHnWc="
+  },
+  {
+    "pname": "JsonSchema.Net",
+    "version": "7.0.3",
+    "hash": "sha256-A91U1kLw4TAo5wu8x/8cL4xN3uUxD0Aex4oV1AxUdRw="
+  },
+  {
+    "pname": "Microsoft.CodeAnalysis.Analyzers",
+    "version": "3.3.4",
+    "hash": "sha256-qDzTfZBSCvAUu9gzq2k+LOvh6/eRvJ9++VCNck/ZpnE="
+  },
+  {
+    "pname": "Microsoft.CodeAnalysis.Common",
+    "version": "4.11.0",
+    "hash": "sha256-cX/xgM0VmS+Bsu63KZk2ofjFOOy1mzI+CCVEY6kI+Qk="
+  },
+  {
+    "pname": "Microsoft.CodeAnalysis.CSharp",
+    "version": "4.11.0",
+    "hash": "sha256-E9jEOjp9g/CFecsc5/QfRKOPXMRpSw0Tf79XsRgL+Mk="
+  },
+  {
+    "pname": "MongoDB.Bson",
+    "version": "2.25.0",
+    "hash": "sha256-uEXlr3fG4WmXO3ZbDSnzKVoPpCw2AppoPKiynyserW8="
+  },
+  {
+    "pname": "Newtonsoft.Json",
+    "version": "13.0.4",
+    "hash": "sha256-8JCB1FdAW681qXP6DFDWvycu1oPyVoxaYgpJ2pUvZSk="
+  }
+]
