@@ -388,17 +388,19 @@ namespace Contract.Compiler.Parsing
             int column = Current.Column;
 
             _suppressRangeDepth++;
+            _ctx.SuppressRangeDepth++;
             Expression start;
             try { start = ParseExpression(); }
-            finally { _suppressRangeDepth--; }
+            finally { _suppressRangeDepth--; _ctx.SuppressRangeDepth--; }
 
             Consume(TokenType.DotDot, "Expected '..' in range");
             bool inclusive = Match(TokenType.Assign);
 
             _suppressRangeDepth++;
+            _ctx.SuppressRangeDepth++;
             Expression end;
             try { end = ParseExpression(); }
-            finally { _suppressRangeDepth--; }
+            finally { _suppressRangeDepth--; _ctx.SuppressRangeDepth--; }
 
             Expression? step = null;
             if (Check(TokenType.Identifier) && Current.Text == "by")
