@@ -10,6 +10,6 @@
   <ItemGroup>
   <ProjectReference Include="..\libs\ObjektRT.Core\ObjektRT.Core.csproj" />
   <ProjectReference Include="..\Contract.Compiler.Abstractions\Contract.Compiler.Abstractions.csproj" />
-
+  <ProjectReference Include="../libs/ObjektRT.Stdlib/ObjektRT.Stdlib.csproj"/>
   </ItemGroup>
 </Project>
