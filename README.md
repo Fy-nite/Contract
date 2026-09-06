@@ -144,11 +144,14 @@ Thread.Start(t);
 Thread.Join(t);
 ```
 
-Builtin modules are never implicitly global: import them
-(`import __builtin.std;`) or spell them fully qualified
-(`__builtin.std.IO.Println(...)`). User-declared contracts shadow same-named
-builtin modules — that is what keeps a Contract-written stdlib free to
-replace them.
+Builtin modules are never implicitly global: import the reserved
+`__builtin` root (`import __builtin;` makes the `std` and `ObjektRT`
+subtrees addressable, `import __builtin.std;` grants the module short
+names like `IO`) or spell them fully qualified
+(`__builtin.std.IO.Println(...)`). Everything lives under `__builtin` —
+there are no standalone `ObjektRT.*` module registrations. User-declared
+contracts shadow same-named builtin modules — that is what keeps a
+Contract-written stdlib free to replace them.
 
 See [docs/CONTRACT_LANGUAGE.md](docs/CONTRACT_LANGUAGE.md) for the full
 language reference, including the standard library and threading model.

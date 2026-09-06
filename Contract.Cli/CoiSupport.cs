@@ -28,7 +28,9 @@ public static class CoiSupport
     /// <paramref name="moduleFiles"/> are .orbt/.oil module files whose content is
     /// copied into <c>lib/</c>. <paramref name="bindingDllPaths"/> are managed
     /// assemblies copied into <c>bindings/</c> (their surrounding <c>runtimes/&lt;rid&gt;/native</c>
-    /// trees are included so P/Invoke natives ship too).
+    /// trees are included so P/Invoke natives ship too). <paramref name="namespaceMap"/>
+    /// maps an imported namespace to the base name of one of the modules (the
+    /// archive path is derived as <c>lib/&lt;base&gt;</c>).
     /// </summary>
     /// <returns>The path the archive was written to.</returns>
     public static string Pack(
@@ -37,6 +39,30 @@ public static class CoiSupport
         IEnumerable<string> moduleFiles,
         IEnumerable<string>? bindingDllPaths,
         string? namespaceMap /* source namespace -> module base name */,
+        string outputPath)
+    {
+        var modules = moduleFiles.ToList();
+        var ns = !string.IsNullOrEmpty(namespaceMap) && modules.Count > 0
+            ? new[] { new KeyValuePair<string, List<string>>(namespaceMap, new List<string> { Path.GetFileName(modules[0]) }) }
+            : null;
+        return Pack(packageName, version, modules, bindingDllPaths, ns, outputPath);
+    }
+
+    /// <summary>
+    /// Packs compiled modules and binding DLLs into a <c>.coi</c> archive, with a
+    /// per-namespace module mapping (see docs/COI_FORMAT.md). Each value in
+    /// <paramref name="namespaceMap"/> is a set of base names of modules in
+    /// <paramref name="moduleFiles"/> — one namespace may span several modules,
+    /// so each value is a list (a single string is also produced by the older
+    /// single-module overload above).
+    /// </summary>
+    /// <returns>The path the archive was written to.</returns>
+    public static string Pack(
+        string packageName,
+        string version,
+        IEnumerable<string> moduleFiles,
+        IEnumerable<string>? bindingDllPaths,
+        IEnumerable<KeyValuePair<string, List<string>>>? namespaceMap /* namespace -> module base names */,
         string outputPath)
     {
         var modules = moduleFiles.ToList();
@@ -57,15 +83,20 @@ public static class CoiSupport
 
         using var archive = ZipFile.Open(outputPath, ZipArchiveMode.Create);
 
+        var namespaces = namespaceMap
+            ?.Where(kv => !string.IsNullOrEmpty(kv.Key) && kv.Value is { Count: > 0 })
+            .ToDictionary(
+                kv => kv.Key,
+                kv => kv.Value.Select(v => $"{LibDir}/{Path.GetFileName(v)}").ToList(),
+                StringComparer.OrdinalIgnoreCase);
+
         var manifest = new CoiManifest
         {
             Name = packageName,
             Version = version,
             Type = "lib",
             Modules = modules.Select(m => $"{LibDir}/{Path.GetFileName(m)}").ToList(),
-            Namespaces = namespaceMap != null
-                ? new Dictionary<string, string> { { namespaceMap, $"{LibDir}/{Path.GetFileName(modules[0])}" } }
-                : null,
+            Namespaces = namespaces,
             Bindings = bindings.Select(b => $"{BindingsDir}/{Path.GetFileName(b)}").ToList(),
         };
 

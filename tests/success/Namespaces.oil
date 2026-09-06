@@ -1,52 +1,64 @@
 module Program version 1.0.0
 
-class Global {
-    method main() -> int32 {
+class Program {
+    static method Main() -> void {
         local x: int32
 
-        // #line 6:39 "ObjektRT.Stdlib.System.IO.Println("hello from ns");"
-        ldstr "hello from ns"
-        // #line 6:39 "ObjektRT.Stdlib.System.IO.Println("hello from ns");"
-        call ObjektRT.Stdlib.System.IO.Println(object) -> void
-        // #line 6:39 "ObjektRT.Stdlib.System.IO.Println("hello from ns");"
+        // #line 8:34 "__builtin.std.IO.Println("qualified std path");"
+        ldstr "qualified std path"
+        // #line 8:34 "__builtin.std.IO.Println("qualified std path");"
+        call IO.Println(object) -> void
+        // #line 8:34 "__builtin.std.IO.Println("qualified std path");"
         pop
-        // #line 9:16 "IO.Println("short IO after import");"
+        // #line 12:53 "__builtin.ObjektRT.Stdlib.System.IO.Println("qualified clr path");"
+        ldstr "qualified clr path"
+        // #line 12:53 "__builtin.ObjektRT.Stdlib.System.IO.Println("qualified clr path");"
+        call IO.Println(object) -> void
+        // #line 12:53 "__builtin.ObjektRT.Stdlib.System.IO.Println("qualified clr path");"
+        pop
+        // #line 16:24 "std.IO.Println("dotted walk from import");"
+        ldstr "dotted walk from import"
+        // #line 16:24 "std.IO.Println("dotted walk from import");"
+        call IO.Println(object) -> void
+        // #line 16:24 "std.IO.Println("dotted walk from import");"
+        pop
+        // #line 17:44 "ObjektRT.Stdlib.System.IO::Println("scoped dotted from import");"
+        ldstr "scoped dotted from import"
+        // #line 17:44 "ObjektRT.Stdlib.System.IO::Println("scoped dotted from import");"
+        call IO.Println(object) -> void
+        // #line 17:44 "ObjektRT.Stdlib.System.IO::Println("scoped dotted from import");"
+        pop
+        // #line 20:20 "IO.Println("short IO after import");"
         ldstr "short IO after import"
-        // #line 9:16 "IO.Println("short IO after import");"
+        // #line 20:20 "IO.Println("short IO after import");"
         call IO.Println(object) -> void
-        // #line 9:16 "IO.Println("short IO after import");"
+        // #line 20:20 "IO.Println("short IO after import");"
         pop
-        // #line 12:40 "ObjektRT.Stdlib.System.IO::Println("scoped dotted");"
-        ldstr "scoped dotted"
-        // #line 12:40 "ObjektRT.Stdlib.System.IO::Println("scoped dotted");"
-        pop
-        // #line 15:52 "var x: int = ObjektRT.Stdlib.Math.Numbers.Abs(-42);"
+        // #line 21:35 "var x: int = Numbers.Abs(-42);"
         ldc.i4 42
-        // #line 15:52 "var x: int = ObjektRT.Stdlib.Math.Numbers.Abs(-42);"
+        // #line 21:35 "var x: int = Numbers.Abs(-42);"
         neg
-        // #line 15:52 "var x: int = ObjektRT.Stdlib.Math.Numbers.Abs(-42);"
-        call ObjektRT.Stdlib.Math.Numbers.Abs(int32) -> int32
-        // #line 15:52 "var x: int = ObjektRT.Stdlib.Math.Numbers.Abs(-42);"
+        // #line 21:35 "var x: int = Numbers.Abs(-42);"
+        call Math.Abs(int32) -> int32
+        // #line 21:35 "var x: int = Numbers.Abs(-42);"
         stloc x
-        // #line 16:16 "IO.Println(x);"
+        // #line 22:20 "IO.Println(x);"
         ldloc x
-        // #line 16:16 "IO.Println(x);"
+        // #line 22:20 "IO.Println(x);"
         call IO.Println(object) -> void
-        // #line 16:16 "IO.Println(x);"
+        // #line 22:20 "IO.Println(x);"
         pop
-        // #line 17:28 "IO.Println(Numbers.Max(3, 9));"
+        // #line 23:32 "IO.Println(Numbers.Max(3, 9));"
         ldc.i4 3
-        // #line 17:31 "IO.Println(Numbers.Max(3, 9));"
+        // #line 23:35 "IO.Println(Numbers.Max(3, 9));"
         ldc.i4 9
-        // #line 17:31 "IO.Println(Numbers.Max(3, 9));"
-        call ObjektRT.Stdlib.Math.Numbers.Max(int32, int32) -> int32
-        // #line 17:31 "IO.Println(Numbers.Max(3, 9));"
+        // #line 23:35 "IO.Println(Numbers.Max(3, 9));"
+        call Math.Max(int32, int32) -> int32
+        // #line 23:35 "IO.Println(Numbers.Max(3, 9));"
         call IO.Println(object) -> void
-        // #line 17:31 "IO.Println(Numbers.Max(3, 9));"
+        // #line 23:35 "IO.Println(Numbers.Max(3, 9));"
         pop
-        // #line 17:31 "IO.Println(Numbers.Max(3, 9));"
-        ldc.i4 0
-        // #line 17:31 "IO.Println(Numbers.Max(3, 9));"
+        // #line 23:35 "IO.Println(Numbers.Max(3, 9));"
         ret
     }
 }

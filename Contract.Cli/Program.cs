@@ -432,8 +432,6 @@ namespace Contract.Cli
         {
             "IO", "String", "Math", "Convert", "Random", "List", "Dict", "Array",
             "File", "Environment", "GC", "Debug", "Time", "Thread", "Reflect",
-            "ObjektRT.Stdlib.System.IO", "ObjektRT.Stdlib.Math.Numbers",
-            "ObjektRT.Stdlib.Threading.Thread", "ObjektRT.Stdlib.Generics.Array",
         };
 
         /// <summary>Resolves a host runtime type name across loaded assemblies
@@ -710,6 +708,13 @@ Examples:
                     Console.WriteLine();
                 }
             }
+
+            // ── Register installed .coi packages ───────────────────────
+            // Publish the namespace → module maps of every installed package so
+            // `import PkgNs;` resolves during any build mode (their modules are
+            // merged into the output at codegen, so --static and plain builds
+            // embed the library without needing the package present to load).
+            RegisterPackageImports(project.RootPath);
 
             // ── Route to the correct build mode ───────────────────────
             if (project.Projects != null && project.Projects.Count > 0)
@@ -1213,31 +1218,38 @@ Examples:
         }
 
         /// <summary>
-        /// Packs compiled modules and binding DLLs into a .coi package:
+        /// Packs compiled modules (or a project/solution) into a .coi package:
+        /// <c>ccl pack &lt;name.ctproj|dir&gt; [-o out.coi] [--bind dll...]</c> or
         /// <c>ccl pack &lt;name&gt; &lt;module.orbt&gt; [--bind dll] [-o out.coi]</c>.
         /// </summary>
         static int PackPackage(string[] args)
         {
             if (args.Length == 0 || args[0] is "-h" or "--help")
             {
-                Console.WriteLine("Usage: ccl pack <name> <module.orbt> [--bind dll...] [-o out.coi]");
+                Console.WriteLine("Usage: ccl pack <name.ctproj|dir> [--bind dll...] [-o out.coi]");
+                Console.WriteLine("       ccl pack <name> <module.orbt> [--bind dll...] [-o out.coi] [-n namespace]");
                 Console.WriteLine();
-                Console.WriteLine("Packs a compiled Contract module (.orbt/.oil) and its binding");
-                Console.WriteLine("assemblies into a single .coi package.");
+                Console.WriteLine("First form: builds the project (or solution of sub-projects) and");
+                Console.WriteLine("packs every resulting module into a single .coi package. Namespaces");
+                Console.WriteLine("are derived from each sub-project's Namespace field.");
+                Console.WriteLine();
+                Console.WriteLine("Second form: packs already-compiled Contract module(s) (.orbt/.oil)");
+                Console.WriteLine("and their binding assemblies into a single .coi package.");
                 Console.WriteLine();
                 Console.WriteLine("Examples:");
-                Console.WriteLine("  ccl pack MyLib lib/MyLib.orbt                     # no bindings");
+                Console.WriteLine("  ccl pack contract.ctproj                             # pack a solution");
+                Console.WriteLine("  ccl pack MyLib lib/MyLib.orbt                         # no bindings");
                 Console.WriteLine("  ccl pack OwnAudioSharp lib/own.orbt --bind bridge\\OwnAudioSharp.Contract.dll");
                 return 0;
             }
 
-            string packageName = args[0];
-            var modules = new List<string>();
             var binds = new List<string>();
+            var modules = new List<string>();
+            var positional = new List<string>();
             string? output = null;
             string? ns = null;
 
-            for (int i = 1; i < args.Length; i++)
+            for (int i = 0; i < args.Length; i++)
             {
                 switch (args[i])
                 {
@@ -1254,11 +1266,21 @@ Examples:
                         ns = args[i];
                         break;
                     default:
-                        modules.Add(args[i]);
+                        positional.Add(args[i]);
                         break;
                 }
             }
 
+            if (positional.Count == 0) { Error("No package name, project, or compiled module specified."); return 1; }
+
+            // Project pack mode: first positional is a .ctproj settings file or a directory.
+            string first = positional[0];
+            if (first.EndsWith(".ctproj", StringComparison.OrdinalIgnoreCase) || Directory.Exists(first))
+                return PackProject(first, binds, output);
+
+            // Legacy raw module form: first positional is the package name.
+            string packageName = first;
+            modules.AddRange(positional.Skip(1));
             if (modules.Count == 0) { Error("No compiled module specified."); return 1; }
             if (output == null) output = $"{packageName}.coi";
 
@@ -1274,6 +1296,198 @@ Examples:
 
             Console.WriteLine($"Wrote {Path.GetFullPath(output)}");
             return 0;
+        }
+
+        /// <summary>
+        /// Builds a project (or solution of sub-projects) and packs every resulting
+        /// .orbt module into a single .coi package. Namespaces in the manifest are
+        /// derived from each project's Namespace field (falling back to its name).
+        /// </summary>
+        static int PackProject(string settingsPath, List<string> binds, string? output)
+        {
+            Contract.Compiler.ContractProject? project;
+            try { project = Contract.Compiler.ContractProject.Load(settingsPath); }
+            catch (FormatException ex) { Error(ex.Message); return 1; }
+            if (project == null)
+            {
+                Error($"No project found at: {settingsPath}");
+                return 1;
+            }
+
+            string version = project.Version ?? "1.0.0";
+            string outFile = output ?? $"{project.Name}.coi";
+            // One namespace can span several modules (e.g. every ObjektRT.std
+            // sub-module), so each namespace maps to a list of modules.
+            var namespaces = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            List<string> moduleFiles;
+
+            // A project being packed may itself consume installed .coi packages;
+            // register their namespace maps so its imports resolve while building.
+            RegisterPackageImports(project.RootPath);
+
+            try
+            {
+                if (project.Projects is { Count: > 0 })
+                {
+                    // Solution: build sub-projects in dependency order and pack each module.
+                    var result = Contract.Compiler.SolutionBuilder.Build(project, false, null);
+                    if (!result.Success)
+                    {
+                        foreach (var res in result.Projects.Where(p => !p.Success))
+                            Error($"Project '{res.Project.Name}' failed to build.");
+                        Error("Solution build failed.");
+                        return 1;
+                    }
+
+                    moduleFiles = new List<string>();
+                    foreach (var res in result.Projects)
+                    {
+                        moduleFiles.Add(res.OutputPath);
+                        string key = res.Project.Namespace ?? res.Project.Name;
+                        if (string.IsNullOrEmpty(key)) continue;
+                        if (!namespaces.TryGetValue(key, out var list))
+                        {
+                            list = new List<string>();
+                            namespaces[key] = list;
+                        }
+                        string baseName = Path.GetFileName(res.OutputPath);
+                        if (!list.Contains(baseName, StringComparer.OrdinalIgnoreCase))
+                            list.Add(baseName);
+                        // A module under ObjektRT.std.Generics is addressable
+                        // from every ancestor prefix too: `import ObjektRT.std;`
+                        // aggregates the whole compiled subtree (one import
+                        // brings in Debugging, Generics, Memory, Security, …).
+                        foreach (var parent in NamespaceAncestors(key))
+                        {
+                            if (!namespaces.TryGetValue(parent, out var plist))
+                            {
+                                plist = new List<string>();
+                                namespaces[parent] = plist;
+                            }
+                            if (!plist.Contains(baseName, StringComparer.OrdinalIgnoreCase))
+                                plist.Add(baseName);
+                        }
+                    }
+                }
+                else
+                {
+                    // Single project (Main and/or Sources): build one module.
+                    string outDir = project.OutputPath ?? Path.Combine(project.RootPath!, project.Output ?? "bin");
+                    Directory.CreateDirectory(outDir);
+                    string module = BuildProjectModule(project, outDir);
+                    moduleFiles = new List<string> { module };
+                    string key = project.Namespace ?? project.Name;
+                    if (!string.IsNullOrEmpty(key))
+                        namespaces[key] = new List<string> { Path.GetFileName(module) };
+                }
+
+                CoiSupport.Pack(project.Name, version, moduleFiles,
+                    binds.Count > 0 ? binds : null, namespaces, outFile);
+            }
+            catch (Exception ex)
+            {
+                Error(ex.Message);
+                return 1;
+            }
+
+            Console.WriteLine($"Wrote {Path.GetFullPath(outFile)}");
+            return 0;
+        }
+
+        /// <summary>Every dotted ancestor prefix of a namespace
+        /// (<c>ObjektRT.std.Generics</c> → <c>ObjektRT</c>, <c>ObjektRT.std</c>).</summary>
+        static IEnumerable<string> NamespaceAncestors(string ns)
+        {
+            var parts = ns.Split('.');
+            for (int i = 1; i < parts.Length; i++)
+                yield return string.Join(".", parts, 0, i);
+        }
+
+        /// <summary>
+        /// Builds a single project (library or executable) to a binary .orbt module
+        /// in <paramref name="outDir"/> using the compiler pipeline directly. Returns
+        /// the output module path.
+        /// </summary>
+        static string BuildProjectModule(Contract.Compiler.ContractProject project, string outDir)
+        {
+            PreloadNuGetAssemblies(project.RootPath);
+
+            var diagnostics = new Contract.Compiler.Diagnostics.DiagnosticBag();
+            var symbolTable = new Contract.Compiler.StandardLibrary.SymbolTable();
+            Contract.Compiler.StandardLibrary.StdlibCatalog.RegisterInto(symbolTable);
+
+            bool hasMain = project.MainPath != null && File.Exists(project.MainPath);
+            var driver = new Contract.Compiler.CompilerDriver(diagnostics);
+            Contract.Compiler.AST.Program program;
+
+            if (hasMain && project.Sources is { Count: > 0 })
+            {
+                var sourceFiles = new List<string>();
+                foreach (var pattern in project.Sources)
+                    sourceFiles.AddRange(ExpandGlob(project.RootPath!, pattern)
+                        .Where(f => f.EndsWith(".ct", StringComparison.OrdinalIgnoreCase)));
+                program = driver.Compile(project.MainPath!, sourceFiles);
+            }
+            else if (hasMain)
+            {
+                program = driver.Compile(project.MainPath!);
+            }
+            else if (project.Sources is { Count: > 0 })
+            {
+                var sourceFiles = new List<string>();
+                foreach (var pattern in project.Sources)
+                    sourceFiles.AddRange(ExpandGlob(project.RootPath!, pattern)
+                        .Where(f => f.EndsWith(".ct", StringComparison.OrdinalIgnoreCase)));
+                if (sourceFiles.Count == 0)
+                    throw new InvalidOperationException("No source files matched the Sources globs.");
+                program = driver.Compile(sourceFiles, project.RootPath!);
+            }
+            else
+            {
+                throw new InvalidOperationException($"Project '{project.Name}' has no main file and no Sources.");
+            }
+
+            if (diagnostics.HasErrors)
+            {
+                diagnostics.ReportToConsole();
+                throw new InvalidOperationException("Compilation failed.");
+            }
+            diagnostics.ReportWarningsToConsole();
+
+            var analyzer = new Contract.Compiler.Semantics.SemanticAnalyzer(symbolTable, diagnostics,
+                hasMain ? project.MainPath : null, project.IsExecutable);
+            analyzer.Analyze(program);
+            if (diagnostics.HasErrors)
+            {
+                diagnostics.ReportToConsole();
+                throw new InvalidOperationException("Analysis failed.");
+            }
+
+            var codegen = new Contract.Compiler.CodeGen.IRCodeGenerator(diagnostics);
+            codegen.Generate(program);
+            if (diagnostics.HasErrors)
+            {
+                diagnostics.ReportToConsole();
+                throw new InvalidOperationException("Code generation failed.");
+            }
+
+            string? ir = codegen.GetIRText();
+            if (ir == null)
+            {
+                diagnostics.ReportToConsole();
+                throw new InvalidOperationException("No IR was produced.");
+            }
+
+            Directory.CreateDirectory(outDir);
+            string outputBase = project.Name ?? (hasMain ? Path.GetFileNameWithoutExtension(project.Main) : "lib");
+            string outFile = Path.Combine(outDir, outputBase + ".orbt");
+
+            var module = ObjektRT.Core.Parsing.OilFileReader.ParseString(ir);
+            var bytes = new ObjektRT.Core.Serialization.ORBTWriter().WriteModule(module);
+            File.WriteAllBytes(outFile, bytes);
+
+            Console.WriteLine($"[{project.Type}] {project.Name} → {outFile}");
+            return outFile;
         }
 
         /// <summary>

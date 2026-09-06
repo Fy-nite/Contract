@@ -159,7 +159,9 @@ public class SymbolIndex
             Line = nameTok.Line,
             Column = nameTok.Column,
             Length = nameTok.Length,
-            Detail = $"Contract {c.Name}",
+            Detail = string.IsNullOrEmpty(c.FullName) || c.FullName == c.Name
+                ? $"Contract {c.Name}"
+                : $"Contract {c.FullName}",
             Doc = TextUtility.ExtractDocComment(source, c.Line),
             SelectionRange = TextUtility.TokenRange(nameTok),
             ContainerRange = ComputeContainerRange(tokens, nameTok),
@@ -925,11 +927,25 @@ public class SymbolIndex
         }
 
         AddTypes(result, items, sortPrefix: "1");
+        // Bound modules: collapse every __builtin.* registration into the
+        // single reserved root (the tree lives under it, so only `__builtin`
+        // is offered here), and surface single-segment names only — those
+        // come from namespace imports (com.lib → Foo) and are directly
+        // addressable. Deeper segments would be a flat duplicate of the
+        // dotted tree the user walks from `__builtin.`/imported prefixes.
+        var modules = new HashSet<string>(StringComparer.Ordinal);
         foreach (var module in result.SymbolTable.GetBoundClasses())
         {
             if (_contracts.Any(c => c.Name == module)
                 || _structs.Any(s => s.Name == module)
                 || _enums.Any(e => e.Name == module)) continue;
+            if (module.StartsWith("__builtin", StringComparison.Ordinal))
+                modules.Add("__builtin");
+            else if (!module.Contains('.'))
+                modules.Add(module);
+        }
+        foreach (var module in modules)
+        {
             items.Add(new CompletionItem
             {
                 Label = module,
@@ -1175,22 +1191,76 @@ public class SymbolIndex
             return;
         }
 
-        // Namespace-prefix completion: ObjektRT.Stdlib. → System, Math, ...
-        var nextSegments = result.SymbolTable.GetBoundClasses()
-            .Where(full => full.StartsWith(baseName + ".", StringComparison.Ordinal))
-            .Select(full => full.Substring(baseName.Length + 1).Split('.')[0])
-            .Distinct()
+        // Namespace-prefix completion: __builtin. → std, ObjektRT;
+        // __builtin.std. → IO, Math, ...; ObjektRT. → std, Core;
+        // ObjektRT.std. → Generics, Memory, Security, Hash, Vector2, ...
+        // Walking both the bound __builtin registrations and declarations from
+        // compiled-package modules (their wire names carry real namespaces).
+        var fullNames = result.SymbolTable.GetBoundClasses()
+            .Concat(_contracts.Select(c => c.FullName))
+            .Concat(_structs.Select(s => s.FullName))
+            .Concat(_enums.Select(e => e.FullName))
+            .Where(n => n != null)
+            .Select(n => n!)
             .ToList();
+        var nextSegments = new List<string>();
+        foreach (var full in fullNames)
+        {
+            var seg = NextNamespaceSegment(full, baseName);
+            if (seg != null && !nextSegments.Contains(seg, StringComparer.OrdinalIgnoreCase))
+                nextSegments.Add(seg);
+        }
+        nextSegments.Sort(StringComparer.OrdinalIgnoreCase);
         if (nextSegments.Count > 0)
         {
-            foreach (var seg in nextSegments)
-                items.Add(new CompletionItem
+            // A dotted prefix is a namespace when something lives under it;
+            // otherwise it names the type itself (contract/struct/enum), so
+            // label kinds follow.
+            var prefixSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var full in fullNames)
+            {
+                var dots = full.IndexOf('.');
+                while (dots > 0)
                 {
-                    Label = seg,
-                    Kind = CompletionItemKind.Module,
-                    Detail = "namespace",
-                    SortText = "4" + seg,
-                });
+                    prefixSet.Add(full.Substring(0, dots));
+                    var next = full.IndexOf('.', dots + 1);
+                    if (next < 0) break;
+                    dots = next;
+                }
+            }
+            foreach (var seg in nextSegments)
+            {
+                var leaf = baseName + "." + seg;
+                var leafSym = _contracts.FirstOrDefault(c => string.Equals(c.FullName, leaf, StringComparison.OrdinalIgnoreCase));
+                leafSym ??= _structs.FirstOrDefault(s => string.Equals(s.FullName, leaf, StringComparison.OrdinalIgnoreCase));
+                leafSym ??= _enums.FirstOrDefault(e => string.Equals(e.FullName, leaf, StringComparison.OrdinalIgnoreCase));
+                if (leafSym != null && !prefixSet.Contains(leaf))
+                {
+                    int kind = leafSym.Category switch
+                    {
+                        SymbolCategory.Struct => CompletionItemKind.Struct,
+                        SymbolCategory.Enum => CompletionItemKind.Enum,
+                        _ => CompletionItemKind.Class,
+                    };
+                    items.Add(new CompletionItem
+                    {
+                        Label = seg,
+                        Kind = kind,
+                        Detail = leafSym.FullName,
+                        SortText = "4" + seg,
+                    });
+                }
+                else
+                {
+                    items.Add(new CompletionItem
+                    {
+                        Label = seg,
+                        Kind = CompletionItemKind.Module,
+                        Detail = "namespace",
+                        SortText = "4" + seg,
+                    });
+                }
+            }
             return;
         }
 
@@ -1248,6 +1318,23 @@ public class SymbolIndex
         }
         path = string.Join(".", segments);
         return true;
+    }
+
+    /// <summary>The verbatim next dotted segment of <paramref name="full"/>
+    /// after the <paramref name="baseName"/> segments (compared
+    /// case-insensitively, matching the namespace resolver — so namespace
+    /// fields like <c>ObjektRT.Std</c> still complete under <c>ObjektRT.std.</c>),
+    /// or null when the full name is not under that base.</summary>
+    private static string? NextNamespaceSegment(string full, string baseName)
+    {
+        var baseSegs = baseName.Split('.');
+        var fullSegs = full.Split('.');
+        for (int i = 0; i < baseSegs.Length; i++)
+        {
+            if (i >= fullSegs.Length) return null;
+            if (!string.Equals(baseSegs[i], fullSegs[i], StringComparison.OrdinalIgnoreCase)) return null;
+        }
+        return fullSegs.Length > baseSegs.Length ? fullSegs[baseSegs.Length] : null;
     }
 
     private static CompletionItem SymbolCompletion(SymbolInfo s)

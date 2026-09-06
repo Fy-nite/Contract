@@ -10,7 +10,7 @@ with compile-time exhaustive checking, §3 if-as-expression, §5 for-in
 iteration (parenthesized headers: `for (x in xs)`, `for (k, v in d)`),
 §6 interfaces via contract multiple inheritance (no new keyword), and
 §7 List.Map/Filter/Reduce. Builtin modules are no longer implicitly global —
-they live under a reserved `__builtin.std.` root reachable by import or full
+they live under a reserved `__builtin.` root reachable by import or full
 qualification, and user contracts shadow same-named builtins. See
 tests/success for working programs.
 

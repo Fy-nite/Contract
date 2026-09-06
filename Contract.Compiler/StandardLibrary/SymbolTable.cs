@@ -61,7 +61,7 @@ namespace Contract.Compiler.StandardLibrary
         private readonly HashSet<string> _usedImports = new();
 
         /// <summary>
-        /// Imports a namespace (e.g. "ObjektRT.Stdlib.System") so its modules
+        /// Imports a namespace (e.g. "__builtin") so its modules
         /// become addressable by their short, last-segment name ("IO").
         /// </summary>
         public void ImportNamespace(string ns)
@@ -91,8 +91,8 @@ namespace Contract.Compiler.StandardLibrary
         /// Registers a CLR type's public static methods as an external module
         /// under the given (possibly dotted) lookup key. The WIRE name used in
         /// emitted call targets comes from the type's [ClassBinding] name when
-        /// present ("__builtin.std.IO" and "ObjektRT.Stdlib.System.IO" both
-        /// emit <c>call IO.Println</c>, matching the host bindings), falling
+        /// present ("__builtin.std.IO" emits <c>call IO.Println</c>, matching the
+        /// host bindings), falling
         /// back to the key's last segment. Nothing is implicitly global: short
         /// names resolve only through a namespace import, fully-qualified
         /// spellings resolve anywhere.
@@ -190,14 +190,13 @@ namespace Contract.Compiler.StandardLibrary
         /// <summary>Resolves a possibly-short module name to its fully-registered name (honoring namespace imports).</summary>
         private string? ResolveModuleName(string className)
         {
-            // Dotted names are already fully qualified.
-            if (className.Contains('.'))
-                return _externalBindings.ContainsKey(className) ? className : null;
-
             // Imported namespaces take priority over root exact matches, so
-            // `import ObjektRT.Stdlib.System; IO.Println(...)` calls the
-            // stdlib IO, not a same-named root module. Resolution through an
-            // import is recorded so unused imports can be flagged.
+            // `import __builtin; std.IO.Println(...)` resolves `std.IO` to
+            // `__builtin.std.IO` — each dotted segment is a real nested
+            // namespace under the import. The fully-qualified dotted spine
+            // (`__builtin.std.IO`) also resolves through an `import __builtin;`
+            // the same way, keeping the reserved root addressable. Resolution
+            // through an import is recorded so unused imports can be flagged.
             foreach (var ns in _importedNamespaces)
             {
                 string candidate = $"{ns}.{className}";

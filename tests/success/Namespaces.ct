@@ -1,22 +1,25 @@
-import ObjektRT.Stdlib.System;
-import ObjektRT.Stdlib.Math;
+import __builtin;
+import __builtin.std;
+import __builtin.ObjektRT.Stdlib.Math;
 
 Contract Program {
     static fn Main() {
-        // Fully-qualified dotted module access.
-        ObjektRT.Stdlib.System.IO.Println("hello from ns");
+        // Fully-qualified dotted module access through the std group.
+        __builtin.std.IO.Println("qualified std path");
 
-        // Short name after namespace import.
+        // Fully-qualified through the real CLR namespace path, mirrored
+        // under the reserved __builtin root.
+        __builtin.ObjektRT.Stdlib.System.IO.Println("qualified clr path");
+
+        // `import __builtin;` makes the std and ObjektRT subtrees
+        // addressable so dotted spines can be walked from them.
+        std.IO.Println("dotted walk from import");
+        ObjektRT.Stdlib.System.IO::Println("scoped dotted from import");
+
+        // Short names after importing the std group / a real namespace.
         IO.Println("short IO after import");
-
-        // Dotted scoped access.
-        ObjektRT.Stdlib.System.IO::Println("scoped dotted");
-
-        // Dotted math module.
-        var x: int = ObjektRT.Stdlib.Math.Numbers.Abs(-42);
+        var x: int = Numbers.Abs(-42);
         IO.Println(x);
-
-        // Short math name after import.
         IO.Println(Numbers.Max(3, 9));
     }
 }

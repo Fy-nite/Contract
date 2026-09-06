@@ -62,10 +62,14 @@ OwnAudioSharp.coi
     "lib/OwnAudioSharp.Extra.orbt"
   ],
 
-  // Name-to-path mapping of the namespaces this package exposes, so `import
-  // OwnAudioSharp;` resolves to the right compiled module without guessing.
+  // Name-to-module mapping of the namespaces this package exposes, so `import
+  // OwnAudioSharp;` resolves to the right compiled modules without guessing.
+  // One namespace can span several modules (e.g. every ObjektRT.std sub-module),
+  // so each value is an ARRAY; reading one imports the whole namespace tree
+  // (Java `import pkg.*` style). A single string is still accepted for packages
+  // written by older tooling.
   "namespaces": {
-    "OwnAudioSharp": "lib/OwnAudioSharp.orbt"
+    "OwnAudioSharp": ["lib/OwnAudioSharp.orbt", "lib/OwnAudioSharp.Extra.orbt"]
   },
 
   // Managed assemblies to auto-register as binding assemblies. Every
@@ -90,7 +94,7 @@ OwnAudioSharp.coi
 | `version` | string | yes | Semver version of the package. |
 | `type` | string | no | `"lib"` (default). Reserved for future `"exe"`. |
 | `modules` | string[] | yes | Archive-relative compiled modules to link in. |
-| `namespaces` | object | no | Maps an imported namespace to a module path inside the archive. |
+| `namespaces` | object | no | Maps an imported namespace to one or more module paths (string or string[]) inside the archive; each value's modules all load on one `import`. |
 | `bindings` | string[] | no | Archive-relative managed assemblies to auto-register. |
 | `dependencies` | object | no | Transitive `.coi` dependencies (name → version range). |
 
@@ -113,6 +117,17 @@ Given a `lib` `contract.ctproj` (or a source `.ct` file), `ccl pack`:
    - native assets from `runtimes/<rid>/native` trees — the same flattening the
      bundler already does in `BundleDriver`.
 4. Zips `manifest.json` + `lib/*` + `bindings/*` into `out.coi`.
+
+When `<project>` is a **solution** ctproj (one with a `Projects` array), `ccl pack`
+builds every sub-project in dependency order and packs each produced `.orbt` into a
+single archive. The `namespaces` map is then derived per sub-project from its
+`Namespace` field (falling back to the project name), so all the solution's
+namespaces resolve from one installed package. Each module is also mapped to every
+dotted ancestor prefix of its namespace, so `import ObjektRT.std;` aggregates the
+whole compiled package tree (every module under `ObjektRT.std.*` loads on that one
+import). The import resolver likewise aggregates registered compiled sub-namespaces
+when resolving an import, so older/hand-built manifests that list each namespace
+explicitly behave the same.
 
 The result is a self-contained artifact: a consumer needs only the one file.
 

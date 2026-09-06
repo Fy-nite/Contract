@@ -1653,10 +1653,15 @@ Notes:
 
 The standard library modules below are implemented in the generic
 **`ObjektRT.Stdlib`** project (the official ObjektRT stdlib) — they contain no
-Contract-specific code. The Contract compiler and runtime bind them under
-their short names (`IO.Println`, `String.Length`, ...) and their
-fully-qualified names (`ObjektRT.Stdlib.System.IO.Println`, ...), so both
-forms work. The one Contract-specific binding, `Reflect`, is hosted by
+Contract-specific code. The Contract compiler and runtime bind them under the
+reserved `__builtin` root: the `__builtin.std` group exposes every module by
+its short name (`__builtin.std.IO.Println`, `__builtin.std.String.Length`, ...)
+and the real CLR namespaces mirror under it
+(`__builtin.ObjektRT.Stdlib.System.IO.Println`, ...). Importing a subtree
+grants its module short names: `import __builtin.std;` gives `IO`, `String`,
+..., and `import __builtin.ObjektRT.Stdlib.System;` gives the modules of that
+one namespace. `import __builtin;` makes both `std` and `ObjektRT` addressable
+for dotted access. The one Contract-specific binding, `Reflect`, is hosted by
 `Contract.Runtime`.
 
 ### Memory Module

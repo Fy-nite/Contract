@@ -4,9 +4,13 @@
 
 Contract Qualified {
     static fn Main() {
-        __builtin.std.IO.Println("qualified, no import");
+        // The std group holds every module by its binding name.
+        __builtin.std.IO.Println("qualified std, no import");
 
-        // Dotted spine through the real namespace spelling too.
-        ObjektRT.Stdlib.System.IO.Println("namespace-spelled, no import");
+        // The real CLR namespace path mirrors under __builtin too.
+        __builtin.ObjektRT.Stdlib.System.IO.Println("qualified clr path, no import");
+
+        // Short name still needs the import; fully-qualified does not.
+        __builtin.std.Math.Min(3, 9);
     }
 }

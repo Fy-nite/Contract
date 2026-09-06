@@ -55,7 +55,7 @@ namespace Contract.Cli
                 if (!diagnostics.HasErrors)
                 {
                     var symbolTable = new SymbolTable();
-                    // Builtins live under the reserved __builtin.std root.
+                    // Builtins live under the reserved __builtin root.
                     StdlibCatalog.RegisterInto(symbolTable);
                     var analyzer = new SemanticAnalyzer(symbolTable, diagnostics, path);
                     analyzer.Analyze(program);

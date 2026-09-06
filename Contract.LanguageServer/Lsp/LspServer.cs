@@ -27,6 +27,16 @@ public class LspServer
     private JsonRpcServer? _rpc;
     private bool _shutdownRequested;
 
+    /// <summary>Project root discovered at initialize (walks up to the nearest
+    /// <c>contract.ctproj</c>). Used to re-register installed packages.</summary>
+    private string? _projectRoot;
+    private DateTime _lastPackageScanUtc;
+
+    /// <summary>Workspace root directories from initialize (rootUri/rootPath or
+    /// <c>workspaceFolders</c>). The project may live in a subfolder of a
+    /// multi-project workspace root, so these are extra fallback candidates.</summary>
+    private readonly List<string> _workspaceRoots = new();
+
     public LspServer()
     {
         _compiler = new CompilationService(_store);
@@ -109,19 +119,90 @@ public class LspServer
         return null;
     }
 
+    /// <summary>
+    /// Re-registers the installed <c>.coi</c> packages when the project's
+    /// <c>.purr/packages</c> tree changes — so a package installed (or removed)
+    /// while the server is already running is picked up without a restart.
+    /// Cost is one directory walk; the namespace/binding registration itself is
+    /// idempotent, so this just re-runs it when the packages tree changed.
+    /// The project root is re-derived from the document being compiled first:
+    /// a workspace opened above the project (or a multi-root workspace) still
+    /// discovers the nearest <c>contract.ctproj</c> walking up from the file.
+    /// </summary>
+    private void RefreshProjectPackages(Document? doc)
+    {
+        // Resolve the project root: walk up from the document (most precise),
+        // then fall back to the initialized project/workspace roots.
+        string? candidate = null;
+        if (doc?.Path != null && File.Exists(doc.Path))
+            candidate = FindProjectRoot(GetDirectoryNameOrRoot(doc.Path));
+        if (candidate == null) candidate = _projectRoot;
+        if (candidate == null)
+        {
+            foreach (var wsRoot in _workspaceRoots)
+            {
+                candidate = FindProjectRoot(wsRoot);
+                if (candidate != null) break;
+            }
+        }
+        if (candidate == null) return;
+
+        try
+        {
+            string packagesDir = Path.Combine(candidate, ".purr", "packages");
+            DateTime newest = !Directory.Exists(packagesDir)
+                ? DateTime.MinValue
+                : Directory.GetLastWriteTimeUtc(packagesDir);
+            if (Directory.Exists(packagesDir))
+            {
+                foreach (var dir in Directory.GetDirectories(packagesDir))
+                {
+                    DateTime t = Directory.GetLastWriteTimeUtc(dir);
+                    if (t > newest) newest = t;
+                }
+            }
+            if (newest != DateTime.MinValue && newest <= _lastPackageScanUtc)
+                return; // unchanged since last scan
+
+            _lastPackageScanUtc = newest;
+            _projectRoot = candidate;
+            RegisterProjectPackages(candidate);
+        }
+        catch (Exception)
+        {
+            // Never take down the server on a malformed packages tree.
+        }
+    }
+
+    private static string GetDirectoryNameOrRoot(string path)
+    {
+        try
+        {
+            string? dir = Path.GetDirectoryName(path);
+            return !string.IsNullOrEmpty(dir) ? dir : path;
+        }
+        catch
+        {
+            return path;
+        }
+    }
+
     // ── Lifecycle ────────────────────────────────────────────────────────────
 
     private Task<object?> Initialize(JsonElement rootParams, CancellationToken _2)
     {
-        // Read the workspace root so we can discover the project's installed
+        // Read the workspace root(s) so we can discover the project's installed
         // .coi packages and register their namespaces/bindings before documents
-        // open (contract.ctproj + .purr/packages).
+        // open (contract.ctproj + .purr/packages). Clients vary: some send
+        // rootUri/rootPath, others only workspaceFolders — handle all three.
+        string? rootPath = null;
         if (rootParams.TryGetProperty("rootUri", out var rootUriElem)
             && rootUriElem.ValueKind == JsonValueKind.String
             && rootUriElem.GetString() is string rootUri
-            && TextUtility.UriToPath(rootUri) is string rootPath
-            && Directory.Exists(rootPath))
+            && TextUtility.UriToPath(rootUri) is string rootUriPath
+            && Directory.Exists(rootUriPath))
         {
+            rootPath = rootUriPath;
             RegisterProjectPackages(rootPath);
         }
         else if (rootParams.TryGetProperty("rootPath", out var rootPathElem)
@@ -129,8 +210,35 @@ public class LspServer
             && rootPathElem.GetString() is string rootPathStr
             && Directory.Exists(rootPathStr))
         {
-            RegisterProjectPackages(rootPathStr);
+            rootPath = rootPathStr;
+            RegisterProjectPackages(rootPath);
         }
+
+        if (rootParams.TryGetProperty("workspaceFolders", out var foldersElem)
+            && foldersElem.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var folderEl in foldersElem.EnumerateArray())
+            {
+                if (folderEl.TryGetProperty("uri", out var uriEl)
+                    && uriEl.ValueKind == JsonValueKind.String
+                    && uriEl.GetString() is string folderUri
+                    && TextUtility.UriToPath(folderUri) is string folderPath
+                    && Directory.Exists(folderPath))
+                {
+                    _workspaceRoots.Add(folderPath);
+                    RegisterProjectPackages(folderPath);
+                }
+            }
+        }
+        else if (rootPath != null)
+        {
+            _workspaceRoots.Add(rootPath);
+        }
+
+        // Remember the resolved project root so installed-package changes (a
+        // `ccl install foo.coi` run while the server is up) can be re-registered.
+        if (rootPath != null && _projectRoot == null)
+            _projectRoot = FindProjectRoot(rootPath);
 
         var result = new InitializeResult
         {
@@ -225,6 +333,9 @@ public class LspServer
     private async Task CompileAndPublishAsync(Document? doc)
     {
         if (doc == null || _rpc == null) return;
+
+        // A package may have been installed/removed since the last compile.
+        RefreshProjectPackages(doc);
 
         CompilationResult result;
         try

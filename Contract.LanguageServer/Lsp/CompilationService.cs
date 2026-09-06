@@ -74,7 +74,7 @@ public class CompilationService
     {
         var diagnostics = new DiagnosticBag { SourceCode = doc.Text };
         var symbolTable = new SymbolTable();
-        // Builtins live under the reserved __builtin.std root (import or
+        // Builtins live under the reserved __builtin root (import or
         // fully qualify); Reflect is registered there too.
         StdlibCatalog.RegisterInto(symbolTable);
         // Custom host bindings the client registered (Crituque's Ui/Host/Window).
@@ -226,13 +226,17 @@ public class ProgramLoader
 
         // Namespace imports (`import ovh.finite.hello.Terminal;`) also map to
         // files by location (dots → directory separators), Python-style.
-        // Stdlib-only namespace imports have no file — that's fine, they still
-        // register for name resolution.
+        // A namespace may span several files/modules (a .coi package maps one
+        // namespace to a whole module tree, Java `import pkg.*`-style), so every
+        // module that populates it is loaded. Stdlib-only namespace imports have
+        // no file — that's fine, they still register for name resolution.
         foreach (var ns in file.Program.NamespaceImports)
         {
-            string? nsFile = Contract.Compiler.ImportResolver.ResolveNamespace(ns, normalized, ExtraSearchRoots());
-            if (nsFile == null) continue;
-            LoadPath(nsFile, null);
+            foreach (string nsFile in Contract.Compiler.ImportResolver.ResolveNamespaceFiles(ns, normalized, ExtraSearchRoots()))
+            {
+                if (!File.Exists(nsFile)) continue;
+                LoadPath(nsFile, null);
+            }
         }
     }
 

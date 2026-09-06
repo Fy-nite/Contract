@@ -33,8 +33,16 @@ namespace Contract.Compiler
         /// <summary>Archive-relative compiled module paths to link in.</summary>
         public List<string> Modules { get; set; } = new();
 
-        /// <summary>Maps an imported namespace to an archive-relative module path.</summary>
-        public Dictionary<string, string>? Namespaces { get; set; }
+        /// <summary>
+        /// Maps an imported namespace to the archive-relative module paths that
+        /// back it. One namespace may span several modules (e.g. every stdlib
+        /// sub-module under <c>ObjektRT.std</c>), so each value is a list;
+        /// a single string is still accepted for packages written by older
+        /// tooling. Reading one is like <c>import java.util.*;</c> — the whole
+        /// namespace subtree resolves.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonConverter(typeof(NamespaceMapConverter))]
+        public Dictionary<string, List<string>>? Namespaces { get; set; }
 
         /// <summary>Archive-relative managed assemblies to auto-register as bindings.</summary>
         public List<string> Bindings { get; set; } = new();
@@ -168,6 +176,65 @@ namespace Contract.Compiler
     }
 
     /// <summary>
+    /// Reads/writes the manifest <c>namespaces</c> map. Values are written as
+    /// arrays; a single string (older manifests) is accepted on read.
+    /// </summary>
+    public sealed class NamespaceMapConverter
+        : System.Text.Json.Serialization.JsonConverter<Dictionary<string, List<string>>?>
+    {
+        public override Dictionary<string, List<string>>? Read(ref System.Text.Json.Utf8JsonReader reader, Type type, JsonSerializerOptions options)
+        {
+            if (reader.TokenType == System.Text.Json.JsonTokenType.Null)
+                return null;
+            if (reader.TokenType != System.Text.Json.JsonTokenType.StartObject)
+                throw new JsonException("Expected an object for 'namespaces'.");
+
+            var map = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            while (reader.Read())
+            {
+                if (reader.TokenType == System.Text.Json.JsonTokenType.EndObject) return map;
+                if (reader.TokenType != System.Text.Json.JsonTokenType.PropertyName)
+                    continue;
+                string ns = reader.GetString() ?? "";
+                reader.Read();
+                var list = new List<string>();
+                switch (reader.TokenType)
+                {
+                    case System.Text.Json.JsonTokenType.String:
+                        list.Add(reader.GetString() ?? "");
+                        break;
+                    case System.Text.Json.JsonTokenType.StartArray:
+                        while (reader.Read() && reader.TokenType != System.Text.Json.JsonTokenType.EndArray)
+                        {
+                            if (reader.TokenType == System.Text.Json.JsonTokenType.String)
+                                list.Add(reader.GetString() ?? "");
+                        }
+                        break;
+                }
+                map[ns] = list;
+            }
+            return map;
+        }
+
+        public override void Write(System.Text.Json.Utf8JsonWriter writer, Dictionary<string, List<string>>? value, JsonSerializerOptions options)
+        {
+            writer.WriteStartObject();
+            if (value != null)
+            {
+                foreach (var (ns, paths) in value)
+                {
+                    writer.WritePropertyName(ns);
+                    writer.WriteStartArray();
+                    foreach (var p in paths ?? new List<string>())
+                        writer.WriteStringValue(p);
+                    writer.WriteEndArray();
+                }
+            }
+            writer.WriteEndObject();
+        }
+    }
+
+    /// <summary>
     /// Discovers installed <c>.coi</c> packages under a project's
     /// <c>.purr/packages/</c> directory and registers their compiled-namespace
     /// maps so <c>import PkgNs;</c> resolves to the package's compiled module,
@@ -195,10 +262,13 @@ namespace Contract.Compiler
 
                 if (manifest.Namespaces != null)
                 {
-                    foreach (var (ns, modPath) in manifest.Namespaces)
+                    foreach (var (ns, modPaths) in manifest.Namespaces)
                     {
-                        string abs = System.IO.Path.Combine(pkgDir, modPath.Replace('/', System.IO.Path.DirectorySeparatorChar));
-                        if (System.IO.File.Exists(abs)) ImportResolver.RegisterCompiledNamespace(ns, abs);
+                        foreach (var modPath in modPaths ?? new List<string>())
+                        {
+                            string abs = System.IO.Path.Combine(pkgDir, modPath.Replace('/', System.IO.Path.DirectorySeparatorChar));
+                            if (System.IO.File.Exists(abs)) ImportResolver.RegisterCompiledNamespace(ns, abs);
+                        }
                     }
                 }
 

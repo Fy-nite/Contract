@@ -74,12 +74,12 @@ ccl new <name> [--type exe|lib]   scaffold a project (`ccl build` to build it)
   whenever you touch the compiler or CLI.
 - Commit messages: conventional type prefixes (`feat:`, `fix:`, `chore:`,
   `docs:`) are used and encouraged.
-- Builtin modules (`__builtin.std.*`) are never implicitly global - they must
+- Builtin modules (`__builtin.*`) are never implicitly global - they must
   be imported or fully qualified. User contracts shadow same-named builtins.
 - See `CONTRIBUTING.md` for the full contributing and changelog/release
   workflow.
 
 ## Keys to keep in mind
 
-- Builtins register under the reserved `__builtin.std` root at analysis time
+- Builtins register under the reserved `__builtin` root at analysis time
   (`StdlibCatalog.RegisterInto`).

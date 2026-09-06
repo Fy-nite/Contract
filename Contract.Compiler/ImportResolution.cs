@@ -36,15 +36,18 @@ namespace Contract.Compiler
         // multi-library build scanning the same roots repeatedly does not re-read.
         private static readonly Dictionary<string, string?> s_namespaceCache = new(StringComparer.OrdinalIgnoreCase);
 
-        // Maps a dotted namespace directly to a compiled module (.orbt/.oil)
-        // provided by an installed .coi package. Consulted ahead of path-based
-        // resolution so `import OwnAudioSharp;` finds the compiled module inside
-        // the package even though there is no OwnAudioSharp.ct file.
-        private static readonly Dictionary<string, string> s_compiledNamespaces = new(StringComparer.OrdinalIgnoreCase);
+        // Maps a dotted namespace to the compiled modules (.orbt/.oil) provided by an
+        // installed .coi package. One namespace can span several modules — e.g. every
+        // stdlib sub-module under `ObjektRT.std` — so the value is a list and reading
+        // it merges the whole namespace tree, Java `import pkg.*`-style. Consulted
+        // ahead of path-based resolution so `import OwnAudioSharp;` finds the compiled
+        // modules inside the package even though there is no OwnAudioSharp.ct file.
+        private static readonly Dictionary<string, List<string>> s_compiledNamespaces = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>Registers a dotted namespace → compiled module file mapping
         /// (used by installed <c>.coi</c> packages). Compiles to the fully
-        /// qualified path so a <c>import</c> of that namespace returns the module.</summary>
+        /// qualified path so a <c>import</c> of that namespace returns the module.
+        /// Repeated registration of the same file is a no-op.</summary>
         public static void RegisterCompiledNamespace(string ns, string moduleFile)
         {
             if (string.IsNullOrWhiteSpace(ns)) return;
@@ -53,16 +56,46 @@ namespace Contract.Compiler
             catch { abs = moduleFile; }
             lock (s_compiledNamespaces)
             {
-                s_compiledNamespaces[ns] = abs;
+                if (!s_compiledNamespaces.TryGetValue(ns, out var list))
+                {
+                    list = new List<string>();
+                    s_compiledNamespaces[ns] = list;
+                }
+                if (!list.Contains(abs, StringComparer.OrdinalIgnoreCase))
+                    list.Add(abs);
             }
         }
 
-        /// <summary>Resolves a registered compiled-module namespace, or null.</summary>
+        /// <summary>Resolves a registered compiled-module namespace, or null.
+        /// Returns the first still-existing module for single-file consumers that
+        /// only need one path. Sub-namespaces are aggregated, matching
+        /// <see cref="TryResolveCompiledModules"/>.</summary>
         public static string? TryResolveCompiledNamespace(string ns)
+        {
+            var modules = TryResolveCompiledModules(ns);
+            return modules.Count > 0 ? modules[0] : null;
+        }
+
+        /// <summary>Every registered compiled module backing <paramref name="ns"/>
+        /// (deterministic path order), or an empty set when none are registered.
+        /// A namespace import also aggregates the compiled modules registered
+        /// under any sub-namespace (<c>import ObjektRT.std</c> pulls in modules
+        /// from <c>ObjektRT.std.Generics</c>, <c>ObjektRT.std.Debugging</c>, …),
+        /// so one import brings in the whole compiled package tree.</summary>
+        public static IReadOnlyList<string> TryResolveCompiledModules(string ns)
         {
             lock (s_compiledNamespaces)
             {
-                return s_compiledNamespaces.TryGetValue(ns, out var p) && File.Exists(p) ? p : null;
+                var existing = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (key, list) in s_compiledNamespaces)
+                {
+                    if (!key.Equals(ns, StringComparison.OrdinalIgnoreCase)
+                        && !key.StartsWith(ns + ".", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    foreach (var p in list)
+                        if (File.Exists(p)) existing[p] = true;
+                }
+                return existing.Keys.OrderBy(p => p, StringComparer.Ordinal).ToList();
             }
         }
 
@@ -95,8 +128,8 @@ namespace Contract.Compiler
             // namespace imports don't require a type-named file: find the
             // source that DECLARES this namespace, by content. Only the
             // implicit bootstrap namespace (__builtin.*) and the pure runtime
-            // .NET namespaces (System.*) are never source-located; ObjektRT.*,
-            // std.* and any user/library namespaces are genuine source
+            // .NET namespaces (System.*) are never source-located; ObjektRT.*
+            // and any user/library namespaces are genuine source
             // namespaces and are scanned by content so files like ManagedPtr.ct
             // (declaring `namespace ObjektRT.std.Memory;`) resolve on name.
             return IsRuntimeBindingNamespace(ns)
@@ -181,11 +214,15 @@ namespace Contract.Compiler
         /// </summary>
         public static IEnumerable<string> ResolveNamespaceFiles(string ns, string importingFile, IEnumerable<string> extraSearchRoots)
         {
-            // An installed .coi package maps the whole namespace to one module.
-            string? compiled = TryResolveCompiledNamespace(ns);
-            if (compiled != null)
+            // An installed .coi package maps the namespace to one or more
+            // compiled modules; a single import brings in the whole tree
+            // (Java `import pkg.*`-style), so every module is yielded.
+            var allCompiled = TryResolveCompiledModules(ns);
+            if (allCompiled.Count > 0)
             {
-                yield return compiled;
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var m in allCompiled)
+                    if (seen.Add(m)) yield return m;
                 yield break;
             }
 

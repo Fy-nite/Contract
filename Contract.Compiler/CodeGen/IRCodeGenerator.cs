@@ -806,6 +806,38 @@ public class IRCodeGenerator
         return "TODO_DYNAMIC_TYPE";
     }
 
+    /// <summary>
+    /// True when evaluating <paramref name="recv"/> yields an array value. Used to
+    /// keep `arr.Length` / `arr.Count` as a len opcode even when the chain's
+    /// declaring contract is shadow-bound (a user contract named like the builtin
+    /// List), which would otherwise fall into the shadow-field call fallback and
+    /// emit `List.Count` on the array value.
+    /// </summary>
+    private bool IsArrayReceiver(Expression recv)
+    {
+        switch (recv)
+        {
+            case IdentifierExpression id:
+                return _variableTypes.TryGetValue(id.Name, out var varType)
+                    && varType is TypeDescriptor.ArrayOf;
+            case MemberExpression mem:
+            {
+                var owner = ResolveExpressionObjectType(mem.Object);
+                if (string.IsNullOrEmpty(owner) || owner == "TODO_DYNAMIC_TYPE") return false;
+                var fieldType = FindFieldType(owner, mem.Property);
+                return fieldType != null && fieldType.Name.EndsWith("[]", StringComparison.Ordinal);
+            }
+            case CallExpression call:
+                if (call.Symbol is FunctionDeclaration arrFn && arrFn.ReturnType is TypeDescriptor.ArrayOf)
+                    return true;
+                if (call.Symbol is ExternalMethod arrEm && arrEm.Info.ReturnType != null && arrEm.Info.ReturnType.IsArray)
+                    return true;
+                return false;
+            default:
+                return false;
+        }
+    }
+
     /// <summary>The resolved wire type name of a field declared on a contract or
     /// struct type (short or qualified), walking the base chain for contracts.
     /// Returns the field's TYPE (for nested member chains), or null when the
@@ -2941,6 +2973,17 @@ public class IRCodeGenerator
                             : TypeRef.Object;
                         ib.Call(new MethodReference(
                             new TypeRef(ResolveTypeName(sumOwner.FullName)), mem.Property, fRet, new List<TypeRef>()));
+                        break;
+                    }
+                    // Array length accesses (`arr.Length` / `arr.Count`) must stay
+                    // a len opcode even when the chain's declaring contract is
+                    // shadow-bound (a user contract named like the builtin List):
+                    // the shadow fallback below would otherwise emit a
+                    // `<wire>.Count(object)` call against the pushed ARRAY value.
+                    if (mem.Property is "Length" or "Count" && IsArrayReceiver(mem.Object))
+                    {
+                        GenerateExpression(ib, mem.Object, paramMap);
+                        ib.Ldlen();
                         break;
                     }
                     GenerateExpression(ib, mem.Object, paramMap);

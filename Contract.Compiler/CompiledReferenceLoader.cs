@@ -115,7 +115,17 @@ public static class CompiledReferenceLoader
             {
                 var c = new ConstructorDeclaration(1, 1);
                 foreach (var p in ctor.Parameters)
+                {
+                    // Instance methods carry an implicit `this` as the first
+                    // parameter in the wire format (e.g. `this: object`); so do
+                    // constructors. The Contract analyzer models `this` via the
+                    // declaration, not as an explicit parameter, so skip it to
+                    // keep call-site arity correct (`new Foo(3, 4)` is 2 args,
+                    // not 3).
+                    if (p.Name == "this")
+                        continue;
                     c.Parameters.Add(new Parameter(p.Name, TypeDescriptor.Parse(WireToLanguageType(p.ParameterType.Name)), 1, 1));
+                }
                 contract.Constructors.Add(c);
             }
             foreach (var m in cls.Methods)

@@ -1,5 +1,5 @@
 // Shadowing: a user-declared contract replaces a same-named builtin module,
-// whether or not __builtin.std is imported — that is what keeps the door
+// whether or not __builtin is imported — that is what keeps the door
 // open for a stdlib written in Contract itself.
 
 import __builtin.std;
