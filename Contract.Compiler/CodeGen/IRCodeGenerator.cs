@@ -510,6 +510,9 @@ public class IRCodeGenerator
         var savedThisIndex = _thisArgIndex;
         _thisArgIndex = func.IsInstance ? 0 : (int?)null;
 
+        var savedReturnType = _currentMethodReturnType;
+        _currentMethodReturnType = returnType;
+
         var ib = mb.Body();
 
         // Hoisting pre-pass: every lambda in this function (at any depth) and
@@ -614,6 +617,7 @@ public class IRCodeGenerator
                 else if (returnType == TypeRef.String) ib.Ldnull().Ret();
                 else if (returnType == TypeRef.Float32) ib.LdcR4(0).Ret();
                 else if (returnType == TypeRef.Float64) ib.LdcR8(0).Ret();
+                else if (returnType == TypeRef.Int64) ib.LdcI8(0).Ret();
                 else ib.LdcI4(0).Ret();
             }
         }
@@ -629,6 +633,7 @@ public class IRCodeGenerator
         _closureIsArg = savedClosureIsArg;
         _closureLocalName = savedClosureLocal;
         _thisArgIndex = savedThisIndex;
+        _currentMethodReturnType = savedReturnType;
         _currentFnTypeParams = savedFnTypeParams;
         _currentTypeParams = savedTypeParams;
     }
@@ -1222,6 +1227,9 @@ public class IRCodeGenerator
 
         var ib = mb.Body();
 
+        var savedCtorReturnType = _currentMethodReturnType;
+        _currentMethodReturnType = TypeRef.Void;
+
         // Hoisting pre-pass — same by-reference capture scheme as functions.
         var displayFields = new Dictionary<string, TypeDescriptor>();
         if (ctor.Body != null)
@@ -1315,6 +1323,7 @@ public class IRCodeGenerator
         _displayFields = savedDisplayFields;
         _closureIsArg = savedClosureIsArg;
         _closureLocalName = savedClosureLocal;
+        _currentMethodReturnType = savedCtorReturnType;
     }
 
     private LambdaInfo GenerateLambda(LambdaExpression lambda, Dictionary<string, int> enclosingParamMap)
@@ -1847,9 +1856,21 @@ public class IRCodeGenerator
                         if (v.Initializer is Contract.Compiler.AST.ArrayLiteralExpression)
                             _arrayElementTypeHint = v.Type;
 
+                        // If the declared variable type is long/int64 and the
+                        // initializer is a plain integer literal (or its sign
+                        // negation), emit it with the I8 tag so it isn't stored
+                        // as a 32-bit I4 value. The hint only applies to the
+                        // literal itself — not deeper sub-expressions (e.g. a
+                        // call argument inside the initializer).
+                        var prevIntLitType = _expectedIntLiteralType;
+                        if (v.Type is TypeDescriptor.Named named && named.Name is "long" or "int64"
+                            && IsPlainIntLiteral(v.Initializer))
+                            _expectedIntLiteralType = TypeRef.Int64;
+
                         GenerateExpression(ib, v.Initializer, paramMap);
                         ib.Stloc(v.Name);
 
+                        _expectedIntLiteralType = prevIntLitType;
                         _arrayElementTypeHint = prevHint;
                     }
                 }
@@ -1948,7 +1969,20 @@ public class IRCodeGenerator
 
             case Contract.Compiler.AST.ReturnStatement ret:
                 if (ret.Value != null)
+                {
+                    // Widen a plain integer literal (or its sign negation) to the method's
+                    // declared return width so `return 0` in a `-> long` method
+                    // carries the I8 tag (required for the DllImport/native
+                    // marshalling path). Deeper sub-expressions keep normal
+                    // literal emission.
+                    var prevRetIntLitType = _expectedIntLiteralType;
+                    if (_currentMethodReturnType == TypeRef.Int64 && IsPlainIntLiteral(ret.Value))
+                        _expectedIntLiteralType = TypeRef.Int64;
+
                     GenerateExpression(ib, ret.Value, paramMap);
+
+                    _expectedIntLiteralType = prevRetIntLitType;
+                }
                 ib.Ret();
                 _lastIsReturn = true;
                 break;
@@ -2100,7 +2134,20 @@ public class IRCodeGenerator
         switch (expr)
         {
             case LiteralExpression lit:
-                if (lit.Value is int i) ib.LdcI4(i);
+                if (lit.Value is int i)
+                {
+                    // Coerce a 32-bit integer literal to its expected width so
+                    // it carries the right VM tag (I4 vs I8). Without this, a
+                    // `long` initialized with `0` (or passed to a `long`
+                    // parameter) stays an I4-tagged 32-bit value on the wire,
+                    // which breaks numeric comparison, struct/field width, and
+                    // native/DllImport marshalling that expects an int64.
+                    if (_expectedIntLiteralType == TypeRef.Int64)
+                        ib.LdcI8(i);
+                    else
+                        ib.LdcI4(i);
+                }
+                else if (lit.Value is long l) ib.LdcI8(l);
                 else if (lit.Value is string s) ib.Ldstr(s);
                 else if (lit.Value is bool boolVal) ib.LdcI4(boolVal ? 1 : 0);
                 else if (lit.Value is double dVal) ib.LdcR8(dVal);
@@ -2640,8 +2687,24 @@ public class IRCodeGenerator
                 }
 
                 // Push arguments to stack
-                foreach (var arg in call.Arguments)
+                var callParams = (call.Symbol as FunctionDeclaration)?.Parameters;
+                for (int paramIdx = 0; paramIdx < call.Arguments.Count; paramIdx++)
+                {
+                    var arg = call.Arguments[paramIdx];
+                    // Coerce integer literal arguments to the declared width of
+                    // the corresponding formal parameter (so `long` params get
+                    // an I8-tagged value, critical for the DllImport/native
+                    // bridge which marshals by the value tag).
+                    var prevArgIntLitType = _expectedIntLiteralType;
+                    var argParamType = callParams != null && paramIdx < callParams.Count ? callParams[paramIdx].Type : null;
+                    if (argParamType is TypeDescriptor.Named argNamed && argNamed.Name is "long" or "int64"
+                        && IsPlainIntLiteral(arg))
+                        _expectedIntLiteralType = TypeRef.Int64;
+
                     GenerateExpression(ib, arg, paramMap);
+
+                    _expectedIntLiteralType = prevArgIntLitType;
+                }
 
                 if (call.Callee is CallExpression innerCall)
                 {
@@ -3516,10 +3579,25 @@ public class IRCodeGenerator
     private void EmitLiteralValue(InstructionBuilder ib, object? value)
     {
         if (value is int i) ib.LdcI4(i);
+        else if (value is long l) ib.LdcI8(l);
         else if (value is string s) ib.Ldstr(s);
         else if (value is bool b) ib.LdcI4(b ? 1 : 0);
         else if (value is double d) ib.LdcR8(d);
         else if (value == null) ib.Ldnull();
+    }
+
+    /// <summary>
+    /// True when <paramref name="expr"/> is a bare integer literal, possibly
+    /// wrapped in a sign-negation (e.g. <c>0</c> or <c>-1</c>). Used to decide
+    /// whether an integer literal in a <c>long</c> context should be widened to
+    /// the I8 tag without leaking that decision into nested sub-expressions.
+    /// </summary>
+    private static bool IsPlainIntLiteral(Contract.Compiler.AST.Expression? expr)
+    {
+        if (expr is LiteralExpression lit) return lit.Value is int or long;
+        if (expr is UnaryExpression unary && unary.Operator == "-")
+            return unary.Operand is LiteralExpression negLit && negLit.Value is int or long;
+        return false;
     }
 
     /// <summary>Declares a local once per method (match arms can rebind names).</summary>
@@ -3812,6 +3890,23 @@ public class IRCodeGenerator
     }
 
     private TypeDescriptor? _arrayElementTypeHint;
+
+    /// <summary>
+    /// When non-null, integer literals are emitted at the width of this
+    /// expected wire type instead of defaulting to 32-bit <c>LdcI4</c>.
+    /// Set around expression emission whose surrounding context (a variable
+    /// initializer of type <c>long</c>, or a call argument destined for a
+    /// <c>long</c> parameter) requires a 64-bit value tag.
+    /// </summary>
+    private TypeRef? _expectedIntLiteralType;
+
+    /// <summary>
+    /// The wire return type of the method currently being generated, used to
+    /// widen integer literals in explicit <c>return</c> expressions to the
+    /// method's declared return width (so <c>return 0</c> in a
+    /// <c>-> long</c> method carries the I8 tag).
+    /// </summary>
+    private TypeRef? _currentMethodReturnType;
 
     /// <summary>The host module name for a native-bound contract type, or null.</summary>
     private string? NativeBindingFor(string typeName)

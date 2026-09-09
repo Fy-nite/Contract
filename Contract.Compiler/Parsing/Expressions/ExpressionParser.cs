@@ -447,8 +447,15 @@ namespace Contract.Compiler.Expressions
                 if (int.TryParse(intText, out int intValue))
                     return new LiteralExpression(intValue, ctx.Previous.Line, ctx.Previous.Column);
 
+                // Values that overflow the 32-bit int range parse as a 64-bit
+                // long instead of being silently clamped to 0. The value's
+                // boxed type (long vs int) drives which Ldc* opcode is emitted
+                // and whether the value carries an I4 or I8 VM tag.
+                if (long.TryParse(intText, out long longValue))
+                    return new LiteralExpression(longValue, ctx.Previous.Line, ctx.Previous.Column);
+
                 ctx.AddWarning(
-                    $"Integer literal '{intText}' exceeds the int range (max {int.MaxValue}); value clamped to 0",
+                    $"Integer literal '{intText}' exceeds the long range (max {long.MaxValue}); value clamped to 0",
                     ctx.Previous.Line, ctx.Previous.Column);
                 return new LiteralExpression(0, ctx.Previous.Line, ctx.Previous.Column);
             }

@@ -1,0 +1,49 @@
+import __builtin.std;
+
+// Regression test: integer literals must carry the I8 value tag when the
+// surrounding context expects `long`/`int64`. A `long` initialized with `0`,
+// a `0` literal passed to a `long` parameter, and a bodyless `-> long`
+// DllImport stub's implicit `return 0` must all emit `ldc.i8`, not `ldc.i4` —
+// otherwise native marshalling observes a 32-bit-tagged int instead of a
+// 64-bit long. Compile-only check (the opcode width is verified by the
+// emitted IL, not by running the module).
+
+<DllImport("kernel32.dll")>
+Contract NativeC {
+    static fn GetTickCount() -> long { }
+    static fn Handle(h: long, n: long) -> long { }
+}
+
+Contract LongCalls {
+    static fn SumA(a: long, b: long) -> long {
+        return a + b;
+    }
+
+    static fn RetZero() -> long {
+        return 0;
+    }
+
+    static fn Build(x: long) -> long {
+        // `0` and `-1` literals in a `-> long` method must be I8.
+        if (x == 0) {
+            return -1;
+        }
+        var y: long = 0;
+        var z: long = x + y;
+        return z;
+    }
+}
+
+Contract Program {
+    static fn Main() {
+        var a: long = 0;
+        var answer: long = LongCalls.SumA(4, 5);
+        var zero: long = LongCalls.RetZero();
+        var neg: long = LongCalls.Build(0);
+
+        // Literal `0` argument to a `long` param on a DllImport facade.
+        var t: long = NativeC.Handle(0, a);
+        var tc: long = NativeC.GetTickCount();
+        IO.Println(answer);
+    }
+}
