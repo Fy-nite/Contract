@@ -1,9 +1,9 @@
 [submodule "libs/ObjektRT.Core"]
 	path = libs/ObjektRT.Core
-	url = https://git.finite.ovh/ObjektRT.Core
+	url = https://github.com/Fy-nite/ObjektRT.Core
 [submodule "libs/Objekt-RT"]
 	path = libs/Objekt-RT
-	url = https://git.finite.ovh/Objekt-RT
+	url = https://github.com/Fy-nite/Objekt-RT
 
 [submodule "libs/ContractStdlib"]
 	path = libs/ContractStdlib
