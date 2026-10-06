@@ -118,6 +118,15 @@ namespace Contract.Compiler
         /// </summary>
         public List<string>? ImportRoots { get; set; }
 
+        /// <summary>
+        /// .NET assemblies to reference directly (assembly-link): every public
+        /// type becomes callable from Contract by its CLR name, exactly as in
+        /// C# — no <c>&lt;ClrImport&gt;</c> facade or <c>[ClassBinding]</c>
+        /// wrapper. Each entry is an assembly simple name (already loaded) or a
+        /// path relative to this project's root. Equivalent to <c>--link</c>.
+        /// </summary>
+        public List<string>? LinkAssemblies { get; set; }
+
         /// <summary>True when the project builds as an executable (requires a Main entry point).</summary>
         [JsonIgnore]
         public bool IsExecutable => !string.Equals(Type, "lib", StringComparison.OrdinalIgnoreCase);

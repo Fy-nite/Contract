@@ -231,6 +231,8 @@ namespace Contract.Compiler.Semantics
             {
                 if (isLibrary) break;
                 if (contract.SourceFile == null) continue;              // synthesized from compiled modules
+                if (contract.Attributes.Any(a => a.Name.Equals("AssemblyRef", StringComparison.OrdinalIgnoreCase)))
+                    continue;                                            // assembly-link anchor, not a real declaration
                 if (HasEntryPoint(contract)) continue;                  // the runtime calls Program.Main
                 if (!_usedTypes.Contains(contract.Name)
                     && !_usedTypes.Contains(contract.FullName)
@@ -291,6 +293,7 @@ namespace Contract.Compiler.Semantics
             foreach (var contract in program.Contracts)
             {
                 if (contract.IsSumTypeBase || contract.SumTypeOf != null) continue;
+                if (contract.IsExternal) continue;   // assembly-linked / compiled reference
                 foreach (var field in contract.Fields)
                 {
                     bool read = _readFields.Contains((contract.Name, field.Name))
@@ -719,11 +722,17 @@ namespace Contract.Compiler.Semantics
                 if (attr.Name.Equals("NativeBinding", StringComparison.OrdinalIgnoreCase)
                     || attr.Name.Equals("ClrImport", StringComparison.OrdinalIgnoreCase)
                     || attr.Name.Equals("DllImport", StringComparison.OrdinalIgnoreCase)
-                    || attr.Name.Equals("ShadowBinding", StringComparison.OrdinalIgnoreCase))
+                    || attr.Name.Equals("ShadowBinding", StringComparison.OrdinalIgnoreCase)
+                    || attr.Name.Equals("AssemblyRef", StringComparison.OrdinalIgnoreCase))
                 {
                     if (targetKind != "contract")
                     {
                         _diagnostics.AddError($"{attr.Name} attribute is only valid on contracts", attr.Line, attr.Column);
+                    }
+                    else if (attr.Name.Equals("AssemblyRef", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Compile-time only: consumed by the compiler's link
+                        // pre-pass (ClrReferenceLoader); no runtime meaning.
                     }
                     else if (attr.Name.Equals("ClrImport", StringComparison.OrdinalIgnoreCase))
                     {
@@ -2686,15 +2695,19 @@ namespace Contract.Compiler.Semantics
         /// first, so an override hides the base declaration). When
         /// <paramref name="instanceOnly"/> is true, static functions are skipped.
         /// </summary>
-        private FunctionDeclaration? FindMethodIncludingBase(ContractDeclaration contract, string name, bool instanceOnly)
+        private FunctionDeclaration? FindMethodIncludingBase(ContractDeclaration contract, string name, bool instanceOnly, int? argCount = null)
         {
+            FunctionDeclaration? fallback = null;
             for (var c = contract; c != null; c = BaseContract(c))
             {
-                var m = c.Members.OfType<FunctionDeclaration>()
-                    .FirstOrDefault(f => f.Name == name && (!instanceOnly || f.IsInstance));
-                if (m != null) return m;
+                foreach (var f in c.Members.OfType<FunctionDeclaration>())
+                {
+                    if (f.Name != name || (instanceOnly && !f.IsInstance)) continue;
+                    if (argCount == null || f.Parameters.Count == argCount) return f;
+                    fallback ??= f;   // name/instance match but arity differs — keep looking
+                }
             }
-            return null;
+            return fallback;
         }
 
         /// <summary>
@@ -3448,7 +3461,7 @@ namespace Contract.Compiler.Semantics
                 case TypeDescriptor.Named n:
                     if (FindContract(n.Name) is { } contract)
                     {
-                        var member = FindMethodIncludingBase(contract, methodName, instanceOnly: true);
+                        var member = FindMethodIncludingBase(contract, methodName, instanceOnly: true, argCount: call.Arguments.Count);
                         if (member != null)
                         {
                             if (!IsAccessibleFrom(member.Access, member.ContractName ?? ""))
@@ -3468,7 +3481,7 @@ namespace Contract.Compiler.Semantics
                 case TypeDescriptor.GenericInstance g:
                     // User generic contract instance: a.getValue().
                     if (FindGenericContract(g.Name) is { } genContract
-                        && FindMethodIncludingBase(genContract, methodName, instanceOnly: true) is { } genMethod)
+                        && FindMethodIncludingBase(genContract, methodName, instanceOnly: true, argCount: call.Arguments.Count) is { } genMethod)
                     {
                         call.Symbol = ResolveGenericTarget(genMethod, call, TypeParamMap(genContract, g));
                         _usedFunctions.Add(genMethod.Name);
@@ -3590,7 +3603,7 @@ namespace Contract.Compiler.Semantics
                     // Inherited static: Dog.species() where species lives on
                     // Animal (the dotted form of Dog::species()).
                     if (FindContract(moduleName) is { } staticOwnerContract
-                        && FindMethodIncludingBase(staticOwnerContract, methodName, instanceOnly: false) is { IsStatic: true } inheritedStaticDot)
+                        && FindMethodIncludingBase(staticOwnerContract, methodName, instanceOnly: false, argCount: call.Arguments.Count) is { IsStatic: true } inheritedStaticDot)
                     {
                         if (!IsAccessibleFrom(inheritedStaticDot.Access, inheritedStaticDot.ContractName ?? ""))
                         {
@@ -3624,7 +3637,7 @@ namespace Contract.Compiler.Semantics
                                 if (field.Type is TypeDescriptor.GenericInstance fg
                                     && FindGenericContract(fg.Name) is { } fieldGenContract)
                                 {
-                                    var fm = FindMethodIncludingBase(fieldGenContract, methodName, instanceOnly: true);
+                                    var fm = FindMethodIncludingBase(fieldGenContract, methodName, instanceOnly: true, argCount: call.Arguments.Count);
                                     if (fm != null)
                                     {
                                         call.Symbol = ResolveGenericTarget(fm, call, TypeParamMap(fieldGenContract, fg));
@@ -3653,7 +3666,7 @@ namespace Contract.Compiler.Semantics
                         var thisContract = FindContract(_currentContractName);
                         if (thisContract != null)
                         {
-                            var member = FindMethodIncludingBase(thisContract, methodName, instanceOnly: true);
+                            var member = FindMethodIncludingBase(thisContract, methodName, instanceOnly: true, argCount: call.Arguments.Count);
                             if (member != null)
                             {
                                 if (!IsAccessibleFrom(member.Access, member.ContractName ?? ""))
@@ -3687,7 +3700,7 @@ namespace Contract.Compiler.Semantics
                                 if (field.Type is TypeDescriptor.GenericInstance fg
                                     && FindGenericContract(fg.Name) is { } fieldGenContract)
                                 {
-                                    var fm = FindMethodIncludingBase(fieldGenContract, methodName, instanceOnly: true);
+                                    var fm = FindMethodIncludingBase(fieldGenContract, methodName, instanceOnly: true, argCount: call.Arguments.Count);
                                     if (fm != null)
                                     {
                                         call.Symbol = ResolveGenericTarget(fm, call, TypeParamMap(fieldGenContract, fg));
@@ -3710,7 +3723,7 @@ namespace Contract.Compiler.Semantics
                         if (varType is TypeDescriptor.Named n
                             && _contractsByName.TryGetValue(n.Name, out var contract))
                         {
-                            var member = FindMethodIncludingBase(contract, methodName, instanceOnly: true);
+                            var member = FindMethodIncludingBase(contract, methodName, instanceOnly: true, argCount: call.Arguments.Count);
                             if (member != null)
                             {
                                 if (!IsAccessibleFrom(member.Access, member.ContractName ?? ""))
@@ -3730,7 +3743,7 @@ namespace Contract.Compiler.Semantics
                         if (varType is TypeDescriptor.GenericInstance g
                             && FindGenericContract(g.Name) is { } genContract)
                         {
-                            var member = FindMethodIncludingBase(genContract, methodName, instanceOnly: true);
+                            var member = FindMethodIncludingBase(genContract, methodName, instanceOnly: true, argCount: call.Arguments.Count);
                             if (member != null)
                             {
                                 if (!IsAccessibleFrom(member.Access, member.ContractName ?? ""))
@@ -3849,7 +3862,7 @@ namespace Contract.Compiler.Semantics
                 // (The undefined-module/member case is reported here too so the
                 // symbol links and call.Symbol is set for the codegen.)
                 if (FindContract(scoped.Module) is { } scopedContract
-                    && FindMethodIncludingBase(scopedContract, scoped.Member, instanceOnly: false) is { IsStatic: true } inheritedStatic)
+                    && FindMethodIncludingBase(scopedContract, scoped.Member, instanceOnly: false, argCount: call.Arguments.Count) is { IsStatic: true } inheritedStatic)
                 {
                     if (!IsAccessibleFrom(inheritedStatic.Access, inheritedStatic.ContractName ?? ""))
                     {

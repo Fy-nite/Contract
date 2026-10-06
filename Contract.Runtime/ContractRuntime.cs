@@ -98,6 +98,31 @@ public class ContractRuntime : IHostedRuntime
         }
     }
 
+    /// <summary>
+    /// Registers every public type of an assembly linked at compile time with
+    /// the CLR reflection resolver, keyed by its full CLR name — the exact wire
+    /// name emitted by assembly-link call sites (<c>Type.Method</c>). Pair this
+    /// with passing the same assembly to
+    /// <see cref="ContractCompiler"/>'s <c>linkedAssemblies</c>.
+    /// </summary>
+    public void RegisterLinkedAssembly(Assembly assembly)
+    {
+        foreach (var type in TypeLoader.GetLoadableTypes(assembly))
+        {
+            if (!type.IsPublic || type.IsNested || type.IsGenericTypeDefinition) continue;
+            var name = type.FullName;
+            if (string.IsNullOrEmpty(name)) continue;
+
+            // Never shadow an explicitly-registered binding (a [ClassBinding]
+            // module name can coincide with a real CLR type's full name, e.g.
+            // the engine's V12.Registry class vs the "V12.Registry" binding).
+            if (!_runtime.ClrResolver.GetRegisteredTypes().ContainsKey(name!))
+                _runtime.ClrResolver.RegisterType(name!, type);
+            if (!_runtime.ClrResolver.GetRegisteredTypes().ContainsKey(type.Name))
+                _runtime.ClrResolver.RegisterType(type.Name, type);
+        }
+    }
+
     // â”€â”€ Module loading â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /// <summary>
@@ -179,7 +204,47 @@ public class ContractRuntime : IHostedRuntime
     public void PrepareModule(ORBTModule module)
     {
         RegisterClrImports(module);
+        RegisterAssemblyRefs(module);
         _runtime.DllResolver.ScanModule(module, null);
+    }
+
+    /// <summary>
+    /// Scans module metadata for <c>@AssemblyRef</c> annotations (emitted from
+    /// <c>&lt;AssemblyRef("...")&gt;</c>) and registers each referenced assembly
+    /// with the CLR resolver, so scripts that linked an assembly at compile time
+    /// dispatch to it at runtime without a separate <c>--link</c>.
+    /// </summary>
+    private void RegisterAssemblyRefs(ORBTModule module)
+    {
+        foreach (var type in module.Types)
+        {
+            foreach (var attr in type.Attributes)
+            {
+                if (!module.Resolve(attr.NameIndex).Equals("AssemblyRef", System.StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (attr.ArgIndices.Count == 0) continue;
+
+                string spec = "";
+                foreach (var idx in attr.ArgIndices)
+                {
+                    var arg = module.Resolve(idx);
+                    if (arg.StartsWith("@Path=", System.StringComparison.Ordinal))
+                        spec = arg["@Path=".Length..];
+                    else if (arg.StartsWith("@Name=", System.StringComparison.Ordinal))
+                        spec = arg["@Name=".Length..];
+                    else if (!arg.StartsWith("@", System.StringComparison.Ordinal))
+                        spec = arg;
+                    if (!string.IsNullOrEmpty(spec)) break;
+                }
+                if (spec.Length >= 2 && spec[0] == '"' && spec[^1] == '"')
+                    spec = spec[1..^1];
+                if (string.IsNullOrEmpty(spec)) continue;
+
+                var asm = Contract.Compiler.ClrReferenceLoader.ResolveAssembly(spec, SourceDir);
+                if (asm != null)
+                    RegisterLinkedAssembly(asm);
+            }
+        }
     }
 
     /// <summary>

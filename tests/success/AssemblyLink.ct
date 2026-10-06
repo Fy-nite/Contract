@@ -1,0 +1,17 @@
+import __builtin.std;
+
+// Assembly-link: reference a real .NET assembly and call its public types
+// directly by their CLR name — no hand-written <ClrImport> facade, no
+// [ClassBinding] wrapper. Compile-only check (the test suite does not run);
+// the linked assembly resolves in-process, so the analyzer validates every
+// call against the real Type/Method surface.
+<AssemblyRef("System.Private.CoreLib")>
+Contract CoreLib { }
+
+Contract Program {
+    static fn Main() {
+        IO.Println(System.Math.Abs(-3.5));
+        IO.Println(System.Math.Sqrt(16.0));
+        IO.Println(System.Convert.ToInt32("42"));
+    }
+}

@@ -19,14 +19,14 @@ public static class ContractCompiler
 {
     /// <summary>Compiles a .ct file to ObjektIR text (.oil).</summary>
     /// <returns>The IR text, or null when compilation failed (errors on <paramref name="diagnostics"/>).</returns>
-    public static string? CompileFile(string path, out DiagnosticBag diagnostics, IEnumerable<Assembly>? bindingAssemblies = null, bool isExecutable = true)
+    public static string? CompileFile(string path, out DiagnosticBag diagnostics, IEnumerable<Assembly>? bindingAssemblies = null, bool isExecutable = true, IEnumerable<Assembly>? linkedAssemblies = null)
     {
         var source = File.ReadAllText(path);
-        return CompileSource(source, path, out diagnostics, bindingAssemblies, isExecutable);
+        return CompileSource(source, path, out diagnostics, bindingAssemblies, isExecutable, linkedAssemblies);
     }
 
     /// <summary>Compiles a .ct source string to ObjektIR text (.oil).</summary>
-    public static string? CompileSource(string source, string? fileName, out DiagnosticBag diagnostics, IEnumerable<Assembly>? bindingAssemblies = null, bool isExecutable = true)
+    public static string? CompileSource(string source, string? fileName, out DiagnosticBag diagnostics, IEnumerable<Assembly>? bindingAssemblies = null, bool isExecutable = true, IEnumerable<Assembly>? linkedAssemblies = null)
     {
         diagnostics = new DiagnosticBag { SourceCode = source };
         var symbolTable = new SymbolTable();
@@ -45,6 +45,14 @@ public static class ContractCompiler
 
         if (diagnostics.HasErrors) return null;
 
+        // Assembly-link: expose every public type of the linked assemblies
+        // (and any <AssemblyRef(...)> named in the source) as an external
+        // ClrImport contract, so scripts call the real .NET API by name.
+        // Reserved names = registered binding modules, which a linked CLR type
+        // must never shadow (the bound facade owns that name).
+        LinkAssemblies(program, fileName, linkedAssemblies, diagnostics, symbolTable.GetBoundClasses());
+        if (diagnostics.HasErrors) return null;
+
         // isExecutable=false (project type "lib") suppresses the "No static
         // Main" info and the unused-declaration warnings — library contracts
         // are API surface included from other paths.
@@ -59,6 +67,18 @@ public static class ContractCompiler
         return codeGenerator.GetIRText();
     }
 
+    /// <summary>
+    /// Links explicit assemblies plus any declared in the source via
+    /// <c>&lt;AssemblyRef("Name")&gt;</c> / <c>&lt;AssemblyRef(Path: "x.dll")&gt;</c>.
+    /// </summary>
+    private static void LinkAssemblies(
+        Contract.Compiler.AST.Program program,
+        string? fileName,
+        IEnumerable<Assembly>? linkedAssemblies,
+        DiagnosticBag diagnostics,
+        IEnumerable<string> reservedNames)
+        => ClrReferenceLoader.LinkFromProgram(program, fileName, linkedAssemblies, diagnostics, reservedNames);
+
     private static Contract.Compiler.AST.Program ParseProgram(string source, DiagnosticBag diagnostics)
     {
         var lexer = new Lexer(source, diagnostics);
@@ -70,18 +90,18 @@ public static class ContractCompiler
     /// <summary>
     /// Compiles a .ct file to ORBT binary bytes (.orbt).
     /// </summary>
-    public static byte[]? CompileFileToBinary(string path, out DiagnosticBag diagnostics, IEnumerable<Assembly>? bindingAssemblies = null)
+    public static byte[]? CompileFileToBinary(string path, out DiagnosticBag diagnostics, IEnumerable<Assembly>? bindingAssemblies = null, IEnumerable<Assembly>? linkedAssemblies = null)
     {
-        var text = CompileFile(path, out diagnostics, bindingAssemblies);
+        var text = CompileFile(path, out diagnostics, bindingAssemblies, linkedAssemblies: linkedAssemblies);
         if (text == null) return null;
         var module = OilFileReader.ParseString(text);
         return new ORBTWriter().WriteModule(module);
     }
 
     /// <summary>Compiles a .ct file to an ORBT module object.</summary>
-    public static ObjektRT.Core.Model.ORBTModule? CompileFileToModule(string path, out DiagnosticBag diagnostics, IEnumerable<Assembly>? bindingAssemblies = null)
+    public static ObjektRT.Core.Model.ORBTModule? CompileFileToModule(string path, out DiagnosticBag diagnostics, IEnumerable<Assembly>? bindingAssemblies = null, IEnumerable<Assembly>? linkedAssemblies = null)
     {
-        var text = CompileFile(path, out diagnostics, bindingAssemblies);
+        var text = CompileFile(path, out diagnostics, bindingAssemblies, linkedAssemblies: linkedAssemblies);
         if (text == null) return null;
         return OilFileReader.ParseString(text);
     }
@@ -91,9 +111,9 @@ public static class ContractCompiler
     /// <paramref name="fileName"/> to resolve <c>import</c>s relative to that
     /// path; pass null to compile a self-contained inline source.
     /// </summary>
-    public static ObjektRT.Core.Model.ORBTModule? CompileSourceToModule(string source, string? fileName, out DiagnosticBag diagnostics, IEnumerable<Assembly>? bindingAssemblies = null)
+    public static ObjektRT.Core.Model.ORBTModule? CompileSourceToModule(string source, string? fileName, out DiagnosticBag diagnostics, IEnumerable<Assembly>? bindingAssemblies = null, IEnumerable<Assembly>? linkedAssemblies = null)
     {
-        var text = CompileSource(source, fileName, out diagnostics, bindingAssemblies);
+        var text = CompileSource(source, fileName, out diagnostics, bindingAssemblies, linkedAssemblies: linkedAssemblies);
         if (text == null) return null;
         return OilFileReader.ParseString(text);
     }

@@ -98,6 +98,7 @@ namespace Contract.Cli
             string? format = null;
             string? methodCall = null;
             string? bindAssembly = null;
+            var linkAssemblies = new System.Collections.Generic.List<string>();
             string? hostTypeName = null;
             string? emitDir = null;
             string? cacheDir = null;
@@ -141,6 +142,9 @@ namespace Contract.Cli
                     case "--bind":
                         if (++i >= args.Length) { Error("--bind requires an assembly path"); return 1; }
                         bindAssembly = args[i]; break;
+                    case "--link":
+                        if (++i >= args.Length) { Error("--link requires an assembly name or path"); return 1; }
+                        linkAssemblies.Add(args[i]); break;
                     case "--jit": jit = true; break;
                     case "--emit":
                         if (++i >= args.Length) { Error("--emit requires a directory path"); return 1; }
@@ -208,6 +212,24 @@ namespace Contract.Cli
                 var bindAssembliesForCompiler = new List<System.Reflection.Assembly>(packageBindAssemblies);
                 if (bindingAsm != null) bindAssembliesForCompiler.Add(bindingAsm);
 
+                // ── --link: reference real .NET assemblies directly ──────
+                // Every public type becomes callable from Contract by its CLR
+                // name (System.Math.Abs, V12.Core.Element, ...). Register the
+                // same assemblies with the runtime so call sites dispatch.
+                var clonedLinked = new List<System.Reflection.Assembly>();
+                foreach (var linkSpec in linkAssemblies)
+                {
+                    var linkedAsm = Contract.Compiler.ClrReferenceLoader.ResolveAssembly(linkSpec, sourceDir);
+                    if (linkedAsm == null)
+                    {
+                        Error($"Linked assembly not found: {linkSpec}");
+                        return 1;
+                    }
+                    rt.RegisterLinkedAssembly(linkedAsm);
+                    clonedLinked.Add(linkedAsm);
+                    if (verbose) Console.Error.WriteLine($"; Linked assembly {linkedAsm.GetName().Name}");
+                }
+
                 // ── --list-imports: enumerate available CLR types ─────
                 if (listImports)
                 {
@@ -274,7 +296,7 @@ namespace Contract.Cli
                     else
                     {
                         var compiled = ContractCompiler.CompileFileToBinary(filePath, out var bundleDiags,
-                            bindAssembliesForCompiler);
+                            bindAssembliesForCompiler, clonedLinked);
                         if (compiled == null)
                         {
                             bundleDiags.ReportToConsole();
@@ -344,7 +366,7 @@ namespace Contract.Cli
                 // ── Compile .ct source ────────────────────────────────────
                 if (verbose) Console.Error.WriteLine($"; Compiling {filePath}");
                 var ir = ContractCompiler.CompileFile(filePath, out var diagnostics,
-                    bindAssembliesForCompiler);
+                    bindAssembliesForCompiler, linkedAssemblies: clonedLinked);
                 if (ir == null)
                 {
                     diagnostics.ReportToConsole();
@@ -535,6 +557,9 @@ Options:
   -v, --verbose          Show pipeline stages
   -d, --debug            Print the generated IR
       --bind <assembly>  Load custom host bindings from a .dll (see Contract.Runtime)
+      --link <assembly>  Reference a real .NET assembly directly (assembly-link):
+                         every public type becomes callable by its CLR name, no
+                         [ClassBinding] wrapper. Repeatable. Name or path.
       --host <type>      Runtime host type full name (default Contract.Runtime.ContractRuntime);
                          must be public, new-able, and implement IHostedRuntime
       --jit              Use the reflection JIT backend (Roslyn C# emit, not the interpreter)
@@ -795,6 +820,12 @@ Examples:
                 ? driver.Compile(project.MainPath!, sourceFiles)
                 : driver.Compile(sourceFiles, project.RootPath!);
 
+            // Assembly-link: <AssemblyRef(...)> in sources + project LinkAssemblies.
+            Contract.Compiler.ClrReferenceLoader.LinkFromProgram(
+                program, hasMain ? project.MainPath : project.RootPath,
+                ResolveProjectLinks(project, project.RootPath), diagnostics,
+                symbolTable.GetBoundClasses());
+
             if (diagnostics.HasErrors)
             {
                 diagnostics.ReportToConsole();
@@ -858,6 +889,25 @@ Examples:
         static List<string> ExpandGlob(string root, string pattern)
             => Contract.Compiler.ContractProject.ExpandGlob(root, pattern);
 
+        /// <summary>
+        /// Loads the project's <c>LinkAssemblies</c> (assembly-link) into real
+        /// assemblies, resolving simple names or paths relative to the project
+        /// root. Unresolvable entries are reported but do not abort the build.
+        /// </summary>
+        static List<System.Reflection.Assembly> ResolveProjectLinks(
+            Contract.Compiler.ContractProject project, string? sourceDir)
+        {
+            var result = new List<System.Reflection.Assembly>();
+            if (project.LinkAssemblies == null) return result;
+            foreach (var spec in project.LinkAssemblies)
+            {
+                var asm = Contract.Compiler.ClrReferenceLoader.ResolveAssembly(spec, sourceDir);
+                if (asm != null) result.Add(asm);
+                else Error($"Linked assembly not found: {spec}");
+            }
+            return result;
+        }
+
         /// <summary>Single-file mode: `ccl build` with a Main entry point.</summary>
         static int BuildSingleFile(Contract.Compiler.ContractProject project, bool staticLink, bool run, string? output)
         {
@@ -872,6 +922,7 @@ Examples:
 
             var ir = Contract.Runtime.ContractCompiler.CompileFile(
                 project.MainPath, out var diagnostics,
+                linkedAssemblies: ResolveProjectLinks(project, project.RootPath),
                 isExecutable: project.IsExecutable);
             if (ir == null)
             {
@@ -1446,6 +1497,12 @@ Examples:
             {
                 throw new InvalidOperationException($"Project '{project.Name}' has no main file and no Sources.");
             }
+
+            // Assembly-link: <AssemblyRef(...)> in sources + project LinkAssemblies.
+            Contract.Compiler.ClrReferenceLoader.LinkFromProgram(
+                program, hasMain ? project.MainPath : project.RootPath,
+                ResolveProjectLinks(project, project.RootPath), diagnostics,
+                symbolTable.GetBoundClasses());
 
             if (diagnostics.HasErrors)
             {

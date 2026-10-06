@@ -52,11 +52,19 @@ namespace Contract.Cli
                 // relative to the test file — mirroring the real CLI.
                 var driver = new Contract.Compiler.CompilerDriver(diagnostics);
                 var program = driver.Compile(path);
+                var symbolTable = new SymbolTable();
+                // Builtins live under the reserved __builtin root.
+                StdlibCatalog.RegisterInto(symbolTable);
                 if (!diagnostics.HasErrors)
                 {
-                    var symbolTable = new SymbolTable();
-                    // Builtins live under the reserved __builtin root.
-                    StdlibCatalog.RegisterInto(symbolTable);
+                    // Assembly-link: honor <AssemblyRef(...)> like the real CLI.
+                    // Reserved names = bound modules, which linked CLR types
+                    // must not shadow.
+                    Contract.Compiler.ClrReferenceLoader.LinkFromProgram(
+                        program, path, null, diagnostics, symbolTable.GetBoundClasses());
+                }
+                if (!diagnostics.HasErrors)
+                {
                     var analyzer = new SemanticAnalyzer(symbolTable, diagnostics, path);
                     analyzer.Analyze(program);
                 }

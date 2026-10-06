@@ -1,0 +1,17 @@
+import __builtin.std;
+
+// Assembly-link, instance surface: constructors, instance methods, property
+// reads — compiled against the real CLR type (no facade). The link also
+// resolves inherited members and overloads by arity.
+<AssemblyRef("System.Private.CoreLib")>
+Contract CoreLib { }
+
+Contract Program {
+    static fn Main() {
+        var sb = new System.Text.StringBuilder();
+        sb.Append("hello");
+        sb.Append(" world");
+        IO.Println(sb.ToString());
+        IO.Println(sb.Length);
+    }
+}

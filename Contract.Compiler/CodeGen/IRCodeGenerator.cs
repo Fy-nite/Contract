@@ -214,14 +214,54 @@ public class IRCodeGenerator
             enumBuilder.EndClass();
         }
 
+        // Pre-pass: register every contract's host dispatch maps BEFORE any
+        // function body is emitted. External (assembly-linked / compiled) and
+        // user contracts can appear in any order in program.Contracts, so
+        // collecting the maps first guarantees a call site always finds its
+        // target regardless of declaration order.
         foreach (var cls in program.Contracts)
         {
-            if (cls.IsExternal) continue;   // statically linked below
+            if (cls.ClrImportType != null)
+            {
+                _clrImports[cls.Name] = cls.ClrImportType;
+                if (cls.FullName != cls.Name) _clrImports[cls.FullName] = cls.ClrImportType;
+            }
+            if (cls.NativeBindingName != null)
+                _nativeBindings[cls.Name] = cls.NativeBindingName;
+            if (cls.IsShadowed && cls.ShadowTarget != null)
+            {
+                _shadowBindings[cls.Name] = cls.ShadowTarget;
+                if (cls.FullName != cls.Name) _shadowBindings[cls.FullName] = cls.ShadowTarget;
+                string wireShort = cls.ShadowTarget.Contains('.') ? cls.ShadowTarget[(cls.ShadowTarget.LastIndexOf('.') + 1)..] : cls.ShadowTarget;
+                if (!_shadowBindings.ContainsKey(wireShort))
+                    _shadowBindings[wireShort] = wireShort;
+            }
+        }
+
+        foreach (var cls in program.Contracts)
+        {
+            // Externally-linked ClrImport contracts (assembly-link / compiled
+            // references) are not emitted as classes, but their call sites must
+            // still resolve: record the CLR type they dispatch to under both the
+            // short and qualified names so static/instance/ctor/field emission
+            // finds them.
+            if (cls.IsExternal)
+            {
+                if (cls.ClrImportType != null)
+                {
+                    _clrImports[cls.Name] = cls.ClrImportType;
+                    if (cls.FullName != cls.Name) _clrImports[cls.FullName] = cls.ClrImportType;
+                }
+                continue;   // statically linked below (no class emitted)
+            }
 
             if (cls.NativeBindingName != null)
                 _nativeBindings[cls.Name] = cls.NativeBindingName;
             if (cls.ClrImportType != null)
+            {
                 _clrImports[cls.Name] = cls.ClrImportType;
+                if (cls.FullName != cls.Name) _clrImports[cls.FullName] = cls.ClrImportType;
+            }
             if (cls.IsShadowed && cls.ShadowTarget != null)
             {
                 _shadowBindings[cls.Name] = cls.ShadowTarget;
