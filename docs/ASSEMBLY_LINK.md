@@ -43,6 +43,11 @@ resolvable by the loader) or a path relative to the source file. The
 `<AssemblyRef>` attribute is a **compile-time** directive; it is honored on any
 contract and does not change that contract's other semantics.
 
+Want the same surface as *source* instead of a runtime link — facade `.ct`
+files for the editor, or a `.coi` that ships them? `ccl bindgen` reuses this
+assembly-link reflection walk to emit `<ClrImport>` facades for every public
+type; see [BINDGEN.md](BINDGEN.md).
+
 ## Runtime dispatch
 
 Call sites are emitted as `Type.Method` targets and resolved by the runtime's

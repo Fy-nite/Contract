@@ -58,6 +58,11 @@ namespace Contract.Cli
                 return PackPackage(args.Skip(1).ToArray());
             }
 
+            if (args.Length > 0 && args[0] == "bindgen")
+            {
+                return BindgenCommand(args.Skip(1).ToArray());
+            }
+
             if (args.Length > 0 && args[0] == "remove")
             {
                 return RemovePackage(args.Skip(1).ToArray());
@@ -584,6 +589,9 @@ Project commands:
   contract remove <pkg>           Remove an installed package
   contract search <query>         Search the Purr registry
   contract list                   List installed packages
+  contract bindgen <assembly.dll> Generate Contract binding facades from a .NET
+                                  assembly (one .ct per namespace; -o outDir,
+                                  --coi name.coi, --bind dll)
   contract debug [file.ct]        Launch DAP debug server for VSCode
 
 Examples:
@@ -1290,6 +1298,7 @@ Examples:
                 Console.WriteLine("Examples:");
                 Console.WriteLine("  ccl pack contract.ctproj                             # pack a solution");
                 Console.WriteLine("  ccl pack MyLib lib/MyLib.orbt                         # no bindings");
+                Console.WriteLine("  ccl pack MyBindings --bind bridge\\MyBindings.dll      # bindings-only package");
                 Console.WriteLine("  ccl pack OwnAudioSharp lib/own.orbt --bind bridge\\OwnAudioSharp.Contract.dll");
                 return 0;
             }
@@ -1330,9 +1339,10 @@ Examples:
                 return PackProject(first, binds, output);
 
             // Legacy raw module form: first positional is the package name.
+            // A bindings-only package (no modules) is valid: just --bind dlls.
             string packageName = first;
             modules.AddRange(positional.Skip(1));
-            if (modules.Count == 0) { Error("No compiled module specified."); return 1; }
+            if (modules.Count == 0 && binds.Count == 0) { Error("No compiled module or binding assembly specified."); return 1; }
             if (output == null) output = $"{packageName}.coi";
 
             try
@@ -1347,6 +1357,173 @@ Examples:
 
             Console.WriteLine($"Wrote {Path.GetFullPath(output)}");
             return 0;
+        }
+
+        /// <summary>
+        /// Generates Contract binding facades from a .NET assembly:
+        /// <c>ccl bindgen &lt;assembly.dll&gt; [-o outDir] [--coi name.coi] [--bind dll]...</c>.
+        /// Emits one <c>&lt;ClrImport&gt;</c> facade file per namespace (the
+        /// generated .ct files resolve in the language server through the
+        /// analyzer's ClrImport+Path handling, and <c>import Ns;</c> finds each
+        /// file by its namespace declaration); with <c>--coi</c> every facade
+        /// file is compiled to a .orbt module and packed with the assembly into
+        /// an installable .coi package whose namespace map covers each declared
+        /// namespace plus its ancestor prefixes. <c>--bind</c> assemblies
+        /// contribute their [ClassBinding] names as reserved, so bound facades
+        /// are never re-declared as CLR types.
+        /// </summary>
+        static int BindgenCommand(string[] args)
+        {
+            if (args.Length == 0 || args[0] is "-h" or "--help")
+            {
+                Console.WriteLine("Usage: ccl bindgen <assembly.dll> [-o outDir] [--coi name.coi] [--bind dll...] [--emit-path value]");
+                Console.WriteLine();
+                Console.WriteLine("Generates Contract facade source for every public type in the");
+                Console.WriteLine("assembly — one .ct file per namespace (keep them together in one");
+                Console.WriteLine("directory; each imports its siblings). --bind assemblies contribute");
+                Console.WriteLine("their [ClassBinding] names as reserved (those types are skipped —");
+                Console.WriteLine("the binding facade owns the name). With --coi every facade file is");
+                Console.WriteLine("compiled to a .orbt module and packed with the assembly into an");
+                Console.WriteLine("installable .coi package.");
+                Console.WriteLine();
+                Console.WriteLine("Examples:");
+                Console.WriteLine("  ccl bindgen V12.dll -o facades/            # one .ct per namespace");
+                Console.WriteLine("  ccl bindgen V12.dll --coi v12.coi --bind V12.Bindings.dll");
+                return 0;
+            }
+
+            string assemblyPath = args[0];
+            if (!File.Exists(assemblyPath)) { Error($"Assembly not found: {assemblyPath}"); return 1; }
+
+            var binds = new List<string>();
+            string? outDirArg = null;
+            string? coiPath = null;
+            string? emitPath = null;
+            for (int i = 1; i < args.Length; i++)
+            {
+                switch (args[i])
+                {
+                    case "--bind" or "-B":
+                        if (++i >= args.Length) { Error("--bind requires an assembly path"); return 1; }
+                        binds.Add(args[i]);
+                        break;
+                    case "-o" or "--output":
+                        if (++i >= args.Length) { Error("-o requires an output directory"); return 1; }
+                        outDirArg = args[i];
+                        break;
+                    case "--coi":
+                        if (++i >= args.Length) { Error("--coi requires an output .coi path"); return 1; }
+                        coiPath = args[i];
+                        break;
+                    case "--emit-path":
+                        if (++i >= args.Length) { Error("--emit-path requires a path value for the ClrImport Path attribute"); return 1; }
+                        emitPath = args[i];
+                        break;
+                    default:
+                        Error($"Unknown option '{args[i]}'");
+                        return 1;
+                }
+            }
+
+            try
+            {
+                string fullAssemblyPath = Path.GetFullPath(assemblyPath);
+                var assembly = System.Reflection.Assembly.LoadFrom(fullAssemblyPath);
+                string asmName = Path.GetFileNameWithoutExtension(assemblyPath);
+
+                var bindAssemblies = new List<System.Reflection.Assembly>();
+                var reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var b in binds)
+                {
+                    var bindAsm = System.Reflection.Assembly.LoadFrom(Path.GetFullPath(b));
+                    bindAssemblies.Add(bindAsm);
+                    CollectBindingNames(bindAsm, reserved);
+                }
+
+                string outDir = string.IsNullOrEmpty(outDirArg) ? Directory.GetCurrentDirectory() : outDirArg;
+                Directory.CreateDirectory(outDir);
+
+                // One facade file per namespace; write them all into outDir.
+                var facadeFiles = Contract.Compiler.Documentation.BindingFacadeGenerator.EmitFiles(assembly, reserved, emitPath);
+                var written = new List<(Contract.Compiler.Documentation.BindingFacadeGenerator.FacadeFile File, string CtPath)>();
+                foreach (var f in facadeFiles)
+                {
+                    string ctPath = Path.Combine(outDir, f.FileName);
+                    File.WriteAllText(ctPath, f.Source);
+                    written.Add((f, ctPath));
+                    Console.WriteLine($"Wrote {Path.GetFullPath(ctPath)}");
+                }
+
+                if (coiPath == null) return 0;
+
+                // --coi: compile each facade file to a .orbt module (library
+                // mode — no Main required) and pack them with the assemblies.
+                // The manifest namespace map covers each declared namespace and
+                // all of its ancestor prefixes, aggregating descendant modules
+                // (so `import V12.Core;` loads the whole subtree).
+                var modulePaths = new List<string>();
+                var nsMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (f, ctPath) in written)
+                {
+                    string orbtName = Path.ChangeExtension(f.FileName, ".orbt");
+                    string orbtPath = Path.Combine(outDir, orbtName);
+                    var text = Contract.Runtime.ContractCompiler.CompileSource(
+                        f.Source, ctPath, out var diagnostics,
+                        bindingAssemblies: bindAssemblies.Count > 0 ? bindAssemblies : null,
+                        isExecutable: false,
+                        linkedAssemblies: new[] { assembly });
+                    if (text == null)
+                    {
+                        Error($"Facade compilation failed for {f.FileName}:\n" + string.Join("\n", diagnostics.Diagnostics.Select(d => d.ToString())));
+                        return 1;
+                    }
+
+                    var module = ObjektRT.Core.Parsing.OilFileReader.ParseString(text);
+                    File.WriteAllBytes(orbtPath, new ObjektRT.Core.Serialization.ORBTWriter().WriteModule(module));
+                    modulePaths.Add(orbtPath);
+                    Console.WriteLine($"Wrote {Path.GetFullPath(orbtPath)}");
+
+                    if (f.Namespace == null) continue;
+                    var parts = f.Namespace.Split('.');
+                    for (int i = 1; i <= parts.Length; i++)
+                    {
+                        string prefix = string.Join('.', parts.Take(i));
+                        if (!nsMap.TryGetValue(prefix, out var list)) nsMap[prefix] = list = new();
+                        if (!list.Contains(orbtName)) list.Add(orbtName);
+                    }
+                }
+                foreach (var key in nsMap.Keys.ToList())
+                    nsMap[key].Sort(StringComparer.Ordinal);
+
+                var packBinds = new List<string> { fullAssemblyPath };
+                packBinds.AddRange(binds.Select(Path.GetFullPath));
+                CoiSupport.Pack(asmName, "1.0.0", modulePaths, packBinds.Distinct(StringComparer.OrdinalIgnoreCase), nsMap, coiPath);
+                Console.WriteLine($"Wrote {Path.GetFullPath(coiPath)}");
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Error(ex.Message);
+                return 1;
+            }
+        }
+
+        /// <summary>Collects [ClassBinding] module names (and type names) from an
+        /// assembly so bindgen can reserve them — the bound facade owns the name.</summary>
+        private static void CollectBindingNames(System.Reflection.Assembly asm, HashSet<string> reserved)
+        {
+            foreach (var type in asm.GetTypes())
+            {
+                foreach (var attr in type.GetCustomAttributesData())
+                {
+                    if (!attr.AttributeType.Name.Equals("ClassBindingAttribute", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (attr.ConstructorArguments.Count > 0
+                        && attr.ConstructorArguments[0].Value is string name
+                        && !string.IsNullOrEmpty(name))
+                        reserved.Add(name);
+                    reserved.Add(type.FullName ?? type.Name);
+                }
+            }
         }
 
         /// <summary>

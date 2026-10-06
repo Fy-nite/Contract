@@ -131,6 +131,29 @@ explicitly behave the same.
 
 The result is a self-contained artifact: a consumer needs only the one file.
 
+### Bindings-only packages
+
+`ccl pack` also accepts a package with **no modules** when `--bind`
+assemblies are given — for distributing binding assemblies alone (a host's
+`[ClassBinding]` bridges, with no compiled module to import):
+
+```bash
+ccl pack MyBindings --bind path/to/MyBindings.dll -o mybindings.coi
+```
+
+The manifest then has an empty `modules` list and only `bindings`.
+
+### Facade packages via `ccl bindgen`
+
+`ccl bindgen <assembly.dll> --coi out.coi [--bind dll]...` produces a
+`.coi` whose `lib/` holds one compiled *facade module per namespace*
+(Contract `<ClrImport>` declarations generated from the assembly's public
+surface) and whose `bindings/` holds the assembly itself — so installing it
+registers the bindings **and** exposes the assembly's types under their real
+namespaces (`import V12.Core;` loads the `V12.Core.*` subtree; the manifest
+maps every declared namespace plus its ancestor prefixes). See
+[BINDGEN.md](BINDGEN.md).
+
 ---
 
 ## Consuming a `.coi`

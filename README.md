@@ -87,6 +87,7 @@ ccl hello.ct               # compile and run
 ccl -c hello.ct            # compile only (writes hello.orbt)
 ccl -c hello.ct -f oil     # compile to readable IR text
 ccl run hello.orbt         # run a precompiled module
+ccl bindgen MyLib.dll -o facades/    # binding facades from a .NET assembly (one .ct per namespace)
 ccl lsp                    # language server over stdio
 ccl --test                 # run the compiler's test suite
 ```
@@ -96,6 +97,8 @@ Usage:
   ccl <file.ct> [options]          Compile and run in one go
   ccl -c <file.ct> [-o out]        Compile only
   ccl run <file.orbt|oil|oir>      Run a precompiled module
+  ccl bindgen <assembly.dll>       Generate binding facades from a .NET assembly
+  ccl pack/install/search/list     .coi package tooling
   ccl lsp [--trace]                Run the language server
   ccl --test                       Run the compiler test suite
 
@@ -105,6 +108,7 @@ Options:
   -m Name.Method        Call a specific method instead of the entry point
   -d                    Print the generated IR before running
   --bind <assembly>     Load custom host bindings
+  --link <assembly>     Reference a real .NET assembly (assembly-link)
   -v, --verbose         Verbose output
 ```
 
@@ -186,6 +190,9 @@ docs/                      Language reference, spec, design docs
 - [Language Specification](docs/LANGUAGE_SPEC_v1.md)
 - [Formal Spec (Typst)](docs/CONTRACT_SPEC.typ)
 - [Design Notes](docs/DESIGN_DELEGATES.md)
+- [Assembly-link](docs/ASSEMBLY_LINK.md) — call .NET types by their CLR name
+- [`ccl bindgen`](docs/BINDGEN.md) — generate binding facades from a .NET assembly
+- [`.coi` packages](docs/COI_FORMAT.md) — bundle modules + bindings for distribution
 
 ## Testing
 
