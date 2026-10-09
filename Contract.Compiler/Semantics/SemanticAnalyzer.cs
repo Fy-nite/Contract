@@ -137,6 +137,13 @@ namespace Contract.Compiler.Semantics
                 }
             }
 
+            // Materialize fields inherited from assembly-linked (external) bases:
+            // synthesized facade contracts are analysis-time only — their fields
+            // have no VM type record — so copy the public instance surface into
+            // the derived contract as real fields (VM instances then carry
+            // Name/Active/Owner/... as state a host can sync).
+            MaterializeExternalBaseFields(program);
+
             // Validate every field declaration's type (contracts, structs, and
             // structs nested inside contracts).
             ValidateFieldTypes(program);
@@ -658,6 +665,10 @@ namespace Contract.Compiler.Semantics
                          cur != null && walked.Add(cur.Name);
                          cur = BaseContract(cur))
                     {
+                        // Assembly-linked (external) bases contribute state and
+                        // names only: their bodyless members are ClrImport
+                        // dispatch stubs, not abstract obligations.
+                        if (cur.IsExternal) continue;
                         foreach (var m in cur.Members.OfType<FunctionDeclaration>())
                         {
                             if (m.IsInstance && m.Body == null && seen.Add(m.Name))
@@ -668,7 +679,7 @@ namespace Contract.Compiler.Semantics
                     foreach (var ifaceName in c.InterfaceNames)
                     {
                         var iface = FindContract(ifaceName);
-                        if (iface == null) continue;
+                        if (iface == null || iface.IsExternal) continue;
                         foreach (var m in iface.Members.OfType<FunctionDeclaration>())
                         {
                             if (m.IsInstance && m.Body == null && seen.Add(m.Name))
@@ -702,6 +713,55 @@ namespace Contract.Compiler.Semantics
                     foreach (var req in primBase.PendingAbstractMethods.Where(r => !implemented.Contains(r.Name)))
                         if (!contract.PendingAbstractMethods.Any(p => p.Name == req.Name))
                             contract.PendingAbstractMethods.Add(req);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Copies the public instance fields of assembly-linked (external) base
+        /// contracts into their non-external derived contracts as real declared
+        /// fields. Synthesized facade contracts are analysis-time only — their
+        /// fields have no VM type record — so without this, <c>this.Name</c> in
+        /// <c>Contract Spin : ComponentBase</c> would analyze fine but miss at
+        /// runtime. Materialized fields let the VM instance carry the state and
+        /// the host (e.g. ContractComponent) sync it. Walks external base
+        /// chains; Contract-native bases inherit natively in the VM and are
+        /// left alone.
+        /// </summary>
+        private static void MaterializeExternalBaseFields(Program program)
+        {
+            var byName = new Dictionary<string, ContractDeclaration>(StringComparer.OrdinalIgnoreCase);
+            foreach (var c in program.Contracts)
+            {
+                byName.TryAdd(c.Name, c);
+                byName.TryAdd(c.FullName, c);
+            }
+
+            ContractDeclaration? Resolve(string? name)
+                => name != null && byName.TryGetValue(name, out var found) ? found : null;
+
+            foreach (var contract in program.Contracts)
+            {
+                if (contract.IsExternal || contract.BaseTypeName == null) continue;
+
+                var walked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                for (var baseContract = Resolve(contract.BaseTypeName);
+                     baseContract != null && baseContract.IsExternal && walked.Add(baseContract.FullName);
+                     baseContract = Resolve(baseContract.BaseTypeName))
+                {
+                    foreach (var field in baseContract.Fields)
+                    {
+                        // __handle is the synthesized instance-facade marker, not state.
+                        if (field.Name == "__handle") continue;
+                        if (field.IsStatic) continue;   // module-level, not per-instance state
+                        if (contract.Fields.Any(existing => existing.Name.Equals(field.Name, StringComparison.OrdinalIgnoreCase)))
+                            continue;
+                        contract.Fields.Add(new StructField(field.Name, field.Type, field.Line, field.Column)
+                        {
+                            IsStatic = false,
+                            Access = AccessModifier.Public,
+                        });
+                    }
                 }
             }
         }
@@ -3646,6 +3706,48 @@ namespace Contract.Compiler.Semantics
                                         return;
                                     }
                                 }
+                            }
+                        }
+                        // Extension methods on facade-typed receivers:
+                        // owner.GetOrAddTransform() where owner is a linked-type
+                        // expression (dotted path that isn't a bound module or
+                        // struct field). Fall back to the extension lookup on the
+                        // receiver's type — inferred when possible, else resolved
+                        // from the current contract's field table for
+                        // `this.<field>` receivers (incl. fields materialized
+                        // from external bases like ComponentBase.Owner).
+                        TypeDescriptor.Named? recvExtType = InferType(mem.Object) as TypeDescriptor.Named;
+                        if (recvExtType == null)
+                        {
+                            string recvExpr = moduleName;   // dotted base path, e.g. "this.Owner"
+                            int lastDot = recvExpr.LastIndexOf('.');
+                            if (lastDot >= 0
+                                && recvExpr[..lastDot].Trim() is "this" or "self"
+                                && _currentContractName != null
+                                && FindContract(_currentContractName) is { } curExtContract)
+                            {
+                                string fieldName = recvExpr[(lastDot + 1)..].Trim();
+                                for (var bc = curExtContract; bc != null; bc = BaseContract(bc))
+                                {
+                                    var fld = bc.Fields.FirstOrDefault(f => f.Name.Equals(fieldName, StringComparison.OrdinalIgnoreCase));
+                                    if (fld != null && fld.Type is TypeDescriptor.Named fieldNamed)
+                                    {
+                                        recvExtType = fieldNamed;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (recvExtType != null)
+                        {
+                            var extFallback = FindExtensionMethod(recvExtType.Name, methodName)
+                                ?? FindExtensionMethod(recvExtType.Name.Split('.').Last(), methodName);
+                            if (extFallback != null)
+                            {
+                                call.Symbol = extFallback;
+                                _usedFunctions.Add(extFallback.Name);
+                                _usedTypes.Add(recvExtType.Name);
+                                return;
                             }
                         }
                         _diagnostics.AddError($"External method '{moduleName}.{methodName}' not found.", call.Line, call.Column);

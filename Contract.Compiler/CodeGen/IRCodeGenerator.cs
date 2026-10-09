@@ -2806,10 +2806,19 @@ public class IRCodeGenerator
                         ? MapType(extFunc.ReturnType)
                         : TypeRef.Int32;
                     var paramTypes = extFunc.Parameters.Select(p => MapType(p.Type)).ToList();
+                    // Assembly-linked extension methods dispatch by CLR
+                    // reflection against the declaring static class (the
+                    // receiver becomes argument 0), exactly like a ClrImport
+                    // static call. Contract-native extends target the receiver
+                    // type as before.
+                    if (extFunc.IsExternal)
+                        paramTypes.Insert(0, TypeRef.Object);
                     // The extension method's first parameter is the receiver type;
                     // we already pushed the receiver above via the argument loop.
                     var target = new MethodReference(
-                        new TypeRef(extFunc.ExtensionTargetType ?? "TODO"),
+                        new TypeRef(extFunc.IsExternal
+                            ? (extFunc.ContractName ?? extFunc.ExtensionTargetType ?? "TODO")
+                            : (extFunc.ExtensionTargetType ?? "TODO")),
                         extFunc.Name,
                         returnType,
                         paramTypes);

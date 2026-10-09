@@ -147,6 +147,58 @@ public static class ClrReferenceLoader
             if (contract != null)
                 program.Contracts.Add(contract);
         }
+
+        // Extension classes (C# static classes with [Extension] methods): emit
+        // extend declarations over the linked receiver types so scripts call
+        // them with member syntax — owner.GetOrAddTransform() dispatches to
+        // ElementExtensions.GetOrAddTransform(owner). Registered under both the
+        // receiver's full and short facade names. Optional parameters are
+        // dropped from the synthesized signatures (call sites pass fewer args;
+        // the runtime resolver pads CLR defaults).
+        foreach (var t in types)
+        {
+            if (!(t.IsAbstract && t.IsSealed)) continue;   // C# static class
+            foreach (var m in t.GetMethods(BindingFlags.Public | BindingFlags.Static))
+            {
+                if (!m.GetCustomAttributesData().Any(a => a.AttributeType.Name == "ExtensionAttribute")) continue;
+                if (m.IsGenericMethod || m.ContainsGenericParameters) continue;
+
+                var ps = m.GetParameters();
+                if (ps.Length == 0) continue;
+                if (ps[0].ParameterType.IsByRef || ps[0].ParameterType.IsPointer) continue;
+                if (!typeNames.TryGetValue(ps[0].ParameterType, out var targetFull)) continue;   // linked receivers only
+
+                var returnType = MapType(m.ReturnType, typeNames);
+                if (returnType == null) continue;
+
+                var fd = new FunctionDeclaration(m.Name, 1, 1)
+                {
+                    IsStatic = true,
+                    IsExtension = true,
+                    ExtensionTargetType = targetFull,
+                    IsExternal = true,
+                    ContractName = t.FullName ?? t.Name,
+                    ReturnType = returnType,
+                    Access = AccessModifier.Public,
+                };
+                bool ok = true;
+                for (int i = 1; i < ps.Length; i++)
+                {
+                    var p = ps[i];
+                    if (p.ParameterType.IsByRef || p.ParameterType.IsPointer) { ok = false; break; }
+                    if (p.HasDefaultValue) continue;   // trailing optional — runtime pads
+                    var pt = MapType(p.ParameterType, typeNames);
+                    if (pt == null) { ok = false; break; }
+                    fd.Parameters.Add(new Parameter(p.Name ?? "arg", pt, 1, 1));
+                }
+                if (!ok) continue;
+
+                var (_, targetShort) = SplitQualifiedName(targetFull);
+                program.Extensions.Add(new ExtendDeclaration(targetFull, 1, 1) { Methods = { fd } });
+                if (!string.Equals(targetShort, targetFull, StringComparison.Ordinal))
+                    program.Extensions.Add(new ExtendDeclaration(targetShort, 1, 1) { Methods = { fd } });
+            }
+        }
     }
 
     /// <summary>

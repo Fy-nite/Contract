@@ -589,8 +589,8 @@ Project commands:
   contract remove <pkg>           Remove an installed package
   contract search <query>         Search the Purr registry
   contract list                   List installed packages
-  contract bindgen <assembly.dll> Generate Contract binding facades from a .NET
-                                  assembly (one .ct per namespace; -o outDir,
+  contract bindgen <assembly.dll> [asm2...] Generate Contract binding facades from
+                                  .NET assemblies (one .ct per namespace; -o outDir,
                                   --coi name.coi, --bind dll)
   contract debug [file.ct]        Launch DAP debug server for VSCode
 
@@ -1360,46 +1360,48 @@ Examples:
         }
 
         /// <summary>
-        /// Generates Contract binding facades from a .NET assembly:
-        /// <c>ccl bindgen &lt;assembly.dll&gt; [-o outDir] [--coi name.coi] [--bind dll]...</c>.
+        /// Generates Contract binding facades from one or more .NET assemblies:
+        /// <c>ccl bindgen &lt;assembly.dll&gt; [asm2.dll ...] [-o outDir] [--coi name.coi] [--bind dll]...</c>.
         /// Emits one <c>&lt;ClrImport&gt;</c> facade file per namespace (the
         /// generated .ct files resolve in the language server through the
         /// analyzer's ClrImport+Path handling, and <c>import Ns;</c> finds each
-        /// file by its namespace declaration); with <c>--coi</c> every facade
-        /// file is compiled to a .orbt module and packed with the assembly into
-        /// an installable .coi package whose namespace map covers each declared
-        /// namespace plus its ancestor prefixes. <c>--bind</c> assemblies
-        /// contribute their [ClassBinding] names as reserved, so bound facades
-        /// are never re-declared as CLR types.
+        /// file by its namespace declaration); assemblies are linked in one
+        /// pass so cross-assembly signatures stay precise. With <c>--coi</c>
+        /// every facade file is compiled to a .orbt module and packed with the
+        /// assemblies into an installable .coi package whose namespace map
+        /// covers each declared namespace plus its ancestor prefixes.
+        /// <c>--bind</c> assemblies contribute their [ClassBinding] names as
+        /// reserved, so bound facades are never re-declared as CLR types.
         /// </summary>
         static int BindgenCommand(string[] args)
         {
             if (args.Length == 0 || args[0] is "-h" or "--help")
             {
-                Console.WriteLine("Usage: ccl bindgen <assembly.dll> [-o outDir] [--coi name.coi] [--bind dll...] [--emit-path value]");
+                Console.WriteLine("Usage: ccl bindgen <assembly.dll> [asm2.dll ...] [-o outDir] [--coi name.coi] [--bind dll...] [--emit-path value]");
                 Console.WriteLine();
                 Console.WriteLine("Generates Contract facade source for every public type in the");
-                Console.WriteLine("assembly — one .ct file per namespace (keep them together in one");
-                Console.WriteLine("directory; each imports its siblings). --bind assemblies contribute");
-                Console.WriteLine("their [ClassBinding] names as reserved (those types are skipped —");
-                Console.WriteLine("the binding facade owns the name). With --coi every facade file is");
-                Console.WriteLine("compiled to a .orbt module and packed with the assembly into an");
-                Console.WriteLine("installable .coi package.");
+                Console.WriteLine("target assemblies — one .ct file per namespace (keep them together");
+                Console.WriteLine("in one directory; each imports its siblings). Multiple assemblies");
+                Console.WriteLine("are linked in one pass so cross-assembly type references stay");
+                Console.WriteLine("precise. --bind assemblies contribute their [ClassBinding] names as");
+                Console.WriteLine("reserved (those types are skipped — the binding facade owns the");
+                Console.WriteLine("name). With --coi every facade file is compiled to a .orbt module");
+                Console.WriteLine("and packed with the assemblies into an installable .coi package.");
                 Console.WriteLine();
                 Console.WriteLine("Examples:");
-                Console.WriteLine("  ccl bindgen V12.dll -o facades/            # one .ct per namespace");
+                Console.WriteLine("  ccl bindgen V12.dll -o facades/                 # one .ct per namespace");
+                Console.WriteLine("  ccl bindgen V12.dll V12.Basic.dll -o facades/   # multi-assembly, precise refs");
                 Console.WriteLine("  ccl bindgen V12.dll --coi v12.coi --bind V12.Bindings.dll");
                 return 0;
             }
 
-            string assemblyPath = args[0];
-            if (!File.Exists(assemblyPath)) { Error($"Assembly not found: {assemblyPath}"); return 1; }
-
+            // Positionals = target assemblies; everything else is options.
+            var assemblyPaths = new List<string>();
             var binds = new List<string>();
             string? outDirArg = null;
             string? coiPath = null;
             string? emitPath = null;
-            for (int i = 1; i < args.Length; i++)
+            for (int i = 0; i < args.Length; i++)
             {
                 switch (args[i])
                 {
@@ -1416,20 +1418,25 @@ Examples:
                         coiPath = args[i];
                         break;
                     case "--emit-path":
-                        if (++i >= args.Length) { Error("--emit-path requires a path value for the ClrImport Path attribute"); return 1; }
+                        if (++i >= args.Length) { Error("--emit-path requires a path value for the ClrImport Path attribute (exact value, or a directory ending in /)"); return 1; }
                         emitPath = args[i];
                         break;
                     default:
-                        Error($"Unknown option '{args[i]}'");
-                        return 1;
+                        if (args[i].StartsWith("-")) { Error($"Unknown option '{args[i]}'"); return 1; }
+                        assemblyPaths.Add(args[i]);
+                        break;
                 }
             }
 
+            if (assemblyPaths.Count == 0) { Error("No target assembly specified."); return 1; }
+            foreach (var p in assemblyPaths)
+                if (!File.Exists(p)) { Error($"Assembly not found: {p}"); return 1; }
+
             try
             {
-                string fullAssemblyPath = Path.GetFullPath(assemblyPath);
-                var assembly = System.Reflection.Assembly.LoadFrom(fullAssemblyPath);
-                string asmName = Path.GetFileNameWithoutExtension(assemblyPath);
+                var fullAssemblyPaths = assemblyPaths.Select(Path.GetFullPath).ToList();
+                var assemblies = fullAssemblyPaths.Select(System.Reflection.Assembly.LoadFrom).ToList();
+                string asmName = Path.GetFileNameWithoutExtension(assemblyPaths[0]);
 
                 var bindAssemblies = new List<System.Reflection.Assembly>();
                 var reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1443,8 +1450,8 @@ Examples:
                 string outDir = string.IsNullOrEmpty(outDirArg) ? Directory.GetCurrentDirectory() : outDirArg;
                 Directory.CreateDirectory(outDir);
 
-                // One facade file per namespace; write them all into outDir.
-                var facadeFiles = Contract.Compiler.Documentation.BindingFacadeGenerator.EmitFiles(assembly, reserved, emitPath);
+                // One facade file per namespace across all targets; write into outDir.
+                var facadeFiles = Contract.Compiler.Documentation.BindingFacadeGenerator.EmitFiles(assemblies, reserved, emitPath);
                 var written = new List<(Contract.Compiler.Documentation.BindingFacadeGenerator.FacadeFile File, string CtPath)>();
                 foreach (var f in facadeFiles)
                 {
@@ -1471,7 +1478,7 @@ Examples:
                         f.Source, ctPath, out var diagnostics,
                         bindingAssemblies: bindAssemblies.Count > 0 ? bindAssemblies : null,
                         isExecutable: false,
-                        linkedAssemblies: new[] { assembly });
+                        linkedAssemblies: assemblies);
                     if (text == null)
                     {
                         Error($"Facade compilation failed for {f.FileName}:\n" + string.Join("\n", diagnostics.Diagnostics.Select(d => d.ToString())));
@@ -1495,7 +1502,7 @@ Examples:
                 foreach (var key in nsMap.Keys.ToList())
                     nsMap[key].Sort(StringComparer.Ordinal);
 
-                var packBinds = new List<string> { fullAssemblyPath };
+                var packBinds = new List<string>(fullAssemblyPaths);
                 packBinds.AddRange(binds.Select(Path.GetFullPath));
                 CoiSupport.Pack(asmName, "1.0.0", modulePaths, packBinds.Distinct(StringComparer.OrdinalIgnoreCase), nsMap, coiPath);
                 Console.WriteLine($"Wrote {Path.GetFullPath(coiPath)}");

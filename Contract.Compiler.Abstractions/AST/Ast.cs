@@ -298,10 +298,17 @@ namespace Contract.Compiler.AST
         /// <summary>Post-condition clauses (design-by-contract).</summary>
         public List<EnsuresClause> Ensures { get; } = new();
 
-        /// <summary>True when this is an extension method (declared inside an extend block).</summary>
+        /// <summary>True when this function is an extension method (declared inside an extend block).</summary>
         public bool IsExtension { get; set; }
         /// <summary>The target type of the extension method, when <see cref="IsExtension"/> is true.</summary>
         public string? ExtensionTargetType { get; set; }
+        /// <summary>
+        /// True when this member was synthesized from a linked CLR assembly
+        /// (assembly-link / bindgen facades, or an extension over a linked
+        /// type); call sites dispatch via CLR reflection against
+        /// <see cref="ContractName"/>.
+        /// </summary>
+        public bool IsExternal { get; set; }
 
         public FunctionDeclaration(string name, int line, int column) : base(line, column)
         {

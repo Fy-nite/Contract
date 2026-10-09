@@ -1,29 +1,31 @@
 # `ccl bindgen` — binding facades from a .NET assembly
 
-Generate Contract-facing bindings for a real .NET assembly, so scripts and
-the editor can use its types without hand-writing facades:
+Generate Contract-facing bindings for real .NET assemblies, so scripts and
+the editor can use their types without hand-writing facades:
 
 ```bash
-ccl bindgen V12.dll -o facades/                       # one .ct per namespace
-ccl bindgen V12.dll --coi v12.coi --bind V12.Bindings.dll # + installable .coi
+ccl bindgen V12.dll -o facades/                            # one .ct per namespace
+ccl bindgen V12.dll V12.Basic.dll -o facades/              # multiple assemblies, precise cross-refs
+ccl bindgen V12.dll --coi v12.coi --bind V12.Bindings.dll  # + installable .coi
 ```
 
 This solves the "how do I get compile + editor support for this DLL's types"
-problem at the source level: one command reflects the assembly and emits
-everything needed for Contract to see it.
+problem at the source level: one command reflects the assemblies and emits
+everything needed for Contract to see them.
 
 ## Usage
 
 ```text
-ccl bindgen <assembly.dll> [-o outDir] [--coi name.coi] [--bind dll...] [--emit-path <value>]
+ccl bindgen <assembly.dll> [asm2.dll ...] [-o outDir] [--coi name.coi] [--bind dll...] [--emit-path <value>]
 ```
 
 | Option | Description |
 |---|---|
+| (positional) | One or more target assemblies, linked in **one pass** so cross-assembly type references stay precise (a `V12.Basic.Building` facade can name `V12.Core.World` in its signatures). |
 | `-o`, `--output <dir>` | Output directory for the generated files (default: current directory). One `.ct` file per namespace is written here — keep them together, each file imports its siblings. |
-| `--coi <path>` | Additionally compile every facade file to a `.orbt` module and pack them with the assembly into an installable `.coi` package. |
+| `--coi <path>` | Additionally compile every facade file to a `.orbt` module and pack them with the assemblies into an installable `.coi` package. |
 | `--bind <dll>` | A `[ClassBinding]` host assembly whose binding names are reserved — types that would collide with a bound facade are skipped. Repeatable. Also ships in the `--coi` archive. |
-| `--emit-path <value>` | Override the `Path:` value emitted in each `<ClrImport>` attribute (default: the assembly's file name, valid when the generated files sit next to the assembly). Use a relative path when the files will live elsewhere, e.g. `--emit-path ../bindings/V12.dll`. |
+| `--emit-path <value>` | Override the `Path:` value emitted in each `<ClrImport>` attribute. An exact value applies to every contract; a value ending in `/` or `\` is treated as a **directory** and each owning assembly's file name is appended (e.g. `--emit-path ../bindings/` → `../bindings/V12.dll`, `../bindings/V12.Basic.dll`). Default: each assembly's file name, valid when the generated files sit next to the assemblies. |
 
 ## What it emits
 
