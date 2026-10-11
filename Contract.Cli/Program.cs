@@ -577,8 +577,8 @@ Options:
   -h, --help             Show this message
 
 Project commands:
-  contract new myapp [--type exe|lib] [--namespace com.example]
-                         Create myapp/ with contract.ctproj + src/main.ct
+  contract new myapp [--type exe|lib] [--namespace com.example] [--template <path|name>]
+                       Create myapp/ from a template directory or named template
   contract build [--run] [--static] [--output path]
                           Read ./contract.ctproj, compile the main file
                           (always emits a .orbt binary module)
@@ -608,13 +608,15 @@ Examples:
 """);
         }
 
-        /// <summary>Scaffolds a new project: `ccl new [name] [--type exe|lib] [--namespace ns] [--version ver]`.</summary>
+        /// <summary>Scaffolds a new project: `ccl new [name] [--type exe|lib] [--namespace ns] [--version ver] [--template path]`.</summary>
         static int NewProject(string[] args)
         {
             string? name = null;
             string type = "exe";
             string? ns = null;
             string? version = null;
+            string? templatePath = null;  // NEW: --template option
+
             for (int i = 0; i < args.Length; i++)
             {
                 switch (args[i])
@@ -632,12 +634,26 @@ Examples:
                         if (++i >= args.Length) { Error("--version requires a semver string"); return 1; }
                         version = args[i];
                         break;
+                    case "--template":  // NEW
+                        if (++i >= args.Length) { Error("--template requires a path or template name"); return 1; }
+                        templatePath = args[i];
+                        break;
                     case "-h" or "--help": Help(); return 0;
                     default:
                         if (args[i].StartsWith('-')) { Error($"Unknown option: {args[i]}"); return 1; }
                         name = args[i];
                         break;
                 }
+            }
+
+            // If --template given, expand it instead of default scaffold
+            if (!string.IsNullOrEmpty(templatePath))
+            {
+                // Check if it's a named template (try discovery) before treating as path
+                var resolvedTemplate = Directory.Exists(templatePath) ? templatePath : TemplateEngine.FindNamedTemplate(templatePath);
+                if (resolvedTemplate != null)
+                    return TemplateEngine.ExpandTemplate(name, resolvedTemplate);
+                return Error($"Template not found: '{templatePath}'");
             }
 
             string root = name ?? Path.GetFileName(Directory.GetCurrentDirectory());
