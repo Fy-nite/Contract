@@ -833,7 +833,7 @@ public class SymbolIndex
             {
                 if (TryGetDottedBase(tokens, bi, out var module) && module.Length > 0)
                     AddModuleMembers(result, module, items);
-                return new CompletionList { Items = items };
+                return DedupAndReturn(items);
             }
 
             // Member access: base.member
@@ -841,14 +841,14 @@ public class SymbolIndex
             {
                 if (TryGetDottedBase(tokens, bi, out var dottedBase) && dottedBase.Length > 0)
                     AddMembers(result, dottedBase, new Position(before.Line - 1, before.Column - 1), items);
-                return new CompletionList { Items = items };
+                return DedupAndReturn(items);
             }
 
             // Types after 'new' or ':'
             if (before.Type == TokenType.New || before.Type == TokenType.Colon)
             {
                 AddTypes(result, items);
-                return new CompletionList { Items = items };
+                return DedupAndReturn(items);
             }
 
             // Attribute context: after '<' or '<' followed by identifier + '('
@@ -857,7 +857,7 @@ public class SymbolIndex
             if (IsInAttributeContext(tokens, bi))
             {
                 AddAttributeTypes(result, items);
-                return new CompletionList { Items = items };
+                return DedupAndReturn(items);
             }
         }
 
@@ -876,13 +876,13 @@ public class SymbolIndex
                 {
                     foreach (var child in TypeMembersIncludingBase(typedType))
                         items.Add(SymbolCompletion(child));
-                    return new CompletionList { Items = items };
+                    return DedupAndReturn(items);
                 }
                 if (result.SymbolTable.IsBoundModule(typedPath))
                 {
                     foreach (var m in result.SymbolTable.GetExternalMethods(typedPath))
                         items.Add(ExternalCompletion(m));
-                    return new CompletionList { Items = items };
+                    return DedupAndReturn(items);
                 }
             }
         }
@@ -955,6 +955,17 @@ public class SymbolIndex
             });
         }
 
+        return DedupAndReturn(items);
+    }
+
+    private static CompletionList DedupAndReturn(List<CompletionItem> items)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        for (int i = items.Count - 1; i >= 0; i--)
+        {
+            if (!seen.Add(items[i].Label))
+                items.RemoveAt(i);
+        }
         return new CompletionList { Items = items };
     }
 
@@ -1176,6 +1187,16 @@ public class SymbolIndex
         // `Util.` → [total, Bump, Total], `Status.` → [Idle, Busy, Done].
         // Inherited base members are included (Dog. → Bark + Animal's members).
         var typeMemberSym = FindType(baseName);
+        // Fallback: if the full name doesn't match, try the short name (last segment)
+        // This handles cases where the type is indexed by short name only (e.g., "Log" instead of "V12.Log")
+        if (typeMemberSym == null)
+        {
+            int lastDot = baseName.LastIndexOf('.');
+            string shortName = lastDot > 0 ? baseName[(lastDot + 1)..] : baseName;
+            typeMemberSym = _contracts.FirstOrDefault(c => string.Equals(c.Name, shortName, StringComparison.OrdinalIgnoreCase))
+                          ?? _structs.FirstOrDefault(s => string.Equals(s.Name, shortName, StringComparison.OrdinalIgnoreCase))
+                          ?? _enums.FirstOrDefault(e => string.Equals(e.Name, shortName, StringComparison.OrdinalIgnoreCase));
+        }
         if (typeMemberSym != null)
         {
             foreach (var child in TypeMembersIncludingBase(typeMemberSym)) items.Add(SymbolCompletion(child));

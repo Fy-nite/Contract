@@ -119,6 +119,71 @@ public class CompilationService
             MainFile = mainFile,
         };
     }
+
+    /// <summary>
+    /// Incremental compile: re-parse only the changed document and merge with
+    /// cached results from previous compilations. Returns the new CompilationResult
+    /// or the cached one if nothing changed.
+    /// </summary>
+    public CompilationResult CompileIncremental(Document doc, CompilationResult? cached)
+    {
+        // If version hasn't changed, return cached result
+        if (cached != null && cached.Version == doc.Version)
+            return cached;
+
+        // If no cached result, do full compile
+        if (cached == null)
+            return Compile(doc);
+
+        // Incremental path: re-parse only the changed document
+        var diagnostics = new DiagnosticBag { SourceCode = doc.Text };
+        var symbolTable = new SymbolTable();
+        StdlibCatalog.RegisterInto(symbolTable);
+        foreach (var asm in _extraBindings)
+            symbolTable.RegisterAssembly(asm);
+
+        // Load the changed document
+        var loader = new ProgramLoader(_store, diagnostics);
+        var newFiles = loader.Load(doc);
+
+        // Merge: use new files for changed doc, cached files for others
+        var mergedFiles = new Dictionary<string, ParsedFile>(cached.Files);
+        string mainKey = doc.Path != null ? TextUtility.NormalizePath(doc.Path) : doc.Uri;
+        if (newFiles.TryGetValue(mainKey, out var newMainFile))
+            mergedFiles[mainKey] = newMainFile;
+
+        // Merge programs: start with cached, replace changed doc's contributions
+        var merged = new Program(cached.Program.Line, cached.Program.Column);
+        foreach (var (key, file) in mergedFiles)
+        {
+            merged.Contracts.AddRange(file.Program.Contracts);
+            merged.Structs.AddRange(file.Program.Structs);
+            merged.Enums.AddRange(file.Program.Enums);
+            merged.Functions.AddRange(file.Program.Functions);
+            merged.Imports.AddRange(file.Program.Imports);
+            merged.NamespaceImports.AddRange(file.Program.NamespaceImports);
+        }
+
+        // Re-synthesize external modules (dedup handles duplicates)
+        foreach (var extModule in mergedFiles.Values.SelectMany(f => f.Program.ExternalModules))
+            Contract.Compiler.CompiledReferenceLoader.Synthesize(extModule, merged);
+
+        // Re-analyze (this is the expensive part, but we can't skip it)
+        var analyzer = new SemanticAnalyzer(symbolTable, diagnostics, doc.Path);
+        analyzer.Analyze(merged);
+
+        return new CompilationResult
+        {
+            MainUri = doc.Uri,
+            MainTokens = mergedFiles.TryGetValue(mainKey, out var mf) ? mf.Tokens : new List<Token>(),
+            Program = merged,
+            Files = mergedFiles,
+            Diagnostics = diagnostics,
+            SymbolTable = symbolTable,
+            Version = doc.Version,
+            MainFile = mergedFiles.GetValueOrDefault(mainKey),
+        };
+    }
 }
 
 /// <summary>

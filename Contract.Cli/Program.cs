@@ -653,7 +653,8 @@ Examples:
                 var resolvedTemplate = Directory.Exists(templatePath) ? templatePath : TemplateEngine.FindNamedTemplate(templatePath);
                 if (resolvedTemplate != null)
                     return TemplateEngine.ExpandTemplate(name, resolvedTemplate);
-                return Error($"Template not found: '{templatePath}'");
+                Error($"Template not found: '{templatePath}'");
+                return 1;
             }
 
             string root = name ?? Path.GetFileName(Directory.GetCurrentDirectory());

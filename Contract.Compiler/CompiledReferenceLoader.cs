@@ -60,6 +60,14 @@ public static class CompiledReferenceLoader
         foreach (var s in module.Structs) declaredTypeNames.Add(ShortName(s.Name));
         foreach (var i in module.Interfaces) declaredTypeNames.Add(ShortName(i.Name));
 
+        // Deduplication set: prevent adding types whose FullName already exists
+        // in the merged program (handles packages that map one namespace to
+        // multiple .orbt files containing overlapping classes).
+        var seenFullNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var c in program.Contracts) if (c.FullName != null) seenFullNames.Add(c.FullName);
+        foreach (var s in program.Structs) if (s.FullName != null) seenFullNames.Add(s.FullName);
+        foreach (var e in program.Enums) if (e.FullName != null) seenFullNames.Add(e.FullName);
+
         foreach (var cls in module.Classes)
         {
             var (ns, shortName) = SplitQualifiedName(cls.Name);
@@ -75,6 +83,8 @@ public static class CompiledReferenceLoader
                 var enumDecl = new EnumDeclaration(shortName, 1, 1) { Namespace = ns, IsExternal = true };
                 foreach (var f in cls.Fields)
                     enumDecl.Members.Add(f.Name);
+                // Skip if this enum type was already synthesized from another module.
+                if (!seenFullNames.Add(cls.Name)) continue;
                 program.Enums.Add(enumDecl);
                 continue;
             }
@@ -153,6 +163,8 @@ public static class CompiledReferenceLoader
                 }
                 contract.Members.Add(fd);
             }
+            // Skip if this contract was already synthesized from another module.
+            if (!seenFullNames.Add(cls.Name)) continue;
             program.Contracts.Add(contract);
         }
 
@@ -162,7 +174,9 @@ public static class CompiledReferenceLoader
             var structDecl = new StructDeclaration(shortName, 1, 1) { Namespace = ns, IsExternal = true };
             foreach (var f in str.Fields)
                 structDecl.Fields.Add(new StructField(f.Name, TypeDescriptor.Parse(WireToLanguageType(f.FieldType.Name)), 1, 1));
-            program.Structs.Add(structDecl);
+            // Skip if this struct was already synthesized from another module.
+            if (seenFullNames.Add(str.Name))
+                program.Structs.Add(structDecl);
         }
     }
 

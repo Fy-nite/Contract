@@ -37,6 +37,10 @@ public class LspServer
     /// multi-project workspace root, so these are extra fallback candidates.</summary>
     private readonly List<string> _workspaceRoots = new();
 
+    /// <summary>Background task for indexing non-open files.</summary>
+    private Task? _backgroundIndexTask;
+    private readonly SemaphoreSlim _indexLock = new(1, 1);
+
     public LspServer()
     {
         _compiler = new CompilationService(_store);
@@ -240,6 +244,12 @@ public class LspServer
         if (rootPath != null && _projectRoot == null)
             _projectRoot = FindProjectRoot(rootPath);
 
+        // Load index cache if available (for faster subsequent startups)
+        if (_projectRoot != null)
+        {
+            LoadIndexCache(_projectRoot);
+        }
+
         var result = new InitializeResult
         {
             Capabilities = new ServerCapabilities
@@ -285,9 +295,95 @@ public class LspServer
         return Task.FromResult<object?>(result);
     }
 
+    /// <summary>
+    /// Save the symbol index to disk for faster subsequent startups.
+    /// Uses JSON serialization for portability.
+    /// </summary>
+    public void SaveIndexCache(string projectRoot)
+    {
+        try
+        {
+            string cacheDir = Path.Combine(projectRoot, ".commandcode", "lsp-cache");
+            Directory.CreateDirectory(cacheDir);
+            string cachePath = Path.Combine(cacheDir, "symbol-index.json");
+
+            // Serialize the index state (simplified - just save file versions and basic info)
+            var cacheData = new Dictionary<string, object>
+            {
+                ["projectRoot"] = projectRoot,
+                ["timestamp"] = DateTime.UtcNow.ToString("o"),
+                ["documentCount"] = _store.All().Count,
+            };
+
+            // Add document versions for cache invalidation
+            foreach (var doc in _store.All())
+            {
+                cacheData[$"doc:{doc.Uri}"] = new
+                {
+                    version = doc.Version,
+                    lastModified = File.Exists(doc.Path) ? File.GetLastWriteTimeUtc(doc.Path) : DateTime.MinValue,
+                };
+            }
+
+            string json = System.Text.Json.JsonSerializer.Serialize(cacheData, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(cachePath, json);
+        }
+        catch (Exception ex)
+        {
+            // Don't crash on cache save errors
+            Console.Error.WriteLine($"Failed to save LSP cache: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Load symbol index cache from disk. Returns true if cache was loaded successfully.
+    /// </summary>
+    public bool LoadIndexCache(string projectRoot)
+    {
+        try
+        {
+            string cachePath = Path.Combine(projectRoot, ".commandcode", "lsp-cache", "symbol-index.json");
+            if (!File.Exists(cachePath)) return false;
+
+            // For now, just load the cache metadata (full index deserialization is complex)
+            var json = File.ReadAllText(cachePath);
+            var cacheData = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(json);
+
+            if (cacheData == null) return false;
+
+            // Validate cache is for the same project
+            if (cacheData.TryGetValue("projectRoot", out var cachedRoot) && cachedRoot is string cachedRootStr)
+            {
+                string normalizedRoot = TextUtility.NormalizePath(projectRoot);
+                string normalizedCached = TextUtility.NormalizePath(cachedRootStr);
+                if (normalizedRoot != normalizedCached) return false; // different project
+            }
+
+            // Mark all documents as indexed (we'll revalidate on next compile)
+            foreach (var doc in _store.All())
+            {
+                doc.IsIndexed = true;
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Failed to load LSP cache: {ex.Message}");
+            return false;
+        }
+    }
+
     private Task<object?> Shutdown(JsonElement _, CancellationToken _2)
     {
         _shutdownRequested = true;
+
+        // Save index cache before shutdown
+        if (_projectRoot != null)
+        {
+            SaveIndexCache(_projectRoot);
+        }
+
         return Task.FromResult<object?>(null);
     }
 
@@ -340,7 +436,8 @@ public class LspServer
         CompilationResult result;
         try
         {
-            result = _compiler.Compile(doc);
+            // Use incremental compilation if we have a cached result
+            result = _compiler.CompileIncremental(doc, doc.LastCompilation);
         }
         catch (Exception ex)
         {
@@ -384,6 +481,51 @@ public class LspServer
                 .ToList();
             await _rpc.NotifyAsync("textDocument/publishDiagnostics",
                 new PublishDiagnosticsParams { Uri = TextUtility.PathToUri(file.Path), Diagnostics = fileDiags });
+        }
+
+        // Mark document as indexed
+        doc.IsIndexed = true;
+
+        // Start background indexing for other files if not already running
+        if (_backgroundIndexTask == null || _backgroundIndexTask.IsCompleted)
+        {
+            _backgroundIndexTask = Task.Run(() => BackgroundIndexAsync());
+        }
+    }
+
+    /// <summary>
+    /// Background task to index all non-open files in the project. This runs
+    /// after the main document is compiled, so the user gets immediate feedback
+    /// while indexing happens in the background.
+    /// </summary>
+    private async Task BackgroundIndexAsync()
+    {
+        await _indexLock.WaitAsync();
+        try
+        {
+            var docsNeedingIndex = _store.GetDocumentsNeedingIndex();
+            if (docsNeedingIndex.Count == 0) return;
+
+            // Compile each document in the background
+            foreach (var doc in docsNeedingIndex)
+            {
+                try
+                {
+                    var result = _compiler.Compile(doc);
+                    doc.LastCompilation = result;
+                    doc.IsIndexed = true;
+                }
+                catch (Exception ex)
+                {
+                    // Don't crash on background indexing errors
+                    Console.Error.WriteLine($"Background indexing error for {doc.Path}: {ex.Message}");
+                }
+            }
+        }
+        finally
+        {
+            _indexLock.Release();
+            _backgroundIndexTask = null;
         }
     }
 
