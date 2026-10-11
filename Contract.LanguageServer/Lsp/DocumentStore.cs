@@ -17,6 +17,9 @@ public class Document
     public IReadOnlyList<Contract.Compiler.Parsing.Token>? Tokens => LastCompilation?.MainTokens;
 
     public bool IsUntitled => Path == null;
+
+    /// <summary>True if this document has been fully indexed (background task completed).</summary>
+    public bool IsIndexed { get; set; }
 }
 
 /// <summary>In-memory store of open documents, keyed by URI (and by normalized path).</summary>
@@ -58,7 +61,7 @@ public class DocumentStore
             if (!_byUri.TryGetValue(uri, out var doc)) return;
             doc.Text = text;
             doc.Version = version;
-            doc.LastCompilation = null; // stale
+            // Don't clear LastCompilation - we'll do incremental re-parse
         }
     }
 
@@ -80,4 +83,15 @@ public class DocumentStore
     /// <summary>Source provider for CompilerDriver: in-memory text for open documents, else null (disk fallback).</summary>
     public string? GetSourceByPath(string absolutePath)
         => GetByPath(absolutePath)?.Text;
+
+    /// <summary>Get all documents that need indexing (not yet indexed and have a path).</summary>
+    public IReadOnlyList<Document> GetDocumentsNeedingIndex()
+    {
+        lock (_lock)
+        {
+            return _byUri.Values
+                .Where(d => d.Path != null && !d.IsIndexed)
+                .ToList();
+        }
+    }
 }
