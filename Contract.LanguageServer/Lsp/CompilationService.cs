@@ -50,6 +50,7 @@ public class CompilationService
 {
     private readonly DocumentStore _store;
     private readonly List<System.Reflection.Assembly> _extraBindings = new();
+    private string? _projectRoot;  // Project root for namespace import resolution
 
     /// <summary>Extra search roots (installed <c>.coi</c> package dirs) that
     /// compiled references can be found in by path.</summary>
@@ -58,6 +59,12 @@ public class CompilationService
     public CompilationService(DocumentStore store)
     {
         _store = store;
+    }
+
+    /// <summary>Sets the project root directory for namespace import resolution.</summary>
+    public void SetProjectRoot(string projectRoot)
+    {
+        _projectRoot = projectRoot;
     }
 
     public void AddPackageSearchRoot(string root)
@@ -83,6 +90,8 @@ public class CompilationService
             symbolTable.RegisterAssembly(asm);
 
         var loader = new ProgramLoader(_store, diagnostics);
+        if (_projectRoot != null)
+            loader.SetProjectRoot(_projectRoot);
         var files = loader.Load(doc);
 
         var merged = new Program(1, 1);
@@ -144,6 +153,8 @@ public class CompilationService
 
         // Load the changed document
         var loader = new ProgramLoader(_store, diagnostics);
+        if (_projectRoot != null)
+            loader.SetProjectRoot(_projectRoot);
         var newFiles = loader.Load(doc);
 
         // Merge: use new files for changed doc, cached files for others
@@ -197,11 +208,18 @@ public class ProgramLoader
     private readonly DiagnosticBag _diagnostics;
     private readonly Dictionary<string, ParsedFile> _files = new();
     private string? _mainPath;
+    private string? _projectRoot;  // Project root for scanning all source directories
 
     public ProgramLoader(DocumentStore store, DiagnosticBag diagnostics)
     {
         _store = store;
         _diagnostics = diagnostics;
+    }
+
+    /// <summary>Sets the project root directory for namespace import resolution.</summary>
+    public void SetProjectRoot(string projectRoot)
+    {
+        _projectRoot = projectRoot;
     }
 
     public Dictionary<string, ParsedFile> Load(Document main)
@@ -222,7 +240,8 @@ public class ProgramLoader
 
     /// <summary>
     /// Search roots for Python-style namespace imports, after the importing
-    /// file's own directory: the main document's directory, then the CWD.
+    /// file's own directory: the main document's directory, then the CWD,
+    /// and optionally the project root for library projects.
     /// </summary>
     private IEnumerable<string> ExtraSearchRoots()
     {
@@ -230,6 +249,11 @@ public class ProgramLoader
             ? Path.GetDirectoryName(Contract.Compiler.ImportResolver.NormalizeAbsolutePath(_mainPath))
             : null;
         if (!string.IsNullOrEmpty(mainDir)) yield return mainDir;
+
+        // Add project root to search all source directories (library projects)
+        if (!string.IsNullOrEmpty(_projectRoot) && Directory.Exists(_projectRoot))
+            yield return _projectRoot;
+
         foreach (var root in CompilationService.PackageSearchRoots)
             yield return root;
         yield return Environment.CurrentDirectory;

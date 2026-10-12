@@ -599,6 +599,19 @@ namespace Contract.Compiler.Semantics
 
             CollectAbstractRequirements(program);
 
+            // Proactive diagnostics: every non-external contract with pending
+            // abstract methods gets a warning on its declaration line so the LSP
+            // flags it; the hard error stays at instantiation time.
+            foreach (var contract in program.Contracts)
+            {
+                if (!contract.IsExternal && contract.PendingAbstractMethods.Count > 0)
+                {
+                    _diagnostics.AddWarning(
+                        $"'{contract.FullName}' cannot be instantiated — it does not implement: {string.Join(", ", contract.PendingAbstractMethods.Select(m => m.Name + "()"))}",
+                        contract.Line, contract.Column);
+                }
+            }
+
             foreach (var contract in program.Contracts)
             {
                 ValidateAttributes(contract.Attributes, "contract", _contractsByName);
