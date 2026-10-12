@@ -244,6 +244,10 @@ public class LspServer
         if (rootPath != null && _projectRoot == null)
             _projectRoot = FindProjectRoot(rootPath);
 
+        // Tell the compiler about the project root for namespace import resolution
+        if (_projectRoot != null)
+            _compiler.SetProjectRoot(_projectRoot);
+
         // Load index cache if available (for faster subsequent startups)
         if (_projectRoot != null)
         {
@@ -374,7 +378,7 @@ public class LspServer
         }
     }
 
-    private Task<object?> Shutdown(JsonElement _, CancellationToken _2)
+    private Task<object?> Shutdown(JsonElement _1, CancellationToken _2)
     {
         _shutdownRequested = true;
 
@@ -387,7 +391,7 @@ public class LspServer
         return Task.FromResult<object?>(null);
     }
 
-    private Task Exit(JsonElement _, CancellationToken _2)
+    private Task Exit(JsonElement _1, CancellationToken _2)
     {
         Environment.Exit(_shutdownRequested ? 0 : 1);
         return Task.CompletedTask;

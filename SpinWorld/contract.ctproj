@@ -1,5 +1,0 @@
-{
-  "Name": "SpinWorld",
-  "Type": "lib",
-  "Main": "scripts/Main.ct"
-}
