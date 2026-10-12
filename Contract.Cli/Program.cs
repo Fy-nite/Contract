@@ -93,6 +93,21 @@ namespace Contract.Cli
                 return DebugProject(args.Skip(1).ToArray());
             }
 
+            if (args.Length > 0 && args[0] == "template")
+            {
+                // ccl template [install|list] [options]
+                var subArgs = args.Skip(1).ToArray();
+                if (subArgs.Length == 0 || (subArgs[0] is not ("install" or "list") && subArgs[0] is not "-h" and not "--help"))
+                {
+                    TemplateHelp();
+                    return 0;
+                }
+                if (subArgs[0] == "install") return TemplateInstall(subArgs.Skip(1).ToArray());
+                if (subArgs[0] == "list") return TemplateList(subArgs.Skip(1).ToArray());
+                Error($"Unknown template subcommand: {subArgs[0]}");
+                return 1;
+            }
+
             var compileOnly = false;
             var debug = false;
             var verbose = false;
@@ -589,6 +604,7 @@ Project commands:
   contract remove <pkg>           Remove an installed package
   contract search <query>         Search the Purr registry
   contract list                   List installed packages
+  contract template <install|list>  Install/list project templates (stored in ~/.purr/templates/)
   contract bindgen <assembly.dll> [asm2...] Generate Contract binding facades from
                                   .NET assemblies (one .ct per namespace; -o outDir,
                                   --coi name.coi, --bind dll)
@@ -2027,6 +2043,113 @@ Examples:
                 .Replace('/', Path.DirectorySeparatorChar);
 
             return relative;
+        }
+
+        /// <summary>Template help: `ccl template`.</summary>
+        static void TemplateHelp()
+        {
+            Console.WriteLine("Template commands:");
+            Console.WriteLine("  ccl template install <path> [--name name]    Install a template");
+            Console.WriteLine("  ccl template list                             List installed templates");
+            Console.WriteLine();
+            Console.WriteLine("Templates are stored in ~/.purr/templates/<name>/ and can be used with:");
+            Console.WriteLine("  ccl new mygame --template mygame");
+            Console.WriteLine("  vcsdk build --template mygame MyGame -o games/MyGame.v12pak");
+            Console.WriteLine();
+            Console.WriteLine("The template's contract.ctproj defines Name, Type, placeholders ({{ProjectName}}), etc.");
+        }
+
+        /// <summary>Install a project template: `ccl template install <path> [--name name]`.</summary>
+        static int TemplateInstall(string[] args)
+        {
+            string? specifiedName = null;
+            List<string> positional = new();
+
+            for (int i = 0; i < args.Length; i++)
+            {
+                switch (args[i])
+                {
+                    case "--name":
+                        if (++i >= args.Length) { Error("--name requires a template name"); return 1; }
+                        specifiedName = args[i];
+                        break;
+                    case "-h" or "--help": TemplateHelp(); return 0;
+                    default:
+                        if (!args[i].StartsWith('-'))
+                            positional.Add(args[i]);
+                        break;
+                }
+            }
+
+            if (positional.Count == 0)
+            {
+                Error("Missing template path. Usage: ccl template install <path> [--name name]");
+                return 1;
+            }
+
+            string sourcePath = Path.GetFullPath(positional[0]);
+            if (!Directory.Exists(sourcePath))
+            {
+                Error($"Directory not found: '{positional[0]}'");
+                return 1;
+            }
+
+            string name = !string.IsNullOrEmpty(specifiedName) ? specifiedName : Path.GetFileName(sourcePath);
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var templateDir = Path.Join(home, ".purr", "templates", name);
+
+            if (Directory.Exists(templateDir))
+            {
+                Error($"Template '{name}' already exists at '{templateDir}'. Use --name to choose another name.");
+                return 1;
+            }
+
+            Directory.CreateDirectory(Path.Join(home, ".purr", "templates"));
+            Directory.CreateDirectory(templateDir);
+            foreach (var srcFile in Directory.GetFiles(sourcePath, "*", SearchOption.AllDirectories))
+            {
+                var relPath = Path.GetRelativePath(sourcePath, srcFile);
+                var destFile = Path.Join(templateDir, relPath);
+                Directory.CreateDirectory(Path.GetDirectoryName(destFile)!);
+                File.Copy(srcFile, destFile, true);
+            }
+
+            Console.WriteLine($"Installed template '{name}' → {templateDir}");
+            Console.WriteLine($"  Use: ccl new MyGame --template {name}");
+            return 0;
+        }
+
+        /// <summary>List installed templates: `ccl template list`.</summary>
+        static int TemplateList(string[] args)
+        {
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var templatesDir = Path.Join(home, ".purr", "templates");
+
+            if (!Directory.Exists(templatesDir))
+            {
+                Console.WriteLine("No templates installed. Use `ccl template install <path>` to install one.");
+                return 0;
+            }
+
+            Console.WriteLine($"Installed templates ({Directory.GetDirectories(templatesDir).Length}):");
+            foreach (var dir in Directory.GetDirectories(templatesDir).OrderBy(d => d))
+            {
+                var name = Path.GetFileName(dir);
+                var ctProj = Path.Join(dir, Contract.Compiler.ContractProject.FileName);
+                if (File.Exists(ctProj))
+                {
+                    var proj = Contract.Compiler.ContractProject.Load(ctProj);
+                    if (proj != null)
+                        Console.WriteLine($"  {name,-30} [{proj.Type}] {proj.Name} — {(proj.Description ?? "")}");
+                    else
+                        Console.WriteLine($"  {name,-30} [?] (malformed ctproj)");
+                }
+                else
+                {
+                    Console.WriteLine($"  {name,-30} [] (no contract.ctproj)");
+                }
+            }
+            return 0;
         }
 
         /// <summary>Launches the DAP debug server: `ccl debug [file.ct]`.</summary>
