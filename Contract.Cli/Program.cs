@@ -961,8 +961,15 @@ Examples:
             // Pre-load NuGet assemblies for <ClrImport> resolution
             PreloadNuGetAssemblies(project.RootPath);
 
+            // Installed .coi/.purr package binding assemblies: project builds
+            // must see their [ClassBinding] types (e.g. V12.World) exactly like
+            // single-file `ccl -c` builds do, or scripts compiled from a
+            // project can't call the bindings their package provides.
+            var packageBindings = LoadPackageBindingAssemblies(project.RootPath);
+
             var ir = Contract.Runtime.ContractCompiler.CompileFile(
                 project.MainPath, out var diagnostics,
+                bindingAssemblies: packageBindings,
                 linkedAssemblies: ResolveProjectLinks(project, project.RootPath),
                 isExecutable: project.IsExecutable);
             if (ir == null)
