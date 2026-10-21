@@ -50,6 +50,7 @@ public class CompilationService
 {
     private readonly DocumentStore _store;
     private readonly List<System.Reflection.Assembly> _extraBindings = new();
+    private string? _projectRoot;  // Project root for namespace import resolution
 
     /// <summary>Extra search roots (installed <c>.coi</c> package dirs) that
     /// compiled references can be found in by path.</summary>
@@ -58,6 +59,12 @@ public class CompilationService
     public CompilationService(DocumentStore store)
     {
         _store = store;
+    }
+
+    /// <summary>Sets the project root directory for namespace import resolution.</summary>
+    public void SetProjectRoot(string projectRoot)
+    {
+        _projectRoot = projectRoot;
     }
 
     public void AddPackageSearchRoot(string root)
@@ -83,6 +90,8 @@ public class CompilationService
             symbolTable.RegisterAssembly(asm);
 
         var loader = new ProgramLoader(_store, diagnostics);
+        if (_projectRoot != null)
+            loader.SetProjectRoot(_projectRoot);
         var files = loader.Load(doc);
 
         var merged = new Program(1, 1);
@@ -119,6 +128,73 @@ public class CompilationService
             MainFile = mainFile,
         };
     }
+
+    /// <summary>
+    /// Incremental compile: re-parse only the changed document and merge with
+    /// cached results from previous compilations. Returns the new CompilationResult
+    /// or the cached one if nothing changed.
+    /// </summary>
+    public CompilationResult CompileIncremental(Document doc, CompilationResult? cached)
+    {
+        // If version hasn't changed, return cached result
+        if (cached != null && cached.Version == doc.Version)
+            return cached;
+
+        // If no cached result, do full compile
+        if (cached == null)
+            return Compile(doc);
+
+        // Incremental path: re-parse only the changed document
+        var diagnostics = new DiagnosticBag { SourceCode = doc.Text };
+        var symbolTable = new SymbolTable();
+        StdlibCatalog.RegisterInto(symbolTable);
+        foreach (var asm in _extraBindings)
+            symbolTable.RegisterAssembly(asm);
+
+        // Load the changed document
+        var loader = new ProgramLoader(_store, diagnostics);
+        if (_projectRoot != null)
+            loader.SetProjectRoot(_projectRoot);
+        var newFiles = loader.Load(doc);
+
+        // Merge: use new files for changed doc, cached files for others
+        var mergedFiles = new Dictionary<string, ParsedFile>(cached.Files);
+        string mainKey = doc.Path != null ? TextUtility.NormalizePath(doc.Path) : doc.Uri;
+        if (newFiles.TryGetValue(mainKey, out var newMainFile))
+            mergedFiles[mainKey] = newMainFile;
+
+        // Merge programs: start with cached, replace changed doc's contributions
+        var merged = new Program(cached.Program.Line, cached.Program.Column);
+        foreach (var (key, file) in mergedFiles)
+        {
+            merged.Contracts.AddRange(file.Program.Contracts);
+            merged.Structs.AddRange(file.Program.Structs);
+            merged.Enums.AddRange(file.Program.Enums);
+            merged.Functions.AddRange(file.Program.Functions);
+            merged.Imports.AddRange(file.Program.Imports);
+            merged.NamespaceImports.AddRange(file.Program.NamespaceImports);
+        }
+
+        // Re-synthesize external modules (dedup handles duplicates)
+        foreach (var extModule in mergedFiles.Values.SelectMany(f => f.Program.ExternalModules))
+            Contract.Compiler.CompiledReferenceLoader.Synthesize(extModule, merged);
+
+        // Re-analyze (this is the expensive part, but we can't skip it)
+        var analyzer = new SemanticAnalyzer(symbolTable, diagnostics, doc.Path);
+        analyzer.Analyze(merged);
+
+        return new CompilationResult
+        {
+            MainUri = doc.Uri,
+            MainTokens = mergedFiles.TryGetValue(mainKey, out var mf) ? mf.Tokens : new List<Token>(),
+            Program = merged,
+            Files = mergedFiles,
+            Diagnostics = diagnostics,
+            SymbolTable = symbolTable,
+            Version = doc.Version,
+            MainFile = mergedFiles.GetValueOrDefault(mainKey),
+        };
+    }
 }
 
 /// <summary>
@@ -132,11 +208,18 @@ public class ProgramLoader
     private readonly DiagnosticBag _diagnostics;
     private readonly Dictionary<string, ParsedFile> _files = new();
     private string? _mainPath;
+    private string? _projectRoot;  // Project root for scanning all source directories
 
     public ProgramLoader(DocumentStore store, DiagnosticBag diagnostics)
     {
         _store = store;
         _diagnostics = diagnostics;
+    }
+
+    /// <summary>Sets the project root directory for namespace import resolution.</summary>
+    public void SetProjectRoot(string projectRoot)
+    {
+        _projectRoot = projectRoot;
     }
 
     public Dictionary<string, ParsedFile> Load(Document main)
@@ -157,7 +240,8 @@ public class ProgramLoader
 
     /// <summary>
     /// Search roots for Python-style namespace imports, after the importing
-    /// file's own directory: the main document's directory, then the CWD.
+    /// file's own directory: the main document's directory, then the CWD,
+    /// and optionally the project root for library projects.
     /// </summary>
     private IEnumerable<string> ExtraSearchRoots()
     {
@@ -165,6 +249,11 @@ public class ProgramLoader
             ? Path.GetDirectoryName(Contract.Compiler.ImportResolver.NormalizeAbsolutePath(_mainPath))
             : null;
         if (!string.IsNullOrEmpty(mainDir)) yield return mainDir;
+
+        // Add project root to search all source directories (library projects)
+        if (!string.IsNullOrEmpty(_projectRoot) && Directory.Exists(_projectRoot))
+            yield return _projectRoot;
+
         foreach (var root in CompilationService.PackageSearchRoots)
             yield return root;
         yield return Environment.CurrentDirectory;

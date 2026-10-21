@@ -123,12 +123,57 @@ public static class SemanticTokensBuilder
         Token? next = i + 1 < tokens.Count ? tokens[i + 1] : null;
         Token? prev = i > 0 ? tokens[i - 1] : null;
 
-        if (prev != null && prev.Type == TokenType.Dot)
-            return next != null && next.Type == TokenType.LParen ? 5 : 6; // method / property
+        // Method call: identifier after dot followed by '(' (e.g., obj.Method())
+        if (prev != null && prev.Type == TokenType.Dot && next != null && next.Type == TokenType.LParen)
+            return 5; // method
 
+        // Free function call: identifier followed by '(' (e.g., Func())
         if (next != null && next.Type == TokenType.LParen) return 4; // function call
 
+        // Check if this is part of a dotted chain (either prev=Dot or next=Dot)
+        // that ends in a function call (e.g., V12.World.SpawnElementAt(...))
+        if ((prev != null && prev.Type == TokenType.Dot) || (next != null && next.Type == TokenType.Dot))
+        {
+            if (IsDottedChainEndsWithCall(tokens, i)) return 9; // module
+        }
+
+        if (prev != null && prev.Type == TokenType.Dot)
+            return 6; // property (e.g., Program.angle)
+
         return 7; // variable
+    }
+
+    /// <summary>
+    /// Checks if the current token is part of a dotted chain that ends in a
+    /// function call (e.g., V12.World.SpawnElementAt(...)). Returns true when
+    /// the chain is: current → Dot → Identifier → (Dot → Identifier)* → LParen.
+    /// </summary>
+    private static bool IsDottedChainEndsWithCall(IReadOnlyList<Token> tokens, int currentIndex)
+    {
+        int i = currentIndex + 1;
+        while (i < tokens.Count)
+        {
+            var t = tokens[i];
+            if (t.Type == TokenType.Dot)
+            {
+                // After dot, expect an identifier
+                if (i + 1 >= tokens.Count) return false;
+                var next = tokens[i + 1];
+                if (next.Type != TokenType.Identifier) return false;
+                i += 2; // skip past dot + identifier
+            }
+            else if (t.Type == TokenType.LParen)
+            {
+                // Found the opening paren — this is a function call
+                return true;
+            }
+            else
+            {
+                // Something else breaks the chain (semicolon, comma, etc.)
+                return false;
+            }
+        }
+        return false;
     }
 
     private static readonly string[] BuiltinTypeNames =

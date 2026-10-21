@@ -599,6 +599,19 @@ namespace Contract.Compiler.Semantics
 
             CollectAbstractRequirements(program);
 
+            // Proactive diagnostics: every non-external contract with pending
+            // abstract methods gets a warning on its declaration line so the LSP
+            // flags it; the hard error stays at instantiation time.
+            foreach (var contract in program.Contracts)
+            {
+                if (!contract.IsExternal && contract.PendingAbstractMethods.Count > 0)
+                {
+                    _diagnostics.AddWarning(
+                        $"'{contract.FullName}' cannot be instantiated — it does not implement: {string.Join(", ", contract.PendingAbstractMethods.Select(m => m.Name + "()"))}",
+                        contract.Line, contract.Column);
+                }
+            }
+
             foreach (var contract in program.Contracts)
             {
                 ValidateAttributes(contract.Attributes, "contract", _contractsByName);
@@ -1078,16 +1091,22 @@ namespace Contract.Compiler.Semantics
 
             if (assemblyPath != null)
             {
-                // Project-local assembly: resolve relative to source file directory
-                var sourceDir = !string.IsNullOrEmpty(_mainSourceFile)
-                    ? Path.GetDirectoryName(_mainSourceFile)
+                // Project-local assembly: resolve relative to the FILE containing
+                // this <ClrImport>, not the main source file. This ensures binding
+                // facades in .purr/packages/lib/ resolve '../bindings/X.dll' correctly
+                // relative to their own location rather than scripts/Main.ct's dir.
+                string? fileDir = !string.IsNullOrEmpty(contract.SourceFile)
+                    ? contract.SourceFile
+                    : _mainSourceFile;
+                var sourceDir = !string.IsNullOrEmpty(fileDir)
+                    ? Path.GetDirectoryName(fileDir)
                     : Environment.CurrentDirectory;
                 var fullPath = Path.Combine(sourceDir ?? ".", assemblyPath);
                 if (!File.Exists(fullPath))
                 {
                     _diagnostics.AddError(
                         $"ClrImport assembly '{assemblyPath}' not found in source directory '{sourceDir}'",
-                        attr.Line, attr.Column);
+                        attr.Line, attr.Column, contract.SourceFile);
                     return;
                 }
                 try
@@ -1099,7 +1118,7 @@ namespace Contract.Compiler.Semantics
                 {
                     _diagnostics.AddWarning(
                         $"ClrImport could not load assembly '{assemblyPath}': {ex.Message}",
-                        attr.Line, attr.Column);
+                        attr.Line, attr.Column, contract.SourceFile);
                     return;
                 }
             }
@@ -1525,6 +1544,14 @@ namespace Contract.Compiler.Semantics
                     // their return types are available for inference.
                     if (varDecl.Initializer != null)
                         AnalyzeExpression(varDecl.Initializer);
+                    else if (!varDecl.IsMutable && varDecl.Type.IsEmpty)
+                    {
+                        // Immutable variables without explicit type MUST have initializer
+                        // to infer the type. Mutable variables can be uninitialized.
+                        _diagnostics.AddError(
+                            $"Variable '{varDecl.Name}' requires an initializer to infer its type (or use explicit type annotation)",
+                            varDecl.Line, varDecl.Column);
+                    }
 
                     // Destructuring: var (a, b) = f(); — bind each name to the
                     // corresponding tuple element type.
@@ -2429,7 +2456,7 @@ namespace Contract.Compiler.Semantics
                         && ctorContract.Constructors.Count > 0
                         && !ctorContract.Constructors.Any(c => c.Parameters.Count == newExpr.Arguments.Count))
                     {
-                        Warn(
+                        _diagnostics.AddError(
                             $"No constructor of '{newExpr.TypeName}' takes {newExpr.Arguments.Count} argument(s) — the constructor will not run and fields stay at their defaults",
                             newExpr.Line, newExpr.Column);
                     }
@@ -2441,7 +2468,7 @@ namespace Contract.Compiler.Semantics
                         var targetStruct = FindStruct(newExpr.TypeName);
                         if (targetStruct != null && newExpr.Arguments.Count > targetStruct.Fields.Count)
                         {
-                            Warn(
+                            _diagnostics.AddError(
                                 $"'{newExpr.TypeName}' has {targetStruct.Fields.Count} field(s), but {newExpr.Arguments.Count} argument(s) were supplied — the extra argument(s) will be ignored",
                                 newExpr.Line, newExpr.Column);
                         }

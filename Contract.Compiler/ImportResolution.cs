@@ -214,21 +214,17 @@ namespace Contract.Compiler
         /// </summary>
         public static IEnumerable<string> ResolveNamespaceFiles(string ns, string importingFile, IEnumerable<string> extraSearchRoots)
         {
-            // An installed .coi package maps the namespace to one or more
-            // compiled modules; a single import brings in the whole tree
-            // (Java `import pkg.*`-style), so every module is yielded.
-            var allCompiled = TryResolveCompiledModules(ns);
-            if (allCompiled.Count > 0)
-            {
-                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var m in allCompiled)
-                    if (seen.Add(m)) yield return m;
-                yield break;
-            }
+            // Collect compiled modules from the namespace → module map (from .coi packages).
+            var compiledModules = TryResolveCompiledModules(ns);
 
             var yielded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var m in compiledModules)
+                if (yielded.Add(m)) yield return m;
 
-            // The directory-located file (the ResolveNamespace convention).
+            // Always also check for source .ct files — they provide full Contract
+            // declarations with actual bodies and member definitions that compiled
+            // modules alone cannot provide. This ensures dot accessor completions
+            // work even when compiled-module bindings exist.
             string relative = ns.Replace('.', Path.DirectorySeparatorChar);
             foreach (var ext in new[] { ".ct", ".oir", ".oil", ".orbt" })
             {
