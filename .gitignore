@@ -512,3 +512,6 @@ linux-x64.zip
 osx-arm64.zip
 osx-x64.zip
 win-x64.zip
+
+# Reserved DOS device names created by `> nul` in a non-cmd shell.
+nul
